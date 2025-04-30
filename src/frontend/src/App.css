@@ -1,0 +1,148 @@
+/* 全局样式 */
+body {
+  margin: 0;
+  padding: 0;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen,
+    Ubuntu, Cantarell, 'Fira Sans', 'Droid Sans', 'Helvetica Neue', sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* 覆盖Ant Design默认样式 */
+.ant-layout-header {
+  height: 64px;
+  padding: 0 50px;
+  color: rgba(0, 0, 0, 0.85);
+  line-height: 64px;
+  background: #fff;
+  box-shadow: 0 1px 4px rgba(0, 21, 41, 0.08);
+  z-index: 1;
+}
+
+.ant-layout-sider {
+  background: #fff;
+  border-right: 1px solid #f0f0f0;
+}
+
+.logo {
+  height: 32px;
+  margin: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  font-weight: bold;
+  color: #1890ff;
+}
+
+.site-layout-background {
+  background: #fff;
+}
+
+/* 头部导航样式 */
+.header-nav {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.header-nav-logo {
+  font-size: 18px;
+  font-weight: bold;
+  color: #1890ff;
+}
+
+.header-nav-menu {
+  border-bottom: none;
+}
+
+/* 内容区域样式 */
+.content-container {
+  padding: 24px;
+  background: #fff;
+  min-height: calc(100vh - 64px - 48px);
+}
+
+/* 卡片样式 */
+.dashboard-card {
+  margin-bottom: 24px;
+}
+
+.dashboard-card .ant-card-head {
+  border-bottom: 1px solid #f0f0f0;
+}
+
+.dashboard-card .ant-card-body {
+  padding: 24px;
+}
+
+/* 图表容器 */
+.chart-container {
+  height: 400px;
+  margin-top: 16px;
+  margin-bottom: 16px;
+}
+
+/* 表格样式 */
+.data-table {
+  margin-top: 16px;
+}
+
+/* 表单样式 */
+.form-container {
+  max-width: 800px;
+}
+
+.form-actions {
+  margin-top: 24px;
+  display: flex;
+  justify-content: flex-end;
+}
+
+/* 回测结果样式 */
+.backtest-results {
+  margin-top: 24px;
+  border: 1px solid #f0f0f0;
+  border-radius: 2px;
+  padding: 24px;
+}
+
+.backtest-metric {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 16px;
+  padding-bottom: 16px;
+  border-bottom: 1px dashed #f0f0f0;
+}
+
+.backtest-metric:last-child {
+  border-bottom: none;
+  padding-bottom: 0;
+  margin-bottom: 0;
+}
+
+.backtest-metric-label {
+  font-weight: bold;
+  color: rgba(0, 0, 0, 0.65);
+}
+
+.backtest-metric-value {
+  font-weight: bold;
+}
+
+.backtest-metric-value-positive {
+  color: #52c41a;
+}
+
+.backtest-metric-value-negative {
+  color: #f5222d;
+}
+
+/* 优化结果表格 */
+.optimization-results .ant-table-row:hover {
+  cursor: pointer;
+}
+
+.optimization-results .best-result {
+  background-color: #f6ffed;
+} 
