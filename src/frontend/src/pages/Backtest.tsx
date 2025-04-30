@@ -31,6 +31,10 @@ interface TradeRecord {
   profitLoss: number;
   returnPct: number;
   duration: number;
+  beforeCash: number;  // 交易前现金
+  afterCash: number;   // 交易后现金
+  beforeEquity: number; // 交易前总资产
+  afterEquity: number;  // 交易后总资产
 }
 
 const Backtest: React.FC = () => {
@@ -202,6 +206,15 @@ const Backtest: React.FC = () => {
                     )
                   );
                   
+                  // 使用后端返回的持仓天数
+                  const holdingDays = isBuy ? 0 : (parseInt(trade.holding_days) || 0);
+                  
+                  // 获取期初期末资金数据
+                  const beforeCash = parseFloat(trade.before_cash) || 0;
+                  const afterCash = parseFloat(trade.after_cash) || 0;
+                  const beforeEquity = parseFloat(trade.before_equity) || 0;
+                  const afterEquity = parseFloat(trade.after_equity) || 0;
+                  
                   return {
                     key: `${trade.date}-${trade.action}-${index}`,
                     date: trade.date,
@@ -213,7 +226,11 @@ const Backtest: React.FC = () => {
                     value: value,
                     profitLoss: profit,
                     returnPct: returnPct,
-                    duration: parseInt(trade.holding_days) || 0
+                    duration: holdingDays,  // 使用后端计算的持仓天数
+                    beforeCash: beforeCash,  // 交易前现金
+                    afterCash: afterCash,   // 交易后现金
+                    beforeEquity: beforeEquity, // 交易前总资产
+                    afterEquity: afterEquity   // 交易后总资产
                   };
                 });
                 
@@ -564,6 +581,26 @@ const Backtest: React.FC = () => {
         return text === '买入' ? 
           <span style={{ color: '#f5222d' }}>{text}</span> : 
           <span style={{ color: '#52c41a' }}>{text}</span>;
+      }
+    },
+    {
+      title: '期初资金',
+      dataIndex: 'beforeCash',
+      key: 'beforeCash',
+      sorter: (a, b) => a.beforeCash - b.beforeCash,
+      render: (text) => {
+        const value = parseFloat(text) || 0;
+        return value.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+      }
+    },
+    {
+      title: '期末资金',
+      dataIndex: 'afterCash',
+      key: 'afterCash',
+      sorter: (a, b) => a.afterCash - b.afterCash,
+      render: (text) => {
+        const value = parseFloat(text) || 0;
+        return value.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
       }
     },
     {

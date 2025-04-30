@@ -134,10 +134,13 @@ class StrategyBase:
         position = 0
         position_price = 0
         position_shares = 0
+        position_date = None
+        cash = initial_capital  # 初始现金
+        total_equity = initial_capital  # 初始总资产
         
         logger.info("===== 交易明细 =====")
-        logger.info(f"{'日期':<12} {'类型':<6} {'价格':<10} {'数量':<10} {'金额':<12} {'盈亏':<10}")
-        logger.info("-" * 60)
+        logger.info(f"{'日期':<12} {'类型':<6} {'价格':<10} {'数量':<10} {'金额':<12} {'盈亏':<10} {'期初资金':<12} {'期末资金':<12}")
+        logger.info("-" * 80)
         
         # 遍历每一行生成交易记录
         for date, row in data.iterrows():
@@ -145,12 +148,28 @@ class StrategyBase:
                 signal = row.get('signal', 0)
                 
                 if signal == 1 and position == 0:  # 买入信号
-                    price = row['close']
+                    price = round(row['close'], 2)  # 价格精确到2位小数
                     # 将股数向下取整为整数
-                    shares = int(initial_capital / price)
-                    actual_cost = shares * price  # 实际花费
+                    shares = int(cash / price)  # 使用当前现金计算可买入的股数
+                    if shares <= 0:
+                        logger.warning(f"资金不足无法买入: 当前资金{cash}元，股价{price}元")
+                        continue  # 资金不足，跳过本次交易
+                        
+                    actual_cost = round(shares * price, 2)  # 实际花费精确到2位小数
+                    
+                    # 计算交易前后的资金状况
+                    before_cash = cash  # 交易前现金
+                    before_equity = total_equity  # 交易前总资产
+                    
+                    cash -= actual_cost  # 更新现金
+                    total_equity = cash + (shares * price)  # 更新总资产
+                    
+                    after_cash = cash  # 交易后现金
+                    after_equity = total_equity  # 交易后总资产
+                    
                     position_price = price  # 记录买入价格
                     position_shares = shares  # 记录买入股数
+                    position_date = date  # 记录买入日期，用于计算持仓天数
                     trade_date = date.strftime('%Y-%m-%d') if hasattr(date, 'strftime') else str(date)
                     
                     trade = {
@@ -159,20 +178,53 @@ class StrategyBase:
                         'price': float(price),
                         'shares': int(shares),  # 确保股数是整数
                         'value': float(actual_cost),
-                        'entry_price': float(price)  # 添加入场价格字段
+                        'entry_price': float(price),  # 添加入场价格字段
+                        'before_cash': round(before_cash, 2),  # 交易前现金
+                        'after_cash': round(after_cash, 2),  # 交易后现金
+                        'before_equity': round(before_equity, 2),  # 交易前总资产
+                        'after_equity': round(after_equity, 2)  # 交易后总资产
                     }
                     trades.append(trade)
                     position = 1
                     
                     # 打印交易明细
-                    logger.info(f"{trade_date:<12} {'买入':<6} {price:<10.2f} {shares:<10d} {actual_cost:<12.2f}")
-                    
+                    logger.info(f"{trade_date:<12} {'买入':<6} {price:<10.2f} {shares:<10d} {actual_cost:<12.2f} {'':<10} {before_cash:<12.2f} {after_cash:<12.2f}")
+
                 elif signal == -1 and position == 1:  # 卖出信号
-                    price = row['close']
+                    price = round(row['close'], 2)  # 价格精确到2位小数
                     shares = position_shares  # 使用之前买入的实际股数
-                    sale_value = shares * price  # 卖出总值
-                    profit = sale_value - (shares * position_price)  # 计算盈亏
-                    profit_percent = (price - position_price) / position_price * 100  # 计算百分比收益率
+                    sale_value = round(shares * price, 2)  # 卖出总值精确到2位小数
+                    profit = round(sale_value - (shares * position_price), 2)  # 计算盈亏精确到2位小数
+                    profit_percent = round((price - position_price) / position_price * 100, 2)  # 计算百分比收益率精确到2位小数
+                    
+                    # 计算交易前后的资金状况
+                    before_cash = cash  # 交易前现金
+                    before_equity = cash + (shares * position_price)  # 交易前总资产
+                    
+                    cash += sale_value  # 更新现金
+                    total_equity = cash  # 更新总资产
+                    
+                    after_cash = cash  # 交易后现金
+                    after_equity = total_equity  # 交易后总资产
+                    
+                    # 计算持仓天数
+                    holding_days = 0
+                    if hasattr(date, 'to_pydatetime') and hasattr(position_date, 'to_pydatetime'):
+                        holding_days = (date.to_pydatetime() - position_date.to_pydatetime()).days
+                    elif hasattr(date, 'date') and hasattr(position_date, 'date'):
+                        holding_days = (date.date() - position_date.date()).days
+                    else:
+                        try:
+                            # 尝试转换为日期格式再计算
+                            d1 = pd.to_datetime(date)
+                            d2 = pd.to_datetime(position_date)
+                            holding_days = (d1 - d2).days
+                        except:
+                            holding_days = 0
+                    
+                    # 确保持仓天数至少为1天
+                    holding_days = max(1, holding_days)
+                    
                     trade_date = date.strftime('%Y-%m-%d') if hasattr(date, 'strftime') else str(date)
                     
                     trade = {
@@ -183,18 +235,23 @@ class StrategyBase:
                         'value': float(sale_value),
                         'profit': float(profit),
                         'profit_percent': float(profit_percent),  # 添加百分比收益率
-                        'entry_price': float(position_price)  # 添加入场价格
+                        'entry_price': float(position_price),  # 添加入场价格
+                        'holding_days': int(holding_days),  # 添加持仓天数
+                        'before_cash': round(before_cash, 2),  # 交易前现金
+                        'after_cash': round(after_cash, 2),  # 交易后现金
+                        'before_equity': round(before_equity, 2),  # 交易前总资产
+                        'after_equity': round(after_equity, 2)  # 交易后总资产
                     }
                     trades.append(trade)
                     position = 0
                     
                     # 打印交易明细
-                    logger.info(f"{trade_date:<12} {'卖出':<6} {price:<10.2f} {shares:<10d} {sale_value:<12.2f} {profit:<10.2f} ({profit_percent:+.2f}%)")
+                    logger.info(f"{trade_date:<12} {'卖出':<6} {price:<10.2f} {shares:<10d} {sale_value:<12.2f} {profit:<10.2f} {before_cash:<12.2f} {after_cash:<12.2f}")
                     
             except Exception as e:
                 logger.error(f"处理交易数据时出错: {e}, 日期: {date}, 行数据: {row}")
         
-        logger.info("=" * 60)
+        logger.info("=" * 80)
         
         # 计算策略指标
         results['trades'] = trades
@@ -293,11 +350,12 @@ class StrategyBase:
         
         # 将结果整合为前端期望的格式
         performance = {
-            'total_return': results['total_return'],
-            'annual_return': results['annual_return'],
-            'sharpe_ratio': results['sharpe'],
-            'max_drawdown': results['max_drawdown'],
-            'win_rate': results['win_rate']
+            'total_return': round(results['total_return'], 2),
+            'annual_return': round(results['annual_return'], 2),
+            'sharpe_ratio': round(results['sharpe'], 2),
+            'max_drawdown': round(results['max_drawdown'], 2),
+            'win_rate': round(results['win_rate'], 2),
+            'profit_factor': round(results.get('profit_factor', 0), 2)
         }
         results['performance'] = performance
         
@@ -341,8 +399,11 @@ class StrategyBase:
             
             # 计算盈亏比
             if total_loss != 0:
-                profit_loss_ratio = abs(total_profit / total_loss)
+                profit_loss_ratio = round(abs(total_profit / total_loss), 2)
                 logger.info(f"盈亏比: {profit_loss_ratio:.2f}")
+                results['profit_factor'] = profit_loss_ratio  # 添加盈亏比到结果中
+            else:
+                results['profit_factor'] = 0.0  # 如果没有亏损交易，设置为0
             
         # 添加信号数据
         if 'signal' in data.columns:
@@ -354,7 +415,7 @@ class StrategyBase:
                     signals_data.append({
                         'date': signal_date,
                         'type': signal_type,
-                        'price': float(row['close']),
+                        'price': round(float(row['close']), 2),
                         'signal': int(row['signal'])
                     })
             results['signals'] = signals_data
@@ -365,10 +426,10 @@ class StrategyBase:
             date_str = date.strftime('%Y-%m-%d') if hasattr(date, 'strftime') else str(date)
             kline_data.append({
                 'date': date_str,
-                'open': float(row.get('open', row.get('close', 0))),
-                'close': float(row.get('close', 0)),
-                'high': float(row.get('high', row.get('close', 0))),
-                'low': float(row.get('low', row.get('close', 0))),
+                'open': round(float(row.get('open', row.get('close', 0))), 2),
+                'close': round(float(row.get('close', 0)), 2),
+                'high': round(float(row.get('high', row.get('close', 0))), 2),
+                'low': round(float(row.get('low', row.get('close', 0))), 2),
                 'volume': float(row.get('volume', 0))
             })
         results['kline_data'] = kline_data
