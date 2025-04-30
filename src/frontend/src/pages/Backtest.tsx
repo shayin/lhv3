@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Card, Form, Button, DatePicker, Select, InputNumber, Row, Col, Divider, Typography, Tabs, Table, Statistic, Spin, message, Alert } from 'antd';
+import { Card, Form, Button, DatePicker, Select, InputNumber, Row, Col, Divider, Typography, Tabs, Table, Statistic, Spin, message, Alert, Space, Tooltip, Modal } from 'antd';
 import { LineChartOutlined, PlayCircleOutlined, DownloadOutlined, SaveOutlined, InfoCircleOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import ReactECharts from 'echarts-for-react';
@@ -68,6 +68,31 @@ const Backtest: React.FC = () => {
     beta: 0
   });
   
+  // 规范化日期字符串的函数，确保格式一致
+  const normalizeDate = (dateStr: string | any): string => {
+    if (typeof dateStr !== 'string') {
+      return String(dateStr);
+    }
+    
+    // 处理带T的ISO格式
+    if (dateStr.includes('T')) {
+      return dateStr.split('T')[0];
+    }
+    
+    // 处理带空格的格式
+    if (dateStr.includes(' ')) {
+      return dateStr.split(' ')[0];
+    }
+    
+    // 如果已经是YYYY-MM-DD格式
+    if (/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
+      return dateStr;
+    }
+    
+    // 如果是其他格式，返回前10个字符
+    return dateStr.substring(0, 10);
+  };
+  
   const handleRunBacktest = async () => {
     if (!selectedStock) {
       message.error('请选择交易品种');
@@ -104,7 +129,7 @@ const Backtest: React.FC = () => {
       
       console.log('回测参数:', formValues);
       
-      // 首先获取K线数据
+      // 获取K线数据
       const klineUrl = `/api/data/fetch?symbol=${selectedStock.symbol}&start_date=${formValues.start_date}&end_date=${formValues.end_date}&data_source=${formValues.data_source}`;
       console.log('获取K线数据URL:', klineUrl);
       
@@ -122,13 +147,16 @@ const Backtest: React.FC = () => {
           
           // 转换为图表需要的格式 [日期, 开盘价, 收盘价, 最低价, 最高价, 交易量]
           const formattedKlineData = klineItems.map((item: any) => [
-            item.date,
+            item.date, // 保留原始日期格式
             item.open,
             item.close,
             item.low,
             item.high,
             item.volume || 0
           ]);
+          
+          // 输出K线数据示例，用于调试
+          console.log('K线数据样本:', formattedKlineData.slice(0, 3));
           
           // 更新K线数据
           setKlineData(formattedKlineData);
@@ -283,63 +311,154 @@ const Backtest: React.FC = () => {
   const getKlineOption = () => {
     const title = selectedStock ? `${selectedStock.name} (${selectedStock.symbol}) K线图与交易信号` : 'K线图与交易信号';
     
-    // 交易信号标记
-    const buySignals: any[] = [];
-    const sellSignals: any[] = [];
+    // 交易信号标记数组
+    let buySignals: any[] = [];
+    let sellSignals: any[] = [];
     
     // 从交易记录中提取买入和卖出信号
     if (tradeRecords.length > 0 && klineData.length > 0) {
+      console.log('准备标记交易信号，总交易记录：', tradeRecords.length);
+      console.log('K线数据样本:', klineData.slice(0, 3));
+      
+      // 输出更详细的日期格式信息，用于调试
+      if (klineData.length > 0) {
+        const sampleDate = klineData[0][0];
+        console.log('K线日期格式示例:', {
+          original: sampleDate,
+          type: typeof sampleDate,
+          split: typeof sampleDate === 'string' ? sampleDate.split('T') : null
+        });
+      }
+      
+      if (tradeRecords.length > 0) {
+        const sampleDate = tradeRecords[0].date;
+        console.log('交易记录日期格式示例:', {
+          original: sampleDate,
+          type: typeof sampleDate,
+          split: typeof sampleDate === 'string' ? sampleDate.split('T') : null,
+          split2: typeof sampleDate === 'string' ? sampleDate.split(' ') : null
+        });
+      }
+      
       // 建立日期与索引的映射
-      const dateIndexMap = new Map();
+      const dateIndexMap = new Map<string, number>();
+      const dateValueMap = new Map<string, number[]>();
+      
+      // 处理K线数据的日期，创建映射
       klineData.forEach((item, index) => {
-        dateIndexMap.set(item[0], index);
+        const dateStr = normalizeDate(item[0]);
+        dateIndexMap.set(dateStr, index);
+        
+        // 记录日期对应的OHLC数据
+        dateValueMap.set(dateStr, [
+          Number(item[1]), // 开盘价
+          Number(item[2]), // 收盘价
+          Number(item[3]), // 最低价
+          Number(item[4])  // 最高价
+        ]);
       });
       
-      // 添加买入信号
-      const buyRecords = tradeRecords.filter(record => record.direction === '买入');
-      console.log('买入记录:', buyRecords);
+      console.log('日期索引映射创建完成，共计:', dateIndexMap.size);
+      console.log('日期映射示例:', Array.from(dateIndexMap.entries()).slice(0, 3));
       
-      buyRecords.forEach(record => {
-        const dateStr = record.date;
-        const index = dateIndexMap.get(dateStr);
-        console.log(`买入日期: ${dateStr}, 索引: ${index}, 价格: ${record.entryPrice}`);
-        
-        if (index !== undefined && record.entryPrice) {
-          buySignals.push({
-            name: '买入信号',
-            coord: [index, record.entryPrice],
-            value: record.entryPrice,
+      // 过滤并处理买入信号
+      const buyRecords = tradeRecords.filter(record => record.direction === '买入');
+      console.log('买入记录:', buyRecords.length);
+      
+      // 构建买入标记
+      buySignals = buyRecords
+        .map(record => {
+          const dateStr = normalizeDate(record.date);
+          const index = dateIndexMap.get(dateStr);
+          const price = record.entryPrice || 0;
+          
+          if (index === undefined || price <= 0) {
+            console.warn(`未找到买入日期 ${dateStr} 对应的K线索引或价格无效`);
+            return null;
+          }
+          
+          console.log(`买入日期匹配成功: ${dateStr} -> 索引 ${index}, 价格 ${price}`);
+          
+          return {
+            name: '买入',
+            value: [index, price],
+            xAxis: index,
+            yAxis: price,
             itemStyle: {
               color: '#f5222d'
+            },
+            symbol: 'arrow',
+            symbolSize: 10,
+            label: {
+              show: true,
+              position: 'top',
+              formatter: `买入\n¥${price.toFixed(2)}`,
+              fontSize: 12,
+              color: '#f5222d',
+              backgroundColor: 'rgba(255,255,255,0.7)',
+              padding: [2, 4],
+              borderRadius: 2
             }
-          });
-        }
-      });
+          };
+        })
+        .filter(item => item !== null);
       
-      // 添加卖出信号
+      // 过滤并处理卖出信号
       const sellRecords = tradeRecords.filter(record => record.direction === '卖出');
-      console.log('卖出记录:', sellRecords);
+      console.log('卖出记录:', sellRecords.length);
       
-      sellRecords.forEach(record => {
-        const dateStr = record.date;
-        const index = dateIndexMap.get(dateStr);
-        console.log(`卖出日期: ${dateStr}, 索引: ${index}, 价格: ${record.exitPrice}`);
-        
-        if (index !== undefined && record.exitPrice) {
-          sellSignals.push({
-            name: '卖出信号',
-            coord: [index, record.exitPrice],
-            value: record.exitPrice,
+      // 构建卖出标记
+      sellSignals = sellRecords
+        .map(record => {
+          const dateStr = normalizeDate(record.date);
+          const index = dateIndexMap.get(dateStr);
+          const price = record.exitPrice || 0;
+          const profit = record.profitLoss || 0;
+          const profitPercent = record.returnPct || 0;
+          
+          if (index === undefined || price <= 0) {
+            console.warn(`未找到卖出日期 ${dateStr} 对应的K线索引或价格无效`);
+            return null;
+          }
+          
+          console.log(`卖出日期匹配成功: ${dateStr} -> 索引 ${index}, 价格 ${price}, 盈亏 ${profit}`);
+          
+          // 根据盈亏决定颜色
+          const color = profit >= 0 ? '#f5222d' : '#52c41a';
+          const profitText = profit >= 0 ? `+${profit.toFixed(2)}` : `${profit.toFixed(2)}`;
+          const percentText = profitPercent >= 0 ? `+${profitPercent.toFixed(2)}%` : `${profitPercent.toFixed(2)}%`;
+          
+          return {
+            name: '卖出',
+            value: [index, price],
+            xAxis: index,
+            yAxis: price,
             itemStyle: {
-              color: '#52c41a'
+              color: color
+            },
+            symbol: 'arrow',
+            symbolSize: 10,
+            symbolRotate: 180,
+            label: {
+              show: true,
+              position: 'bottom',
+              formatter: `卖出\n¥${price.toFixed(2)}\n${profitText}(${percentText})`,
+              fontSize: 12,
+              color: color,
+              backgroundColor: 'rgba(255,255,255,0.7)',
+              padding: [2, 4],
+              borderRadius: 2
             }
-          });
-        }
-      });
+          };
+        })
+        .filter(item => item !== null);
       
-      console.log('生成买入信号点:', buySignals);
-      console.log('生成卖出信号点:', sellSignals);
+      console.log(`成功生成买入信号: ${buySignals.length}/${buyRecords.length}`);
+      console.log(`成功生成卖出信号: ${sellSignals.length}/${sellRecords.length}`);
     }
+    
+    // 构建x轴数据，直接映射K线日期
+    const xAxisData = klineData.map(item => item[0]);
     
     return {
       title: {
@@ -362,20 +481,53 @@ const Backtest: React.FC = () => {
             
             // 遍历所有系列数据
             params.forEach((item: any) => {
-              if (item.seriesName === '买入信号' || item.seriesName === '卖出信号') {
-                const color = item.seriesName === '买入信号' ? '#f5222d' : '#52c41a';
-                const actionName = item.seriesName === '买入信号' ? '买入' : '卖出';
-                result += `<div style="color:${color};font-weight:bold;">${actionName}：${item.value[1]}</div>`;
-              } else if (item.seriesName === 'K线') {
-                const color = item.data[0] > item.data[1] ? '#52c41a' : '#f5222d';
-                result += `<div style="color:${color};line-height:1.5;">
-                  开盘：${item.data[0]}<br/>
-                  收盘：${item.data[1]}<br/>
-                  最低：${item.data[2]}<br/>
-                  最高：${item.data[3]}<br/>
-                </div>`;
-              } else if (item.value !== '-') {
-                result += `<div style="color:${item.color};font-weight:bold;">${item.seriesName}：${item.value}</div>`;
+              // 处理买入卖出信号
+              if (item.seriesName === '买入信号') {
+                result += `<div style="color:#f5222d;font-weight:bold;">买入：¥${item.value[1].toFixed(2)}</div>`;
+              } 
+              else if (item.seriesName === '卖出信号') {
+                // 找到对应的卖出记录
+                const xIndex = item.value[0];
+                const foundSellRecord = tradeRecords.find(record => {
+                  // 对于卖出记录，匹配日期对应的索引
+                  const klineDate = xAxisData[xIndex];
+                  // 比较日期值
+                  return record.direction === '卖出' && 
+                         normalizeDate(record.date) === normalizeDate(klineDate);
+                });
+                
+                if (foundSellRecord) {
+                  const profit = foundSellRecord.profitLoss || 0;
+                  const color = profit >= 0 ? '#f5222d' : '#52c41a';
+                  const profitText = profit >= 0 ? `+${profit.toFixed(2)}` : `${profit.toFixed(2)}`;
+                  const percentText = foundSellRecord.returnPct >= 0 ? 
+                    `+${foundSellRecord.returnPct.toFixed(2)}%` : 
+                    `${foundSellRecord.returnPct.toFixed(2)}%`;
+                  
+                  result += `<div style="color:${color};font-weight:bold;">
+                    卖出：¥${item.value[1].toFixed(2)}<br/>
+                    盈亏：${profitText} (${percentText})
+                  </div>`;
+                } else {
+                  result += `<div style="color:#52c41a;font-weight:bold;">卖出：¥${item.value[1].toFixed(2)}</div>`;
+                }
+              } 
+              // 处理K线数据
+              else if (item.seriesName === 'K线') {
+                if (item.value && item.value.length >= 4) {
+                  const [open, close, low, high] = item.value;
+                  const color = close >= open ? '#f5222d' : '#52c41a';
+                  result += `<div style="color:${color};line-height:1.5;">
+                    开盘：${open}<br/>
+                    收盘：${close}<br/>
+                    最低：${low}<br/>
+                    最高：${high}<br/>
+                  </div>`;
+                }
+              } 
+              // 处理MA线
+              else if (item.seriesName.startsWith('MA') && item.value !== '-') {
+                result += `<div style="color:${item.color};font-weight:bold;">${item.seriesName}：${parseFloat(item.value).toFixed(2)}</div>`;
               }
             });
           }
@@ -395,7 +547,7 @@ const Backtest: React.FC = () => {
       },
       xAxis: {
         type: 'category',
-        data: klineData.map(item => item[0]),
+        data: xAxisData,
         scale: true,
         boundaryGap: false,
         axisLine: { onZero: false },
@@ -441,7 +593,8 @@ const Backtest: React.FC = () => {
           data: calculateMA(5, klineData),
           smooth: true,
           lineStyle: {
-            width: 1
+            width: 1,
+            color: '#2196F3'
           }
         },
         {
@@ -450,90 +603,65 @@ const Backtest: React.FC = () => {
           data: calculateMA(20, klineData),
           smooth: true,
           lineStyle: {
-            width: 1
+            width: 1,
+            color: '#4CAF50'
           }
         },
         {
           name: '买入信号',
-          type: 'effectScatter',
+          type: 'scatter',
           coordinateSystem: 'cartesian2d',
-          data: buySignals,
-          symbolSize: 10,
-          showEffectOn: 'render',
-          rippleEffect: {
-            brushType: 'stroke'
-          },
-          hoverAnimation: true,
+          data: buySignals.map(signal => signal.value),
+          symbolSize: 15,
+          symbolRotate: -90,
+          symbol: 'triangle',
           itemStyle: {
             color: '#f5222d'
           },
-          zlevel: 1
+          emphasis: {
+            itemStyle: {
+              color: '#ff7875',
+              borderColor: '#fff',
+              borderWidth: 2
+            }
+          },
+          markPoint: {
+            symbol: 'pin',
+            symbolSize: 40,
+            data: buySignals
+          },
+          z: 10
         },
         {
           name: '卖出信号',
-          type: 'effectScatter',
+          type: 'scatter',
           coordinateSystem: 'cartesian2d',
-          data: sellSignals,
-          symbolSize: 10,
-          showEffectOn: 'render',
-          rippleEffect: {
-            brushType: 'stroke'
-          },
-          hoverAnimation: true,
+          data: sellSignals.map(signal => signal.value),
+          symbolSize: 15,
+          symbolRotate: 90,
+          symbol: 'triangle',
           itemStyle: {
-            color: '#52c41a'
+            color: function(params: any) {
+              // 根据对应卖出记录的盈亏决定颜色
+              const index = params.dataIndex;
+              if (index >= 0 && index < sellSignals.length) {
+                return sellSignals[index].itemStyle.color;
+              }
+              return '#52c41a';
+            }
           },
-          zlevel: 1
-        },
-        {
-          name: '标记线',
-          type: 'custom',
-          renderItem: function(params: {dataIndex: number}, api: any) {
-            if (params.dataIndex >= buySignals.length) return;
-            
-            // 绘制标记
-            const point = api.coord(buySignals[params.dataIndex].coord);
-            return {
-              type: 'group',
-              children: [{
-                type: 'path',
-                shape: {
-                  pathData: 'M0,0 L0,-20 L5,-15 L0,-20 L-5,-15 Z',
-                  x: point[0],
-                  y: point[1]
-                },
-                style: {
-                  fill: '#f5222d'
-                }
-              }]
-            };
+          emphasis: {
+            itemStyle: {
+              borderColor: '#fff',
+              borderWidth: 2
+            }
           },
-          data: buySignals
-        },
-        {
-          name: '标记线',
-          type: 'custom',
-          renderItem: function(params: {dataIndex: number}, api: any) {
-            if (params.dataIndex >= sellSignals.length) return;
-            
-            // 绘制标记
-            const point = api.coord(sellSignals[params.dataIndex].coord);
-            return {
-              type: 'group',
-              children: [{
-                type: 'path',
-                shape: {
-                  pathData: 'M0,0 L0,20 L5,15 L0,20 L-5,15 Z',
-                  x: point[0],
-                  y: point[1]
-                },
-                style: {
-                  fill: '#52c41a'
-                }
-              }]
-            };
+          markPoint: {
+            symbol: 'pin',
+            symbolSize: 40,
+            data: sellSignals
           },
-          data: sellSignals
+          z: 10
         }
       ]
     };
@@ -1098,7 +1226,154 @@ const Backtest: React.FC = () => {
               >
                 <Row gutter={16}>
                   <Col span={24}>
-                    <ReactECharts option={getKlineOption()} style={{ height: 600 }} />
+                    <Card 
+                      title={selectedStock ? `${selectedStock.name} (${selectedStock.symbol})交易图表` : '交易图表'} 
+                      extra={
+                        <Space>
+                          <Button 
+                            type="primary" 
+                            size="small"
+                            onClick={() => {
+                              const chartElement = document.querySelector('.kline-chart');
+                              if (chartElement) {
+                                const chartInstance = (chartElement as any).__echarts__;
+                                if (chartInstance) {
+                                  // 重置缩放
+                                  chartInstance.dispatchAction({
+                                    type: 'dataZoom',
+                                    start: 0,
+                                    end: 100
+                                  });
+                                }
+                              }
+                            }}
+                          >
+                            重置缩放
+                          </Button>
+                          <Button 
+                            size="small" 
+                            onClick={() => {
+                              // 获取所有交易记录的日期，找到K线数据中相应的索引
+                              if (tradeRecords.length > 0 && klineData.length > 0) {
+                                // 创建日期映射
+                                const dateIndexMap = new Map();
+                                klineData.forEach((item, index) => {
+                                  const dateStr = normalizeDate(item[0]);
+                                  dateIndexMap.set(dateStr, index);
+                                });
+                                
+                                // 收集所有交易记录的索引
+                                const tradeDateIndices: number[] = [];
+                                tradeRecords.forEach(record => {
+                                  const dateStr = normalizeDate(record.date);
+                                  const index = dateIndexMap.get(dateStr);
+                                  if (index !== undefined) {
+                                    tradeDateIndices.push(index);
+                                  }
+                                });
+                                
+                                console.log('找到的交易日期索引:', tradeDateIndices);
+                                
+                                if (tradeDateIndices.length > 0) {
+                                  // 找到最小和最大索引
+                                  const minIndex = Math.max(0, Math.min(...tradeDateIndices) - 10);
+                                  const maxIndex = Math.min(klineData.length - 1, Math.max(...tradeDateIndices) + 10);
+                                  
+                                  // 计算百分比位置
+                                  const start = (minIndex / klineData.length) * 100;
+                                  const end = (maxIndex / klineData.length) * 100;
+                                  
+                                  console.log(`设置缩放范围: ${start.toFixed(2)}% - ${end.toFixed(2)}%`);
+                                  
+                                  // 获取图表实例并设置缩放
+                                  const chartElement = document.querySelector('.kline-chart');
+                                  if (chartElement) {
+                                    const chartInstance = (chartElement as any).__echarts__;
+                                    if (chartInstance) {
+                                      chartInstance.dispatchAction({
+                                        type: 'dataZoom',
+                                        start: start,
+                                        end: end
+                                      });
+                                      
+                                      message.success(`已聚焦到交易区域，共显示 ${tradeDateIndices.length} 个交易点`);
+                                    }
+                                  }
+                                } else {
+                                  message.info('未找到交易信号对应的K线数据点');
+                                }
+                              } else {
+                                message.info('没有交易记录或K线数据');
+                              }
+                            }}
+                          >
+                            聚焦交易
+                          </Button>
+                          <Tooltip title="只显示有交易的区域">
+                            <InfoCircleOutlined />
+                          </Tooltip>
+                        </Space>
+                      }
+                    >
+                      <ReactECharts 
+                        className="kline-chart"
+                        option={getKlineOption()} 
+                        style={{ height: 600 }} 
+                        notMerge={true}
+                        opts={{ renderer: 'canvas' }}
+                        onEvents={{
+                          click: (params: any) => {
+                            // 点击交易标记时，弹出详细信息
+                            if (params.seriesName === '买入信号' || params.seriesName === '卖出信号') {
+                              const isBuy = params.seriesName === '买入信号';
+                              const xIndex = params.value[0]; // X轴索引
+                              
+                              // 获取该索引对应的K线日期
+                              const klineDate = klineData[xIndex][0];
+                              
+                              // 查找与该日期对应的交易记录
+                              const directionType = isBuy ? '买入' : '卖出';
+                              const matchedRecord = tradeRecords.find(record => 
+                                record.direction === directionType && 
+                                normalizeDate(record.date) === normalizeDate(klineDate)
+                              );
+                              
+                              console.log(`点击了${directionType}信号，日期: ${klineDate}`, matchedRecord);
+                              
+                              if (matchedRecord) {
+                                const record = matchedRecord;
+                                const title = isBuy ? '买入详情' : '卖出详情';
+                                const content = (
+                                  <div>
+                                    <p><strong>日期:</strong> {record.date}</p>
+                                    <p><strong>价格:</strong> {isBuy ? record.entryPrice : record.exitPrice}</p>
+                                    <p><strong>数量:</strong> {record.shares.toLocaleString()} 股</p>
+                                    <p><strong>金额:</strong> {record.value.toLocaleString('zh-CN', {minimumFractionDigits: 2})} 元</p>
+                                    {!isBuy && (
+                                      <>
+                                        <p><strong>盈亏:</strong> {record.profitLoss >= 0 ? '+' : ''}{record.profitLoss.toLocaleString('zh-CN', {minimumFractionDigits: 2})} 元</p>
+                                        <p><strong>收益率:</strong> {record.returnPct >= 0 ? '+' : ''}{record.returnPct.toFixed(2)}%</p>
+                                        <p><strong>持仓天数:</strong> {record.duration} 天</p>
+                                      </>
+                                    )}
+                                    <p><strong>交易前资金:</strong> {record.beforeCash.toLocaleString('zh-CN', {minimumFractionDigits: 2})} 元</p>
+                                    <p><strong>交易后资金:</strong> {record.afterCash.toLocaleString('zh-CN', {minimumFractionDigits: 2})} 元</p>
+                                  </div>
+                                );
+                                
+                                Modal.info({
+                                  title,
+                                  content,
+                                  width: 400
+                                });
+                              } else {
+                                message.info(`未找到匹配的${directionType}交易记录，日期: ${klineDate}`);
+                              }
+                            }
+                          }
+                        }}
+                      />
+                    </Card>
                   </Col>
                 </Row>
               </TabPane>
