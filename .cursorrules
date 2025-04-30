@@ -1,0 +1,39 @@
+{
+  "rules": [
+    {
+      "name": "前端源代码",
+      "glob": "src/frontend/**/*.{js,jsx,ts,tsx,vue}",
+      "use": ["cursor-core", "cursor-web"]
+    },
+    {
+      "name": "后端Python代码",
+      "glob": "src/backend/**/*.py",
+      "use": ["cursor-core", "cursor-python"]
+    },
+    {
+      "name": "数据分析脚本",
+      "glob": "src/analysis/**/*.{py,ipynb}",
+      "use": ["cursor-core", "cursor-python", "cursor-notebook"]
+    },
+    {
+      "name": "配置文件",
+      "glob": "**/*.{json,yaml,yml,ini,conf}",
+      "use": ["cursor-core"]
+    },
+    {
+      "name": "数据库模型",
+      "glob": "src/backend/models/**/*.py",
+      "use": ["cursor-core", "cursor-python", "cursor-db"]
+    },
+    {
+      "name": "测试文件",
+      "glob": "tests/**/*.{py,js,ts}",
+      "use": ["cursor-core", "cursor-python", "cursor-web"]
+    },
+    {
+      "name": "文档文件",
+      "glob": "**/*.md",
+      "use": ["cursor-core", "cursor-docs"]
+    }
+  ]
+} 

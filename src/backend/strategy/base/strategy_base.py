@@ -1,0 +1,377 @@
+import pandas as pd
+import numpy as np
+from typing import Dict, List, Tuple, Any, Optional
+import logging
+
+logger = logging.getLogger(__name__)
+
+class StrategyBase:
+    """策略基类，所有交易策略都应继承此类"""
+    
+    def __init__(self, params: Dict[str, Any] = None, name: str = "base_strategy"):
+        """
+        初始化策略
+        
+        Args:
+            params: 策略参数字典
+            name: 策略名称
+        """
+        # 检查params参数类型并记录日志
+        if params is not None and not isinstance(params, dict):
+            logger.error(f"StrategyBase.__init__: params参数类型错误，期望dict，实际为{type(params)}")
+            params = {}  # 重置为空字典以避免后续错误
+        
+        self.params = params or {}
+        self.parameters = self.params  # 兼容性别名
+        self.name = name
+        self.data = None  # 会在运行时设置
+        self.initial_capital = 100000.0  # 默认初始资金
+        
+        logger.info(f"初始化策略: {name}, 参数: {self.params}")
+
+    def initialize(self, initial_capital: float = 100000.0) -> None:
+        """
+        初始化策略的初始资金
+        
+        Args:
+            initial_capital: 初始资金
+        """
+        self.initial_capital = initial_capital
+        logger.info(f"初始化策略资金: {initial_capital}")
+        
+    def set_data(self, data: pd.DataFrame) -> None:
+        """
+        设置数据
+        
+        Args:
+            data: 包含价格数据的DataFrame
+        """
+        self.data = data
+        
+    def generate_signals(self, data: pd.DataFrame = None) -> pd.DataFrame:
+        """
+        生成交易信号
+        
+        Args:
+            data: 包含价格数据的DataFrame，如果为None则使用self.data
+            
+        Returns:
+            添加了信号列的DataFrame
+        """
+        if data is None:
+            data = self.data
+            
+        if data is None or data.empty:
+            return pd.DataFrame()
+            
+        raise NotImplementedError("子类必须实现generate_signals方法")
+    
+    def backtest(self, data: pd.DataFrame = None, initial_capital: float = None) -> Dict[str, Any]:
+        """
+        回测策略
+        
+        Args:
+            data: 包含价格和信号的DataFrame，如果为None则使用self.data
+            initial_capital: 初始资金，如果提供则覆盖self.initial_capital
+            
+        Returns:
+            回测结果字典
+        """
+        logger.info(f"开始回测策略: {self.name}")
+        
+        # 如果提供了initial_capital，则更新实例变量
+        if initial_capital is not None:
+            self.initialize(initial_capital)
+            
+        # 使用实例变量作为初始资金
+        initial_capital = self.initial_capital
+        logger.info(f"初始资金: {initial_capital}")
+        
+        if data is None:
+            data = self.data
+            
+        if data is None or data.empty:
+            logger.error("没有数据可回测")
+            return {'error': '没有数据可回测'}
+            
+        logger.info(f"回测数据: {len(data)}行, 从{data.index[0]}到{data.index[-1]}")
+            
+        # 生成信号
+        if 'signal' not in data.columns:
+            logger.info("数据中没有信号列，调用generate_signals生成信号")
+            data = self.generate_signals(data)
+            
+        # 打印信号统计
+        buy_signals = (data['signal'] == 1).sum()
+        sell_signals = (data['signal'] == -1).sum()
+        logger.info(f"信号统计: 买入信号 {buy_signals}个, 卖出信号 {sell_signals}个")
+            
+        # 临时修复：确保日期列是日期时间类型
+        if 'date' in data.columns:
+            data['date'] = pd.to_datetime(data['date'])
+            # 设置日期为索引以便于后续处理
+            data = data.set_index('date')
+            
+        # 初始化结果
+        results = {}
+        positions = pd.DataFrame(index=data.index).fillna(0.0)
+        positions['position'] = 0
+        returns = pd.DataFrame(index=data.index).fillna(0.0)
+        
+        # 计算持仓
+        positions['position'] = data['signal'].shift(1)
+        positions['position'].fillna(0, inplace=True)
+        
+        # 计算每日收益
+        returns['price_change'] = data['close'].pct_change()
+        returns['strategy'] = positions['position'] * returns['price_change']
+        
+        # 计算累计收益
+        returns['cum_returns'] = (1 + returns['strategy']).cumprod()
+        
+        # 记录交易
+        trades = []
+        position = 0
+        position_price = 0
+        position_shares = 0
+        
+        logger.info("===== 交易明细 =====")
+        logger.info(f"{'日期':<12} {'类型':<6} {'价格':<10} {'数量':<10} {'金额':<12} {'盈亏':<10}")
+        logger.info("-" * 60)
+        
+        # 遍历每一行生成交易记录
+        for date, row in data.iterrows():
+            try:
+                signal = row.get('signal', 0)
+                
+                if signal == 1 and position == 0:  # 买入信号
+                    price = row['close']
+                    # 将股数向下取整为整数
+                    shares = int(initial_capital / price)
+                    actual_cost = shares * price  # 实际花费
+                    position_price = price  # 记录买入价格
+                    position_shares = shares  # 记录买入股数
+                    trade_date = date.strftime('%Y-%m-%d') if hasattr(date, 'strftime') else str(date)
+                    
+                    trade = {
+                        'date': trade_date,
+                        'action': 'BUY',
+                        'price': float(price),
+                        'shares': int(shares),  # 确保股数是整数
+                        'value': float(actual_cost),
+                        'entry_price': float(price)  # 添加入场价格字段
+                    }
+                    trades.append(trade)
+                    position = 1
+                    
+                    # 打印交易明细
+                    logger.info(f"{trade_date:<12} {'买入':<6} {price:<10.2f} {shares:<10d} {actual_cost:<12.2f}")
+                    
+                elif signal == -1 and position == 1:  # 卖出信号
+                    price = row['close']
+                    shares = position_shares  # 使用之前买入的实际股数
+                    sale_value = shares * price  # 卖出总值
+                    profit = sale_value - (shares * position_price)  # 计算盈亏
+                    profit_percent = (price - position_price) / position_price * 100  # 计算百分比收益率
+                    trade_date = date.strftime('%Y-%m-%d') if hasattr(date, 'strftime') else str(date)
+                    
+                    trade = {
+                        'date': trade_date,
+                        'action': 'SELL',
+                        'price': float(price),
+                        'shares': int(shares),  # 确保股数是整数
+                        'value': float(sale_value),
+                        'profit': float(profit),
+                        'profit_percent': float(profit_percent),  # 添加百分比收益率
+                        'entry_price': float(position_price)  # 添加入场价格
+                    }
+                    trades.append(trade)
+                    position = 0
+                    
+                    # 打印交易明细
+                    logger.info(f"{trade_date:<12} {'卖出':<6} {price:<10.2f} {shares:<10d} {sale_value:<12.2f} {profit:<10.2f} ({profit_percent:+.2f}%)")
+                    
+            except Exception as e:
+                logger.error(f"处理交易数据时出错: {e}, 日期: {date}, 行数据: {row}")
+        
+        logger.info("=" * 60)
+        
+        # 计算策略指标
+        results['trades'] = trades
+        
+        # 转换returns为可JSON序列化格式
+        returns_dict = {
+            'date': [d.strftime('%Y-%m-%d') if hasattr(d, 'strftime') else str(d) for d in returns.index],
+            'price_change': returns['price_change'].fillna(0).tolist(),
+            'strategy': returns['strategy'].fillna(0).tolist(),
+            'cum_returns': returns['cum_returns'].fillna(1).tolist()
+        }
+        results['returns'] = returns_dict
+        
+        # 转换positions为可JSON序列化格式
+        positions_dict = {
+            'date': [d.strftime('%Y-%m-%d') if hasattr(d, 'strftime') else str(d) for d in positions.index],
+            'position': positions['position'].tolist()
+        }
+        results['positions'] = positions_dict
+        
+        # 计算Sharpe比率
+        strategy_returns = returns['strategy'].dropna()
+        if len(strategy_returns) > 0 and strategy_returns.std() != 0:
+            sharpe = float(strategy_returns.mean() / strategy_returns.std() * np.sqrt(252))
+            results['sharpe'] = sharpe
+            logger.info(f"Sharpe比率: {sharpe:.4f}")
+        else:
+            results['sharpe'] = 0.0
+            logger.info("Sharpe比率: 0.0 (标准差为0或没有足够的数据)")
+        
+        # 计算总收益率
+        total_return = 0.0
+        if len(returns) > 0 and 'cum_returns' in returns.columns:
+            final_return = returns['cum_returns'].dropna()
+            if len(final_return) > 0:
+                final_value = final_return.iloc[-1]
+                total_return = float((final_value - 1) * 100)  # 百分比
+                results['total_return'] = total_return
+                logger.info(f"总收益率: {total_return:.2f}%")
+            else:
+                results['total_return'] = 0.0
+                logger.info("总收益率: 0.0% (没有有效的累计收益数据)")
+        else:
+            results['total_return'] = 0.0
+            logger.info("总收益率: 0.0% (没有足够的数据)")
+            
+        # 计算年化收益率
+        annual_return = 0.0
+        if len(returns) > 1:
+            daily_return = strategy_returns.mean()
+            annual_return = float(daily_return * 252 * 100)  # 年化百分比
+            results['annual_return'] = annual_return
+            logger.info(f"年化收益率: {annual_return:.2f}%")
+        else:
+            results['annual_return'] = 0.0
+            logger.info("年化收益率: 0.0% (没有足够的数据)")
+            
+        # 计算最大回撤
+        max_drawdown = 0.0
+        cum_returns = returns['cum_returns'].fillna(1)
+        if len(cum_returns) > 0:
+            # 计算累积最大值
+            running_max = cum_returns.cummax()
+            # 计算相对回撤
+            drawdown = (cum_returns / running_max - 1) * 100
+            # 最大回撤值
+            max_drawdown = drawdown.min()
+            results['max_drawdown'] = float(max_drawdown)
+            logger.info(f"最大回撤: {max_drawdown:.2f}%")
+            
+            # 添加回撤数据
+            drawdown_dict = {
+                'date': [d.strftime('%Y-%m-%d') if hasattr(d, 'strftime') else str(d) for d in drawdown.index],
+                'drawdown': drawdown.tolist()
+            }
+            results['drawdowns'] = drawdown_dict
+        else:
+            results['max_drawdown'] = 0.0
+            logger.info("最大回撤: 0.0% (没有足够的数据)")
+        
+        # 计算胜率
+        win_rate = 0.0
+        if trades:
+            winning_trades = sum(1 for trade in trades if trade.get('action') == 'SELL' and trade.get('profit', 0) > 0)
+            total_sell_trades = sum(1 for trade in trades if trade.get('action') == 'SELL')
+            if total_sell_trades > 0:
+                win_rate = float(winning_trades / total_sell_trades * 100)
+                results['win_rate'] = win_rate
+                logger.info(f"胜率: {win_rate:.2f}% ({winning_trades}/{total_sell_trades})")
+            else:
+                results['win_rate'] = 0.0
+                logger.info("胜率: 0.0% (没有卖出交易)")
+        else:
+            results['win_rate'] = 0.0
+            logger.info("胜率: 0.0% (没有交易记录)")
+        
+        # 将结果整合为前端期望的格式
+        performance = {
+            'total_return': results['total_return'],
+            'annual_return': results['annual_return'],
+            'sharpe_ratio': results['sharpe'],
+            'max_drawdown': results['max_drawdown'],
+            'win_rate': results['win_rate']
+        }
+        results['performance'] = performance
+        
+        # 交易统计信息
+        if trades:
+            num_trades = len(trades)
+            num_buy = sum(1 for trade in trades if trade.get('action') == 'BUY')
+            num_sell = sum(1 for trade in trades if trade.get('action') == 'SELL')
+            
+            # 计算平均持仓时间
+            if num_buy > 0 and num_sell > 0:
+                holding_periods = []
+                buy_dates = {}
+                
+                for trade in trades:
+                    date = trade.get('date')
+                    action = trade.get('action')
+                    
+                    if action == 'BUY':
+                        buy_dates[len(buy_dates)] = date
+                    elif action == 'SELL' and buy_dates:
+                        buy_date = buy_dates.pop(max(buy_dates.keys()))
+                        try:
+                            buy_dt = pd.to_datetime(buy_date)
+                            sell_dt = pd.to_datetime(date)
+                            days = (sell_dt - buy_dt).days
+                            holding_periods.append(days)
+                        except:
+                            pass
+                
+                if holding_periods:
+                    avg_holding = sum(holding_periods) / len(holding_periods)
+                    logger.info(f"平均持仓时间: {avg_holding:.2f}天")
+            
+            # 计算总盈利和总亏损
+            total_profit = sum(trade.get('profit', 0) for trade in trades if trade.get('action') == 'SELL' and trade.get('profit', 0) > 0)
+            total_loss = sum(trade.get('profit', 0) for trade in trades if trade.get('action') == 'SELL' and trade.get('profit', 0) < 0)
+            
+            logger.info(f"交易统计: 总交易 {num_trades}次, 买入 {num_buy}次, 卖出 {num_sell}次")
+            logger.info(f"盈亏统计: 总盈利 {total_profit:.2f}, 总亏损 {total_loss:.2f}, 净盈亏 {total_profit + total_loss:.2f}")
+            
+            # 计算盈亏比
+            if total_loss != 0:
+                profit_loss_ratio = abs(total_profit / total_loss)
+                logger.info(f"盈亏比: {profit_loss_ratio:.2f}")
+            
+        # 添加信号数据
+        if 'signal' in data.columns:
+            signals_data = []
+            for date, row in data.iterrows():
+                if row['signal'] != 0:
+                    signal_type = 'buy' if row['signal'] == 1 else 'sell'
+                    signal_date = date.strftime('%Y-%m-%d') if hasattr(date, 'strftime') else str(date)
+                    signals_data.append({
+                        'date': signal_date,
+                        'type': signal_type,
+                        'price': float(row['close']),
+                        'signal': int(row['signal'])
+                    })
+            results['signals'] = signals_data
+        
+        # 添加K线数据，用于前端显示
+        kline_data = []
+        for date, row in data.iterrows():
+            date_str = date.strftime('%Y-%m-%d') if hasattr(date, 'strftime') else str(date)
+            kline_data.append({
+                'date': date_str,
+                'open': float(row.get('open', row.get('close', 0))),
+                'close': float(row.get('close', 0)),
+                'high': float(row.get('high', row.get('close', 0))),
+                'low': float(row.get('low', row.get('close', 0))),
+                'volume': float(row.get('volume', 0))
+            })
+        results['kline_data'] = kline_data
+            
+        logger.info(f"回测完成: {self.name}, 总收益率: {total_return:.2f}%, 年化收益率: {annual_return:.2f}%, Sharpe比率: {results['sharpe']:.4f}, 最大回撤: {max_drawdown:.2f}%, 胜率: {win_rate:.2f}%")
+        return results 
