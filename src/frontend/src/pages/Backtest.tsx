@@ -187,13 +187,47 @@ const Backtest: React.FC = () => {
               });
               
               // 更新权益曲线
-              if (result.equity_curve && result.equity_curve.length > 0) {
-                const equityCurve = result.equity_curve.map((item: any) => ({
-                  date: item.date,
-                  equity: item.equity
-                }));
+              if (result.equity_curve) {
+                console.log('原始权益曲线数据:', JSON.stringify(result.equity_curve).substring(0, 200) + '...');
+                
+                // 检查数据结构，确保能处理不同格式
+                let equityCurve = [];
+                
+                // 如果是数组格式
+                if (Array.isArray(result.equity_curve)) {
+                  equityCurve = result.equity_curve.map((item: any) => ({
+                    date: item.date,
+                    equity: parseFloat(item.equity) // 确保是数字
+                  }));
+                  console.log(`处理权益曲线数组，共${equityCurve.length}条数据`);
+                } 
+                // 如果是包含date和equity数组的对象
+                else if (result.equity_curve.date && result.equity_curve.equity && 
+                         Array.isArray(result.equity_curve.date) && 
+                         Array.isArray(result.equity_curve.equity)) {
+                  const dates = result.equity_curve.date;
+                  const equities = result.equity_curve.equity;
+                  const length = Math.min(dates.length, equities.length);
+                  
+                  for (let i = 0; i < length; i++) {
+                    equityCurve.push({
+                      date: dates[i],
+                      equity: parseFloat(equities[i]) // 确保是数字
+                    });
+                  }
+                  console.log(`处理权益曲线对象，共${equityCurve.length}条数据`);
+                }
+                
+                // 数据样本展示
+                if (equityCurve.length > 0) {
+                  console.log('处理后的权益曲线数据样本:',
+                    equityCurve.length <= 5 ? equityCurve : 
+                    [equityCurve[0], '...', equityCurve[equityCurve.length-1]]);
+                }
+                
                 setEquityCurveData(equityCurve);
               } else {
+                console.log('未找到权益曲线数据');
                 setEquityCurveData([]);
               }
               
@@ -971,6 +1005,54 @@ const Backtest: React.FC = () => {
   
   // 权益曲线图表配置
   const getEquityCurveOption = () => {
+    console.log('生成权益曲线图表, 数据长度:', equityCurveData.length);
+    
+    // 检查数据，确保不为空
+    if (equityCurveData.length === 0) {
+      return {
+        title: {
+          text: '策略收益曲线 (无数据)',
+          left: 'center'
+        },
+        grid: {
+          left: '3%',
+          right: '4%',
+          bottom: '15%',
+          top: '15%',
+          containLabel: true
+        }
+      };
+    }
+    
+    // 对数据进行检查，确保所有数据点都有效
+    const validData = equityCurveData.filter(item => 
+      item && item.date && item.equity !== undefined && !isNaN(Number(item.equity))
+    );
+    
+    if (validData.length === 0) {
+      console.error('权益曲线数据无效:', equityCurveData.slice(0, 3));
+      return {
+        title: {
+          text: '策略收益曲线 (数据无效)',
+          left: 'center'
+        },
+        grid: {
+          left: '3%',
+          right: '4%',
+          bottom: '15%',
+          top: '15%',
+          containLabel: true
+        }
+      };
+    }
+    
+    // 数据检查通过，使用有效数据构建图表
+    console.log('有效数据点数量:', validData.length);
+    console.log('权益曲线数据范围:', 
+      validData.length > 0 ? 
+      `${validData[0].date}(${validData[0].equity}) ~ ${validData[validData.length-1].date}(${validData[validData.length-1].equity})` : 
+      '无数据');
+    
     return {
       title: {
         text: '策略收益曲线',
@@ -981,7 +1063,7 @@ const Backtest: React.FC = () => {
         formatter: function(params: any) {
           const date = params[0].axisValue;
           const value = params[0].data;
-          return `${date}<br/>${params[0].seriesName}: ${parseFloat(value).toFixed(2)}`;
+          return `${date}<br/>${params[0].seriesName}: ¥${parseFloat(value).toLocaleString('zh-CN', {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
         }
       },
       legend: {
@@ -997,7 +1079,7 @@ const Backtest: React.FC = () => {
       },
       xAxis: {
         type: 'category',
-        data: equityCurveData.map(item => item.date)
+        data: validData.map(item => item.date)
       },
       yAxis: {
         type: 'value',
@@ -1010,7 +1092,7 @@ const Backtest: React.FC = () => {
         {
           name: '策略收益',
           type: 'line',
-          data: equityCurveData.map(item => item.equity),
+          data: validData.map(item => item.equity),
           smooth: true,
           showSymbol: false,
           lineStyle: {

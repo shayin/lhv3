@@ -489,4 +489,131 @@ class StrategyBase:
         results['kline_data'] = kline_data
             
         logger.info(f"回测完成: {self.name}, 总收益率: {total_return:.2f}%, 年化收益率: {annual_return:.2f}%, Sharpe比率: {results['sharpe']:.4f}, 最大回撤: {max_drawdown:.2f}%, 胜率: {win_rate:.2f}%")
+
+        # 更新权益曲线 - 跟踪每次交易后的实际资金变化
+        if trades:
+            # 创建交易日期到权益的映射
+            trade_equity = {}
+            
+            # 记录每次交易后的权益
+            for trade in trades:
+                trade_date = trade.get('date')
+                # 转换为datetime，用于索引
+                try:
+                    dt = pd.to_datetime(trade_date)
+                    # 用交易后的总资产更新
+                    if dt in returns.index:
+                        trade_equity[dt] = float(trade.get('after_equity', 0))
+                except:
+                    logger.warning(f"无法解析交易日期: {trade_date}")
+            
+            # 按时间顺序排序交易
+            sorted_dates = sorted(trade_equity.keys())
+            
+            # 获取初始日期和结束日期
+            start_date = returns.index[0]
+            end_date = returns.index[-1]
+            
+            # 填充权益曲线 - 考虑每日股票价值变化
+            previous_trade_date = None
+            previous_position = 0
+            previous_position_shares = 0
+            previous_position_price = 0
+            previous_cash = initial_capital
+            
+            # 记录初始值
+            returns.loc[returns.index[0], 'cum_returns'] = initial_capital
+            
+            # 按时间顺序处理每个交易日
+            for date in returns.index:
+                # 如果是交易日，更新当前持仓和现金状态
+                if date in trade_equity:
+                    current_equity = trade_equity[date]
+                    returns.loc[date, 'cum_returns'] = current_equity
+                    
+                    # 找到对应的交易
+                    for trade in trades:
+                        try:
+                            trade_date = pd.to_datetime(trade.get('date'))
+                            if trade_date == date:
+                                # 更新当前状态
+                                if trade.get('action') == 'BUY':
+                                    previous_position = 1
+                                    previous_position_shares = trade.get('shares', 0)
+                                    previous_position_price = trade.get('price', 0)
+                                    previous_cash = trade.get('after_cash', previous_cash)
+                                elif trade.get('action') == 'SELL':
+                                    previous_position = 0
+                                    previous_position_shares = 0
+                                    previous_cash = trade.get('after_cash', previous_cash)
+                                
+                                previous_trade_date = date
+                                break
+                        except:
+                            pass
+                
+                # 非交易日但有持仓，根据当日价格计算权益
+                elif previous_position == 1 and previous_position_shares > 0:
+                    # 使用当日收盘价计算持仓价值
+                    current_price = data.loc[date, 'close']
+                    position_value = previous_position_shares * current_price
+                    
+                    # 当日总资产 = 现金 + 持仓价值
+                    daily_equity = previous_cash + position_value
+                    returns.loc[date, 'cum_returns'] = daily_equity
+                
+                # 非交易日且无持仓，权益等于现金
+                else:
+                    returns.loc[date, 'cum_returns'] = previous_cash
+            
+            # 如果最后一笔是买入，需要考虑未平仓的持仓价值（这部分可以保留，提供额外保障）
+            if position == 1:
+                # 获取最后一个有交易的日期
+                last_date = sorted_dates[-1] if sorted_dates else start_date
+                last_idx = returns.index.get_loc(last_date)
+                
+                # 确保该日期之后的所有日期都正确计算了持仓价值
+                for i in range(last_idx, len(returns)):
+                    date = returns.index[i]
+                    
+                    # 只有在持有期间才更新价值
+                    if position == 1 and position_shares > 0:
+                        price = data.loc[date, 'close']
+                        position_value = position_shares * price
+                        
+                        # 确保不重复计算现金
+                        if date in trade_equity:
+                            # 使用交易日记录的权益值
+                            continue
+                        else:
+                            # 非交易日，现金不变，股票价值更新
+                            cash_value = cash
+                            returns.loc[date, 'cum_returns'] = cash_value + position_value
+            
+            # 转换returns为可JSON序列化格式
+            returns_dict = {
+                'date': [d.strftime('%Y-%m-%d') if hasattr(d, 'strftime') else str(d) for d in returns.index],
+                'price_change': returns['price_change'].fillna(0).tolist(),
+                'strategy': returns['strategy'].fillna(0).tolist(),
+                'cum_returns': returns['cum_returns'].fillna(1).tolist()
+            }
+            results['returns'] = returns_dict
+            
+            # 转换equity_curve为可JSON序列化格式
+            equity_curve_dict = {
+                'date': [d.strftime('%Y-%m-%d') if hasattr(d, 'strftime') else str(d) for d in returns.index],
+                'equity': returns['cum_returns'].fillna(1).tolist()
+            }
+            results['equity_curve'] = equity_curve_dict
+            
+            # 输出权益曲线样本用于调试
+            num_samples = min(5, len(returns))
+            logger.info(f"权益曲线样本(前{num_samples}条): {returns.head(num_samples)}")
+            logger.info(f"权益曲线样本(后{num_samples}条): {returns.tail(num_samples)}")
+        else:
+            # 如果没有交易，返回一个只有初始资金的平坦曲线
+            dates = [d.strftime('%Y-%m-%d') if hasattr(d, 'strftime') else str(d) for d in returns.index]
+            equities = [initial_capital] * len(dates)
+            results['equity_curve'] = {'date': dates, 'equity': equities}
+        
         return results 
