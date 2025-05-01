@@ -2,6 +2,10 @@ from typing import Dict, Any
 import pandas as pd
 import numpy as np
 from .base import StrategyBase
+import logging
+
+# 获取logger
+logger = logging.getLogger(__name__)
 
 class RSIStrategy(StrategyBase):
     """
@@ -69,10 +73,32 @@ class RSIStrategy(StrategyBase):
         
         # 生成信号：1表示买入，-1表示卖出
         # RSI低于超卖阈值时买入
-        signals.loc[signals['rsi'] < oversold, 'signal'] = 1
+        buy_condition = signals['rsi'] < oversold
+        signals.loc[buy_condition, 'signal'] = 1
+        
+        # 记录买入信号触发原因
+        for idx in signals.index[buy_condition]:
+            date_str = idx.strftime('%Y-%m-%d') if hasattr(idx, 'strftime') else str(idx)
+            reason = f"买入信号触发 [{date_str}]: RSI({period}日)低于超卖阈值({oversold}), " \
+                    f"当前RSI值: {signals.loc[idx, 'rsi']:.2f}, " \
+                    f"收盘价: {signals.loc[idx, 'close']:.2f}"
+            logger.info(reason)
+            # 添加触发原因到信号数据中
+            signals.loc[idx, 'trigger_reason'] = f"RSI({period}日)低于超卖阈值({oversold})"
         
         # RSI高于超买阈值时卖出
-        signals.loc[signals['rsi'] > overbought, 'signal'] = -1
+        sell_condition = signals['rsi'] > overbought
+        signals.loc[sell_condition, 'signal'] = -1
+        
+        # 记录卖出信号触发原因
+        for idx in signals.index[sell_condition]:
+            date_str = idx.strftime('%Y-%m-%d') if hasattr(idx, 'strftime') else str(idx)
+            reason = f"卖出信号触发 [{date_str}]: RSI({period}日)高于超买阈值({overbought}), " \
+                    f"当前RSI值: {signals.loc[idx, 'rsi']:.2f}, " \
+                    f"收盘价: {signals.loc[idx, 'close']:.2f}"
+            logger.info(reason)
+            # 添加触发原因到信号数据中
+            signals.loc[idx, 'trigger_reason'] = f"RSI({period}日)高于超买阈值({overbought})"
         
         # 持仓信号：根据RSI相对于阈值的位置判断
         signals['position'] = 0

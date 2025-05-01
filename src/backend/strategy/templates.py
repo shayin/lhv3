@@ -96,9 +96,35 @@ class MovingAverageCrossover(StrategyBase):
         crossover_up = (df['ma_diff'] > 0) & (df['prev_ma_diff'] <= 0)
         df.loc[crossover_up, 'signal'] = 1
         
+        # 记录买入信号触发原因
+        for idx in df.index[crossover_up]:
+            date_str = idx.strftime('%Y-%m-%d') if hasattr(idx, 'strftime') else str(idx)
+            reason = f"买入信号触发 [{date_str}]: 短期均线({short_window}日)上穿长期均线({long_window}日), " \
+                    f"短期均线: {df.loc[idx, 'short_ma']:.2f}, " \
+                    f"长期均线: {df.loc[idx, 'long_ma']:.2f}, " \
+                    f"价差: {df.loc[idx, 'ma_diff']:.2f}, " \
+                    f"昨日价差: {df.loc[idx, 'prev_ma_diff']:.2f}, " \
+                    f"收盘价: {df.loc[idx, 'close']:.2f}"
+            logger.info(reason)
+            # 添加触发原因到信号数据中
+            df.loc[idx, 'trigger_reason'] = f"短期均线({short_window}日)上穿长期均线({long_window}日)"
+        
         # 下穿信号：今天短期均线在长期均线下方，但昨天在上方或重合
         crossover_down = (df['ma_diff'] < 0) & (df['prev_ma_diff'] >= 0)
         df.loc[crossover_down, 'signal'] = -1
+        
+        # 记录卖出信号触发原因
+        for idx in df.index[crossover_down]:
+            date_str = idx.strftime('%Y-%m-%d') if hasattr(idx, 'strftime') else str(idx)
+            reason = f"卖出信号触发 [{date_str}]: 短期均线({short_window}日)下穿长期均线({long_window}日), " \
+                    f"短期均线: {df.loc[idx, 'short_ma']:.2f}, " \
+                    f"长期均线: {df.loc[idx, 'long_ma']:.2f}, " \
+                    f"价差: {df.loc[idx, 'ma_diff']:.2f}, " \
+                    f"昨日价差: {df.loc[idx, 'prev_ma_diff']:.2f}, " \
+                    f"收盘价: {df.loc[idx, 'close']:.2f}"
+            logger.info(reason)
+            # 添加触发原因到信号数据中
+            df.loc[idx, 'trigger_reason'] = f"短期均线({short_window}日)下穿长期均线({long_window}日)"
         
         # 持仓信号：根据移动平均线的相对位置判断
         df.loc[df['short_ma'] > df['long_ma'], 'position'] = 1
@@ -194,9 +220,33 @@ class BollingerBandsStrategy(StrategyBase):
         buy_signal = (df['close'] >= df['lower']) & (df['prev_close'] < df['prev_lower'])
         df.loc[buy_signal, 'signal'] = 1
         
+        # 记录买入信号触发原因
+        for idx in df.index[buy_signal]:
+            date_str = idx.strftime('%Y-%m-%d') if hasattr(idx, 'strftime') else str(idx)
+            reason = f"买入信号触发 [{date_str}]: 价格从下方突破布林带下轨, " \
+                    f"收盘价: {df.loc[idx, 'close']:.2f}, " \
+                    f"下轨: {df.loc[idx, 'lower']:.2f}, " \
+                    f"昨日收盘价: {df.loc[idx, 'prev_close']:.2f}, " \
+                    f"昨日下轨: {df.loc[idx, 'prev_lower']:.2f}"
+            logger.info(reason)
+            # 添加触发原因到信号数据中
+            df.loc[idx, 'trigger_reason'] = f"价格从下方突破布林带下轨（{window}日，{num_std}倍标准差）"
+        
         # 价格由上方突破上轨，卖出信号
         sell_signal = (df['close'] <= df['upper']) & (df['prev_close'] > df['prev_upper'])
         df.loc[sell_signal, 'signal'] = -1
+        
+        # 记录卖出信号触发原因
+        for idx in df.index[sell_signal]:
+            date_str = idx.strftime('%Y-%m-%d') if hasattr(idx, 'strftime') else str(idx)
+            reason = f"卖出信号触发 [{date_str}]: 价格从上方突破布林带上轨, " \
+                    f"收盘价: {df.loc[idx, 'close']:.2f}, " \
+                    f"上轨: {df.loc[idx, 'upper']:.2f}, " \
+                    f"昨日收盘价: {df.loc[idx, 'prev_close']:.2f}, " \
+                    f"昨日上轨: {df.loc[idx, 'prev_upper']:.2f}"
+            logger.info(reason)
+            # 添加触发原因到信号数据中
+            df.loc[idx, 'trigger_reason'] = f"价格从上方突破布林带上轨（{window}日，{num_std}倍标准差）"
         
         # 持仓信号：根据价格与布林带的相对位置判断
         df['position'] = 0
@@ -291,9 +341,35 @@ class MACDStrategy(StrategyBase):
         golden_cross = (df['macd_hist'] > 0) & (df['prev_hist'] <= 0)
         df.loc[golden_cross, 'signal'] = 1
         
+        # 记录买入信号触发原因
+        for idx in df.index[golden_cross]:
+            date_str = idx.strftime('%Y-%m-%d') if hasattr(idx, 'strftime') else str(idx)
+            reason = f"买入信号触发 [{date_str}]: MACD金叉, " \
+                    f"MACD: {df.loc[idx, 'macd']:.4f}, " \
+                    f"信号线: {df.loc[idx, 'macd_signal']:.4f}, " \
+                    f"MACD柱状图: {df.loc[idx, 'macd_hist']:.4f}, " \
+                    f"昨日柱状图: {df.loc[idx, 'prev_hist']:.4f}, " \
+                    f"收盘价: {df.loc[idx, 'close']:.2f}"
+            logger.info(reason)
+            # 添加触发原因到信号数据中
+            df.loc[idx, 'trigger_reason'] = f"MACD金叉（快速期: {fast_period}, 慢速期: {slow_period}, 信号期: {signal_period}）"
+        
         # MACD直方图由正转负，卖出信号（死叉）
         death_cross = (df['macd_hist'] < 0) & (df['prev_hist'] >= 0)
         df.loc[death_cross, 'signal'] = -1
+        
+        # 记录卖出信号触发原因
+        for idx in df.index[death_cross]:
+            date_str = idx.strftime('%Y-%m-%d') if hasattr(idx, 'strftime') else str(idx)
+            reason = f"卖出信号触发 [{date_str}]: MACD死叉, " \
+                    f"MACD: {df.loc[idx, 'macd']:.4f}, " \
+                    f"信号线: {df.loc[idx, 'macd_signal']:.4f}, " \
+                    f"MACD柱状图: {df.loc[idx, 'macd_hist']:.4f}, " \
+                    f"昨日柱状图: {df.loc[idx, 'prev_hist']:.4f}, " \
+                    f"收盘价: {df.loc[idx, 'close']:.2f}"
+            logger.info(reason)
+            # 添加触发原因到信号数据中
+            df.loc[idx, 'trigger_reason'] = f"MACD死叉（快速期: {fast_period}, 慢速期: {slow_period}, 信号期: {signal_period}）"
         
         # 持仓信号：根据MACD与信号线的相对位置判断
         df['position'] = 0
@@ -395,9 +471,33 @@ class RSIStrategy(StrategyBase):
         buy_signal = (df['rsi'] > oversold) & (df['prev_rsi'] <= oversold)
         df.loc[buy_signal, 'signal'] = 1
         
+        # 记录买入信号触发原因
+        for idx in df.index[buy_signal]:
+            date_str = idx.strftime('%Y-%m-%d') if hasattr(idx, 'strftime') else str(idx)
+            reason = f"买入信号触发 [{date_str}]: RSI从超卖区上穿, " \
+                    f"RSI: {df.loc[idx, 'rsi']:.2f}, " \
+                    f"昨日RSI: {df.loc[idx, 'prev_rsi']:.2f}, " \
+                    f"超卖阈值: {oversold}, " \
+                    f"收盘价: {df.loc[idx, 'close']:.2f}"
+            logger.info(reason)
+            # 添加触发原因到信号数据中
+            df.loc[idx, 'trigger_reason'] = f"RSI({rsi_period}日)从超卖区({oversold})上穿"
+        
         # RSI从超买区下穿，卖出信号
         sell_signal = (df['rsi'] < overbought) & (df['prev_rsi'] >= overbought)
         df.loc[sell_signal, 'signal'] = -1
+        
+        # 记录卖出信号触发原因
+        for idx in df.index[sell_signal]:
+            date_str = idx.strftime('%Y-%m-%d') if hasattr(idx, 'strftime') else str(idx)
+            reason = f"卖出信号触发 [{date_str}]: RSI从超买区下穿, " \
+                    f"RSI: {df.loc[idx, 'rsi']:.2f}, " \
+                    f"昨日RSI: {df.loc[idx, 'prev_rsi']:.2f}, " \
+                    f"超买阈值: {overbought}, " \
+                    f"收盘价: {df.loc[idx, 'close']:.2f}"
+            logger.info(reason)
+            # 添加触发原因到信号数据中
+            df.loc[idx, 'trigger_reason'] = f"RSI({rsi_period}日)从超买区({overbought})下穿"
         
         # 持仓信号：根据RSI值判断
         df['position'] = 0

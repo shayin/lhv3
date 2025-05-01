@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Card, Form, Button, DatePicker, Select, InputNumber, Row, Col, Divider, Typography, Tabs, Table, Statistic, Spin, message, Alert, Space, Tooltip, Modal } from 'antd';
+import { Card, Form, Button, DatePicker, Select, InputNumber, Row, Col, Divider, Typography, Tabs, Table, Statistic, Spin, message, Alert, Space, Tooltip, Modal, Tag } from 'antd';
 import { LineChartOutlined, PlayCircleOutlined, DownloadOutlined, SaveOutlined, InfoCircleOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import ReactECharts from 'echarts-for-react';
@@ -35,6 +35,7 @@ interface TradeRecord {
   afterCash: number;   // 交易后现金
   beforeEquity: number; // 交易前总资产
   afterEquity: number;  // 交易后总资产
+  trigger_reason?: string; // 交易触发原因
 }
 
 const Backtest: React.FC = () => {
@@ -292,7 +293,8 @@ const Backtest: React.FC = () => {
                     beforeCash: beforeCash,  // 交易前现金
                     afterCash: afterCash,   // 交易后现金
                     beforeEquity: beforeEquity, // 交易前总资产
-                    afterEquity: afterEquity   // 交易后总资产
+                    afterEquity: afterEquity,   // 交易后总资产
+                    trigger_reason: trade.trigger_reason || '未记录'  // 添加触发原因字段
                   };
                 });
                 
@@ -714,8 +716,10 @@ const Backtest: React.FC = () => {
             // 显示买入信号
             if (buyRecord) {
               const price = buyRecord.entryPrice || 0;
+              const reason = buyRecord.trigger_reason || '未记录原因';
               result += `<div style="color:#f64034;font-weight:bold;margin-top:3px;">
-                买入(B)：¥${price.toFixed(2)}
+                买入(B)：¥${price.toFixed(2)}<br/>
+                原因：${reason}
               </div>`;
             }
             
@@ -724,12 +728,14 @@ const Backtest: React.FC = () => {
               const price = sellRecord.exitPrice || 0;
               const profit = sellRecord.profitLoss || 0;
               const profitPercent = sellRecord.returnPct || 0;
+              const reason = sellRecord.trigger_reason || '未记录原因';
               const profitText = profit >= 0 ? `+${profit.toFixed(2)}` : `${profit.toFixed(2)}`;
               const percentText = profitPercent >= 0 ? `+${profitPercent.toFixed(2)}%` : `${profitPercent.toFixed(2)}%`;
               
               result += `<div style="color:#00b46a;font-weight:bold;margin-top:3px;">
                 卖出(S)：¥${price.toFixed(2)}<br/>
-                盈亏：${profitText} (${percentText})
+                盈亏：${profitText} (${percentText})<br/>
+                原因：${reason}
               </div>`;
             }
           }
@@ -767,9 +773,20 @@ const Backtest: React.FC = () => {
         max: 'dataMax'
       },
       yAxis: {
-        scale: true,
-        splitLine: { show: true },
-        splitArea: { show: true }
+        type: 'value',
+        name: '资金',
+        axisLabel: {
+          formatter: '¥{value}'
+        },
+        min: function(value: any) {
+          // 设置y轴最小值为0或初始资金的80%，取较小者
+          // 这确保初始资金线不会太靠近坐标轴底部
+          return Math.min(0, initialCapital * 0.8);
+        },
+        scale: true,  // 启用比例缩放，使图表更合理地显示
+        splitArea: {
+          show: true  // 显示分隔区域，增强可读性
+        }
       },
       dataZoom: [
         {
@@ -879,12 +896,12 @@ const Backtest: React.FC = () => {
       title: '日期',
       dataIndex: 'date',
       key: 'date',
-      sorter: (a, b) => a.date.localeCompare(b.date),
-    },
-    {
-      title: '品种',
-      dataIndex: 'symbol',
-      key: 'symbol',
+      sorter: (a, b) => {
+        // 转换为日期对象进行比较
+        const dateA = new Date(a.date);
+        const dateB = new Date(b.date);
+        return dateA.getTime() - dateB.getTime();
+      }
     },
     {
       title: '方向',
@@ -894,12 +911,24 @@ const Backtest: React.FC = () => {
         { text: '买入', value: '买入' },
         { text: '卖出', value: '卖出' },
       ],
-      onFilter: (value, record) => record.direction.includes(value as string),
-      render: (text) => {
-        return text === '买入' ? 
-          <span style={{ color: '#f5222d' }}>{text}</span> : 
-          <span style={{ color: '#52c41a' }}>{text}</span>;
-      }
+      onFilter: (value, record) => record.direction === value,
+      render: (text) => (
+        <Tag color={text === '买入' ? 'red' : 'green'}>
+          {text}
+        </Tag>
+      )
+    },
+    {
+      title: '触发原因',
+      dataIndex: 'trigger_reason',
+      key: 'trigger_reason',
+      width: 200,
+      ellipsis: true, // 超出部分显示省略号
+      render: (text) => (
+        <Tooltip title={text || '未记录'}>
+          <span>{text || '未记录'}</span>
+        </Tooltip>
+      )
     },
     {
       title: '期初资金',
@@ -1114,7 +1143,22 @@ const Backtest: React.FC = () => {
             for (let i = 0; i < params.length; i++) {
               const param = params[i];
               if (param.seriesName === '买入点' || param.seriesName === '卖出点') {
-                extraInfo = `<br/><span style="color:${param.color}">● ${param.seriesName}</span>`;
+                // 查找对应的交易记录
+                const tradeDateStr = normalizeDate(date);
+                const tradeRecord = tradeRecords.find(record => 
+                  normalizeDate(record.date) === tradeDateStr && 
+                  ((param.seriesName === '买入点' && record.direction === '买入') || 
+                   (param.seriesName === '卖出点' && record.direction === '卖出'))
+                );
+                
+                // 如果找到交易记录，添加触发原因
+                if (tradeRecord) {
+                  const reason = tradeRecord.trigger_reason || '未记录原因';
+                  extraInfo = `<br/><span style="color:${param.color}">● ${param.seriesName}</span>`;
+                  extraInfo += `<br/><span style="color:#555; font-size:12px">原因: ${reason}</span>`;
+                } else {
+                  extraInfo = `<br/><span style="color:${param.color}">● ${param.seriesName}</span>`;
+                }
                 break;
               }
             }
@@ -1128,7 +1172,7 @@ const Backtest: React.FC = () => {
         }
       },
       legend: {
-        data: ['策略收益', '买入点', '卖出点'],
+        data: ['初始资金', '策略收益', '买入点', '卖出点'],
         bottom: 10
       },
       grid: {
@@ -1164,6 +1208,55 @@ const Backtest: React.FC = () => {
         }
       ],
       series: [
+        {
+          name: '初始资金',
+          type: 'line',
+          data: validData.map(() => initialCapital), 
+          symbol: 'none',
+          lineStyle: {
+            width: 2,
+            type: 'dashed',
+            color: '#5470c6'  // 更醒目的蓝色
+          },
+          markArea: {
+            silent: true,
+            itemStyle: {
+              opacity: 0.1,
+              color: '#5470c6'
+            },
+            data: [[{
+              yAxis: 0
+            }, {
+              yAxis: initialCapital
+            }]]
+          },
+          markLine: {
+            silent: true,
+            lineStyle: {
+              color: '#5470c6',
+              width: 2,
+              type: 'solid'
+            },
+            data: [{
+              yAxis: initialCapital,
+              label: {
+                formatter: '初始资金: ¥' + initialCapital.toLocaleString(),
+                position: 'start',
+                distance: [0, -20], // 水平和垂直偏移
+                color: '#5470c6',
+                fontSize: 12,
+                fontWeight: 'bold',
+                backgroundColor: 'rgba(255,255,255,0.8)',
+                padding: [4, 8]
+              }
+            }]
+          },
+          tooltip: {
+            formatter: function(params: any) {
+              return `初始资金: ¥${initialCapital.toLocaleString('zh-CN', {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
+            }
+          }
+        },
         {
           name: '策略收益',
           type: 'line',
@@ -1559,12 +1652,7 @@ const Backtest: React.FC = () => {
               >
                 <Row gutter={16}>
                   <Col span={24} style={{ marginBottom: 16 }}>
-                    <ReactECharts option={getEquityCurveOption()} style={{ height: 350 }} />
-                  </Col>
-                </Row>
-                <Row gutter={16}>
-                  <Col span={12}>
-                    <ReactECharts option={getDrawdownOption()} style={{ height: 350 }} />
+                    <ReactECharts option={getEquityCurveOption()} style={{ height: 500 }} />
                   </Col>
                 </Row>
               </TabPane>
@@ -1713,6 +1801,7 @@ const Backtest: React.FC = () => {
                                     )}
                                     <p><strong>交易前资金:</strong> {record.beforeCash.toLocaleString('zh-CN', {minimumFractionDigits: 2})} 元</p>
                                     <p><strong>交易后资金:</strong> {record.afterCash.toLocaleString('zh-CN', {minimumFractionDigits: 2})} 元</p>
+                                    <p><strong>触发原因:</strong> {record.trigger_reason || '未记录'}</p>
                                   </div>
                                 );
                                 
