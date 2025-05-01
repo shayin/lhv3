@@ -148,6 +148,10 @@ class StrategyBase:
                 signal = row.get('signal', 0)
                 
                 if signal == 1 and position == 0:  # 买入信号
+                    # 获取触发原因（如果有）
+                    trigger_reason = row.get('trigger_reason', "未记录触发原因")
+                    logger.info(f"执行买入操作 - 触发原因: {trigger_reason}")
+                    
                     price = round(row['close'], 2)  # 价格精确到2位小数
                     # 将股数向下取整为整数
                     shares = int(cash / price)  # 使用当前现金计算可买入的股数
@@ -182,7 +186,8 @@ class StrategyBase:
                         'before_cash': round(before_cash, 2),  # 交易前现金
                         'after_cash': round(after_cash, 2),  # 交易后现金
                         'before_equity': round(before_equity, 2),  # 交易前总资产
-                        'after_equity': round(after_equity, 2)  # 交易后总资产
+                        'after_equity': round(after_equity, 2),  # 交易后总资产
+                        'trigger_reason': trigger_reason  # 添加触发原因
                     }
                     trades.append(trade)
                     position = 1
@@ -191,6 +196,10 @@ class StrategyBase:
                     logger.info(f"{trade_date:<12} {'买入':<6} {price:<10.2f} {shares:<10d} {actual_cost:<12.2f} {'':<10} {before_cash:<12.2f} {after_cash:<12.2f}")
 
                 elif signal == -1 and position == 1:  # 卖出信号
+                    # 获取触发原因（如果有）
+                    trigger_reason = row.get('trigger_reason', "未记录触发原因")
+                    logger.info(f"执行卖出操作 - 触发原因: {trigger_reason}")
+                    
                     price = round(row['close'], 2)  # 价格精确到2位小数
                     shares = position_shares  # 使用之前买入的实际股数
                     sale_value = round(shares * price, 2)  # 卖出总值精确到2位小数
@@ -240,7 +249,8 @@ class StrategyBase:
                         'before_cash': round(before_cash, 2),  # 交易前现金
                         'after_cash': round(after_cash, 2),  # 交易后现金
                         'before_equity': round(before_equity, 2),  # 交易前总资产
-                        'after_equity': round(after_equity, 2)  # 交易后总资产
+                        'after_equity': round(after_equity, 2),  # 交易后总资产
+                        'trigger_reason': trigger_reason  # 添加触发原因
                     }
                     trades.append(trade)
                     position = 0

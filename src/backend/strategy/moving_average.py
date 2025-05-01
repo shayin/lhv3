@@ -2,6 +2,10 @@ from typing import Dict, Any
 import pandas as pd
 import numpy as np
 from .base import StrategyBase
+import logging
+
+# 获取logger
+logger = logging.getLogger(__name__)
 
 class MovingAverageStrategy(StrategyBase):
     """
@@ -67,9 +71,35 @@ class MovingAverageStrategy(StrategyBase):
         crossing_up = (signals['ma_diff'] > 0) & (signals['prev_ma_diff'] <= 0)
         signals.loc[crossing_up, 'signal'] = 1
         
+        # 记录买入信号触发原因
+        for idx in signals.index[crossing_up]:
+            date_str = idx.strftime('%Y-%m-%d') if hasattr(idx, 'strftime') else str(idx)
+            reason = f"买入信号触发 [{date_str}]: 短期均线({short_window}日)上穿长期均线({long_window}日), " \
+                    f"短期均线: {signals.loc[idx, 'short_ma']:.2f}, " \
+                    f"长期均线: {signals.loc[idx, 'long_ma']:.2f}, " \
+                    f"价差: {signals.loc[idx, 'ma_diff']:.2f}, " \
+                    f"昨日价差: {signals.loc[idx, 'prev_ma_diff']:.2f}, " \
+                    f"收盘价: {signals.loc[idx, 'close']:.2f}"
+            logger.info(reason)
+            # 添加触发原因到信号数据中
+            signals.loc[idx, 'trigger_reason'] = f"短期均线({short_window}日)上穿长期均线({long_window}日)"
+        
         # 下穿信号：今天短期均线在长期均线下方，但昨天在上方或重合
         crossing_down = (signals['ma_diff'] < 0) & (signals['prev_ma_diff'] >= 0)
         signals.loc[crossing_down, 'signal'] = -1
+        
+        # 记录卖出信号触发原因
+        for idx in signals.index[crossing_down]:
+            date_str = idx.strftime('%Y-%m-%d') if hasattr(idx, 'strftime') else str(idx)
+            reason = f"卖出信号触发 [{date_str}]: 短期均线({short_window}日)下穿长期均线({long_window}日), " \
+                    f"短期均线: {signals.loc[idx, 'short_ma']:.2f}, " \
+                    f"长期均线: {signals.loc[idx, 'long_ma']:.2f}, " \
+                    f"价差: {signals.loc[idx, 'ma_diff']:.2f}, " \
+                    f"昨日价差: {signals.loc[idx, 'prev_ma_diff']:.2f}, " \
+                    f"收盘价: {signals.loc[idx, 'close']:.2f}"
+            logger.info(reason)
+            # 添加触发原因到信号数据中
+            signals.loc[idx, 'trigger_reason'] = f"短期均线({short_window}日)下穿长期均线({long_window}日)"
         
         # 持仓信号：根据移动平均线的相对位置判断
         signals.loc[signals['short_ma'] > signals['long_ma'], 'position'] = 1
