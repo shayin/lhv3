@@ -385,19 +385,7 @@ const Backtest: React.FC = () => {
             xAxis: index,
             yAxis: price,
             itemStyle: {
-              color: '#f5222d'
-            },
-            symbol: 'arrow',
-            symbolSize: 10,
-            label: {
-              show: true,
-              position: 'top',
-              formatter: `买入\n¥${price.toFixed(2)}`,
-              fontSize: 12,
-              color: '#f5222d',
-              backgroundColor: 'rgba(255,255,255,0.7)',
-              padding: [2, 4],
-              borderRadius: 2
+              color: '#f64034'
             }
           };
         })
@@ -424,9 +412,7 @@ const Backtest: React.FC = () => {
           console.log(`卖出日期匹配成功: ${dateStr} -> 索引 ${index}, 价格 ${price}, 盈亏 ${profit}`);
           
           // 根据盈亏决定颜色
-          const color = profit >= 0 ? '#f5222d' : '#52c41a';
-          const profitText = profit >= 0 ? `+${profit.toFixed(2)}` : `${profit.toFixed(2)}`;
-          const percentText = profitPercent >= 0 ? `+${profitPercent.toFixed(2)}%` : `${profitPercent.toFixed(2)}%`;
+          const color = profit >= 0 ? '#f64034' : '#00b46a';
           
           return {
             name: '卖出',
@@ -435,19 +421,6 @@ const Backtest: React.FC = () => {
             yAxis: price,
             itemStyle: {
               color: color
-            },
-            symbol: 'arrow',
-            symbolSize: 10,
-            symbolRotate: 180,
-            label: {
-              show: true,
-              position: 'bottom',
-              formatter: `卖出\n¥${price.toFixed(2)}\n${profitText}(${percentText})`,
-              fontSize: 12,
-              color: color,
-              backgroundColor: 'rgba(255,255,255,0.7)',
-              padding: [2, 4],
-              borderRadius: 2
             }
           };
         })
@@ -460,6 +433,170 @@ const Backtest: React.FC = () => {
     // 构建x轴数据，直接映射K线日期
     const xAxisData = klineData.map(item => item[0]);
     
+    // 构建交易标记系列
+    let markPointData: any[] = [];
+    
+    // 修改买入和卖出标记的位置，仿照富途交易软件风格
+    markPointData = [
+      // 价格位置的小圆点标记
+      ...buySignals.map(signal => {
+        const xIndex = signal.value[0];
+        return {
+          name: '买入点',
+          coord: [signal.value[0], signal.value[1]],
+          value: signal.value[1],
+          itemStyle: {
+            color: '#f64034',
+            borderColor: '#ffffff',
+            borderWidth: 1,
+            shadowBlur: 2,
+            shadowColor: 'rgba(0,0,0,0.3)'
+          },
+          symbol: 'circle',
+          symbolSize: 8,
+          label: {
+            show: false
+          }
+        };
+      }),
+      ...sellSignals.map(signal => {
+        return {
+          name: '卖出点',
+          coord: [signal.value[0], signal.value[1]],
+          value: signal.value[1],
+          itemStyle: {
+            color: '#00b46a',
+            borderColor: '#ffffff',
+            borderWidth: 1,
+            shadowBlur: 2,
+            shadowColor: 'rgba(0,0,0,0.3)'
+          },
+          symbol: 'circle',
+          symbolSize: 8,
+          label: {
+            show: false
+          }
+        };
+      }),
+      
+      // K线顶部的买入标签
+      ...buySignals.map(signal => {
+        const xIndex = signal.value[0];
+        // 计算当前K线数据的最高价
+        const highPrice = klineData[xIndex][4]; // K线的第4个元素是最高价
+        // 设置标签位置在最高价上方
+        const labelY = highPrice * 1.10; // 最高价上方10%的位置
+        
+        return {
+          name: '买入标签',
+          coord: [signal.value[0], labelY],
+          itemStyle: {
+            color: '#f64034'
+          },
+          symbol: 'pin',
+          symbolSize: 25,
+          symbolOffset: [0, '50%'],
+          label: {
+            show: true,
+            formatter: 'B',
+            fontSize: 12,
+            fontWeight: 'bold',
+            color: '#ffffff',
+            position: 'inside'
+          }
+        };
+      }),
+      
+      // K线顶部的卖出标签
+      ...sellSignals.map(signal => {
+        const xIndex = signal.value[0];
+        // 为避免与买入标签重叠，检查同一天是否有买入信号
+        const hasBuyOnSameDay = buySignals.some(buySignal => {
+          const buyIndex = buySignal.value[0];
+          const buyDate = normalizeDate(klineData[buyIndex][0]);
+          const sellDate = normalizeDate(klineData[xIndex][0]);
+          return buyDate === sellDate;
+        });
+        
+        // 计算当前K线数据的最高价
+        const highPrice = klineData[xIndex][4]; // K线的第4个元素是最高价
+        // 设置标签位置，如果同日有买入信号，则需稍微错开
+        const labelY = hasBuyOnSameDay ? highPrice * 1.20 : highPrice * 1.10;
+        
+        return {
+          name: '卖出标签',
+          coord: [signal.value[0], labelY],
+          itemStyle: {
+            color: '#00b46a'
+          },
+          symbol: 'pin',
+          symbolSize: 25,
+          symbolOffset: [0, '50%'],
+          label: {
+            show: true,
+            formatter: 'S',
+            fontSize: 12,
+            fontWeight: 'bold',
+            color: '#ffffff',
+            position: 'inside'
+          }
+        };
+      })
+    ];
+    
+    // 额外的价格标签数据，用于显示价格和盈亏信息
+    const priceLabels = [
+      ...buySignals.map(signal => ({
+        name: '买入价格',
+        coord: [signal.value[0], signal.value[1] * 1.03], // 稍微上移
+        symbol: 'none',
+        label: {
+          show: true,
+          formatter: `¥${signal.value[1].toFixed(2)}`,
+          fontSize: 12,
+          color: '#f64034',
+          backgroundColor: 'rgba(255,255,255,0.7)',
+          padding: [2, 4],
+          borderRadius: 2,
+          position: 'top',
+          distance: 8
+        }
+      })),
+      ...sellSignals.map(signal => {
+        // 获取该信号对应的交易记录
+        const xIndex = signal.value[0];
+        const klineDate = klineData[xIndex][0];
+        const sellRecord = tradeRecords.find(record => 
+          record.direction === '卖出' && 
+          normalizeDate(record.date) === normalizeDate(klineDate)
+        );
+        
+        const profit = sellRecord ? (sellRecord.profitLoss || 0) : 0;
+        const profitPercent = sellRecord ? (sellRecord.returnPct || 0) : 0;
+        const profitText = profit >= 0 ? `+${profit.toFixed(2)}` : `${profit.toFixed(2)}`;
+        const percentText = profitPercent >= 0 ? `+${profitPercent.toFixed(2)}%` : `${profitPercent.toFixed(2)}%`;
+        
+        return {
+          name: '卖出价格',
+          coord: [signal.value[0], signal.value[1] * 0.97], // 稍微下移
+          symbol: 'none',
+          label: {
+            show: true,
+            formatter: sellRecord ? 
+              `¥${signal.value[1].toFixed(2)}\n${profitText}(${percentText})` : 
+              `¥${signal.value[1].toFixed(2)}`,
+            fontSize: 12,
+            color: '#00b46a',
+            backgroundColor: 'rgba(255,255,255,0.7)',
+            padding: [2, 4],
+            borderRadius: 2,
+            position: 'bottom',
+            distance: 8
+          }
+        };
+      })
+    ];
+
     return {
       title: {
         text: title,
@@ -468,7 +605,17 @@ const Backtest: React.FC = () => {
       tooltip: {
         trigger: 'axis',
         axisPointer: {
-          type: 'cross'
+          type: 'cross',
+          label: {
+            backgroundColor: '#555'
+          }
+        },
+        backgroundColor: 'rgba(255, 255, 255, 0.9)',
+        borderWidth: 1,
+        borderColor: '#ccc',
+        padding: 10,
+        textStyle: {
+          color: '#333'
         },
         formatter: function(params: any) {
           // 自定义提示框内容
@@ -477,66 +624,95 @@ const Backtest: React.FC = () => {
           if (Array.isArray(params)) {
             // 获取第一个项的日期作为标题
             const date = params[0].axisValue;
-            result = `<div style="font-weight:bold;margin-bottom:3px;">${date}</div>`;
+            result = `<div style="font-weight:bold;margin-bottom:5px;color:#333;font-size:14px;">${date}</div>`;
             
             // 遍历所有系列数据
             params.forEach((item: any) => {
-              // 处理买入卖出信号
-              if (item.seriesName === '买入信号') {
-                result += `<div style="color:#f5222d;font-weight:bold;">买入：¥${item.value[1].toFixed(2)}</div>`;
-              } 
-              else if (item.seriesName === '卖出信号') {
-                // 找到对应的卖出记录
-                const xIndex = item.value[0];
-                const foundSellRecord = tradeRecords.find(record => {
-                  // 对于卖出记录，匹配日期对应的索引
-                  const klineDate = xAxisData[xIndex];
-                  // 比较日期值
-                  return record.direction === '卖出' && 
-                         normalizeDate(record.date) === normalizeDate(klineDate);
-                });
-                
-                if (foundSellRecord) {
-                  const profit = foundSellRecord.profitLoss || 0;
-                  const color = profit >= 0 ? '#f5222d' : '#52c41a';
-                  const profitText = profit >= 0 ? `+${profit.toFixed(2)}` : `${profit.toFixed(2)}`;
-                  const percentText = foundSellRecord.returnPct >= 0 ? 
-                    `+${foundSellRecord.returnPct.toFixed(2)}%` : 
-                    `${foundSellRecord.returnPct.toFixed(2)}%`;
-                  
-                  result += `<div style="color:${color};font-weight:bold;">
-                    卖出：¥${item.value[1].toFixed(2)}<br/>
-                    盈亏：${profitText} (${percentText})
-                  </div>`;
-                } else {
-                  result += `<div style="color:#52c41a;font-weight:bold;">卖出：¥${item.value[1].toFixed(2)}</div>`;
-                }
-              } 
               // 处理K线数据
-              else if (item.seriesName === 'K线') {
+              if (item.seriesName === 'K线') {
                 if (item.value && item.value.length >= 4) {
                   const [open, close, low, high] = item.value;
-                  const color = close >= open ? '#f5222d' : '#52c41a';
-                  result += `<div style="color:${color};line-height:1.5;">
-                    开盘：${open}<br/>
-                    收盘：${close}<br/>
-                    最低：${low}<br/>
-                    最高：${high}<br/>
+                  const color = close >= open ? '#f64034' : '#00b46a';
+                  result += `<div style="color:${color};line-height:1.5;margin-bottom:8px;font-weight:bold;">
+                    开盘：<span style="float:right;color:${color};">${open.toFixed(2)}</span><br/>
+                    收盘：<span style="float:right;color:${color};">${close.toFixed(2)}</span><br/>
+                    最低：<span style="float:right;color:${color};">${low.toFixed(2)}</span><br/>
+                    最高：<span style="float:right;color:${color};">${high.toFixed(2)}</span><br/>
                   </div>`;
                 }
               } 
               // 处理MA线
               else if (item.seriesName.startsWith('MA') && item.value !== '-') {
-                result += `<div style="color:${item.color};font-weight:bold;">${item.seriesName}：${parseFloat(item.value).toFixed(2)}</div>`;
+                const colors: {[key: string]: string} = {
+                  'MA5': '#f7b500',
+                  'MA10': '#2196F3',
+                  'MA20': '#8067dc', 
+                  'MA30': '#00b46a',
+                  'MA60': '#7cb305',
+                  'MA120': '#eb2f96'
+                };
+                const color = colors[item.seriesName] || item.color;
+                const value = parseFloat(item.value).toFixed(3);
+                result += `<div style="color:${color};font-weight:bold;display:inline-block;margin-right:15px;">${item.seriesName}：${value}</div>`;
               }
             });
+            
+            // 处理买卖信号
+            const dateStr = normalizeDate(date);
+            
+            // 查找买入信号
+            const buyRecord = tradeRecords.find(record => 
+              record.direction === '买入' && 
+              normalizeDate(record.date) === dateStr
+            );
+            
+            // 查找卖出信号
+            const sellRecord = tradeRecords.find(record => 
+              record.direction === '卖出' && 
+              normalizeDate(record.date) === dateStr
+            );
+            
+            // 显示买卖信号
+            if (buyRecord || sellRecord) {
+              result += `<div style="margin-top:5px;border-top:1px dashed #ddd;padding-top:5px;"></div>`;
+            }
+            
+            // 显示买入信号
+            if (buyRecord) {
+              const price = buyRecord.entryPrice || 0;
+              result += `<div style="color:#f64034;font-weight:bold;margin-top:3px;">
+                买入(B)：¥${price.toFixed(2)}
+              </div>`;
+            }
+            
+            // 显示卖出信号
+            if (sellRecord) {
+              const price = sellRecord.exitPrice || 0;
+              const profit = sellRecord.profitLoss || 0;
+              const profitPercent = sellRecord.returnPct || 0;
+              const profitText = profit >= 0 ? `+${profit.toFixed(2)}` : `${profit.toFixed(2)}`;
+              const percentText = profitPercent >= 0 ? `+${profitPercent.toFixed(2)}%` : `${profitPercent.toFixed(2)}%`;
+              
+              result += `<div style="color:#00b46a;font-weight:bold;margin-top:3px;">
+                卖出(S)：¥${price.toFixed(2)}<br/>
+                盈亏：${profitText} (${percentText})
+              </div>`;
+            }
           }
           return result;
         }
       },
       legend: {
-        data: ['K线', 'MA5', 'MA20', '买入信号', '卖出信号'],
-        bottom: 10
+        data: ['K线', 'MA5', 'MA10', 'MA20', 'MA30'],
+        bottom: 10,
+        selected: {
+          'MA10': false,
+          'MA30': false
+        },
+        textStyle: {
+          color: '#333'
+        },
+        itemGap: 20
       },
       grid: {
         left: '3%',
@@ -581,10 +757,26 @@ const Backtest: React.FC = () => {
           type: 'candlestick',
           data: klineData.map(item => [item[1], item[2], item[3], item[4]]),
           itemStyle: {
-            color: '#f5222d',
-            color0: '#52c41a',
-            borderColor: '#f5222d',
-            borderColor0: '#52c41a'
+            color: '#f64034',   // 阳线红色
+            color0: '#00b46a',  // 阴线绿色
+            borderColor: '#f64034',
+            borderColor0: '#00b46a'
+          },
+          markPoint: {
+            data: markPointData,
+            animation: false,
+            z: 10
+          }
+        },
+        {
+          name: '价格标签',
+          type: 'scatter',
+          data: [],
+          markPoint: {
+            symbol: 'none',
+            data: priceLabels,
+            animation: false,
+            z: 9
           }
         },
         {
@@ -594,7 +786,17 @@ const Backtest: React.FC = () => {
           smooth: true,
           lineStyle: {
             width: 1,
-            color: '#2196F3'
+            color: '#f7b500'  // 参考富途的颜色
+          }
+        },
+        {
+          name: 'MA10',
+          type: 'line',
+          data: calculateMA(10, klineData),
+          smooth: true,
+          lineStyle: {
+            width: 1,
+            color: '#2196F3'  // 参考富途的颜色
           }
         },
         {
@@ -604,64 +806,18 @@ const Backtest: React.FC = () => {
           smooth: true,
           lineStyle: {
             width: 1,
-            color: '#4CAF50'
+            color: '#8067dc'  // 参考富途的颜色
           }
         },
         {
-          name: '买入信号',
-          type: 'scatter',
-          coordinateSystem: 'cartesian2d',
-          data: buySignals.map(signal => signal.value),
-          symbolSize: 15,
-          symbolRotate: -90,
-          symbol: 'triangle',
-          itemStyle: {
-            color: '#f5222d'
-          },
-          emphasis: {
-            itemStyle: {
-              color: '#ff7875',
-              borderColor: '#fff',
-              borderWidth: 2
-            }
-          },
-          markPoint: {
-            symbol: 'pin',
-            symbolSize: 40,
-            data: buySignals
-          },
-          z: 10
-        },
-        {
-          name: '卖出信号',
-          type: 'scatter',
-          coordinateSystem: 'cartesian2d',
-          data: sellSignals.map(signal => signal.value),
-          symbolSize: 15,
-          symbolRotate: 90,
-          symbol: 'triangle',
-          itemStyle: {
-            color: function(params: any) {
-              // 根据对应卖出记录的盈亏决定颜色
-              const index = params.dataIndex;
-              if (index >= 0 && index < sellSignals.length) {
-                return sellSignals[index].itemStyle.color;
-              }
-              return '#52c41a';
-            }
-          },
-          emphasis: {
-            itemStyle: {
-              borderColor: '#fff',
-              borderWidth: 2
-            }
-          },
-          markPoint: {
-            symbol: 'pin',
-            symbolSize: 40,
-            data: sellSignals
-          },
-          z: 10
+          name: 'MA30',
+          type: 'line',
+          data: calculateMA(30, klineData),
+          smooth: true,
+          lineStyle: {
+            width: 1,
+            color: '#00b46a'  // 参考富途的颜色
+          }
         }
       ]
     };
@@ -1324,9 +1480,10 @@ const Backtest: React.FC = () => {
                         onEvents={{
                           click: (params: any) => {
                             // 点击交易标记时，弹出详细信息
-                            if (params.seriesName === '买入信号' || params.seriesName === '卖出信号') {
-                              const isBuy = params.seriesName === '买入信号';
-                              const xIndex = params.value[0]; // X轴索引
+                            if (params.componentType === 'markPoint') {
+                              const pointName = params.name; // '买入' 或 '卖出'
+                              const isBuy = pointName === '买入';
+                              const xIndex = params.data.coord[0]; // X轴索引
                               
                               // 获取该索引对应的K线日期
                               const klineDate = klineData[xIndex][0];
@@ -1338,7 +1495,7 @@ const Backtest: React.FC = () => {
                                 normalizeDate(record.date) === normalizeDate(klineDate)
                               );
                               
-                              console.log(`点击了${directionType}信号，日期: ${klineDate}`, matchedRecord);
+                              console.log(`点击了${directionType}标记，日期: ${klineDate}`, matchedRecord);
                               
                               if (matchedRecord) {
                                 const record = matchedRecord;
