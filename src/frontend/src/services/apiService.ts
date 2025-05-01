@@ -19,6 +19,19 @@ export interface DataSource {
   description?: string;
 }
 
+// 定义策略接口
+export interface Strategy {
+  id?: string;
+  name: string;
+  description?: string;
+  template?: string;
+  parameters?: Record<string, any>;
+  code?: string;
+  created_at?: string;
+  updated_at?: string;
+  is_custom?: boolean;
+}
+
 // 获取所有交易品种列表
 export const fetchStockList = async (): Promise<Stock[]> => {
   try {
@@ -66,6 +79,66 @@ export const fetchChartData = async (stockId: string) => {
     return { data: [] };
   } catch (error) {
     console.error('获取图表数据失败:', error);
+    throw error;
+  }
+};
+
+// 保存策略
+export const saveStrategy = async (strategy: Strategy): Promise<Strategy> => {
+  try {
+    let response;
+    if (strategy.id) {
+      // 更新现有策略
+      response = await axios.put(`/api/strategies/${strategy.id}`, strategy);
+    } else {
+      // 创建新策略
+      response = await axios.post('/api/strategies', strategy);
+    }
+    
+    if (response.data && response.data.data) {
+      return response.data.data;
+    }
+    return response.data;
+  } catch (error) {
+    console.error('保存策略失败:', error);
+    throw error;
+  }
+};
+
+// 获取所有策略列表
+export const fetchStrategies = async (): Promise<Strategy[]> => {
+  try {
+    const response = await axios.get('/api/strategies');
+    if (response.data && response.data.data) {
+      return response.data.data;
+    }
+    return [];
+  } catch (error) {
+    console.error('获取策略列表失败:', error);
+    throw error;
+  }
+};
+
+// 获取单个策略详情
+export const fetchStrategyById = async (id: string): Promise<Strategy> => {
+  try {
+    const response = await axios.get(`/api/strategies/${id}`);
+    if (response.data && response.data.data) {
+      return response.data.data;
+    }
+    throw new Error('未找到策略数据');
+  } catch (error) {
+    console.error(`获取策略(ID:${id})详情失败:`, error);
+    throw error;
+  }
+};
+
+// 删除策略
+export const deleteStrategy = async (id: string): Promise<void> => {
+  try {
+    await axios.delete(`/api/strategies/${id}`);
+  } catch (error) {
+    console.error(`删除策略(ID:${id})失败:`, error);
     throw error;
   }
 }; 

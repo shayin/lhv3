@@ -23,3 +23,29 @@ __all__ = [
 # def init_db():
 #     """初始化数据库，创建所有表"""
 #     Base.metadata.create_all(bind=engine) 
+
+from .base import Base, get_db, init_db
+from .market_data import Stock as MarketStock, DailyPrice, DataSource as MarketDataSource
+from .strategy import Strategy, Backtest, Trade
+from .data_models import Stock, StockData, DataSource, TechnicalIndicator
+
+__all__ = [
+    'Base', 
+    'MarketStock',
+    'Stock',
+    'DailyPrice', 
+    'MarketDataSource',
+    'DataSource', 
+    'Strategy', 
+    'Backtest', 
+    'Trade',
+    'StockData',
+    'TechnicalIndicator',
+    'get_db',
+    'init_db'
+]
+
+# 注意：现在使用base.py中的init_db函数
+# def init_db():
+#     """初始化数据库，创建所有表"""
+#     Base.metadata.create_all(bind=engine) 
