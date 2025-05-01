@@ -20,3 +20,9 @@ def get_db():
         yield db
     finally:
         db.close() 
+
+# 初始化数据库函数
+def init_db():
+    """初始化数据库，创建所有表"""
+    Base.metadata.create_all(bind=engine)
+    print("数据库初始化完成，所有表已创建") 

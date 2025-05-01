@@ -12,7 +12,7 @@ os.makedirs(RAW_DATA_DIR, exist_ok=True)
 os.makedirs(PROCESSED_DATA_DIR, exist_ok=True)
 
 # 数据库配置
-DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./quant_trading.db")
+DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./backtesting.db")
 
 # API配置
 API_KEYS = {

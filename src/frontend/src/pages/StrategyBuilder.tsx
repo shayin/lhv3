@@ -3,7 +3,8 @@ import { Card, Tabs, Form, Input, Select, Button, Collapse, Space, Switch, Input
 import { SaveOutlined, PlayCircleOutlined, CodeOutlined, LineChartOutlined, SettingOutlined } from '@ant-design/icons';
 import ReactCodeMirror from '@uiw/react-codemirror';
 import { python } from '@codemirror/lang-python';
-import { fetchStockList, Stock } from '../services/apiService';
+import { fetchStockList, Stock, saveStrategy, Strategy, fetchStrategyById } from '../services/apiService';
+import { useLocation, useNavigate } from 'react-router-dom';
 
 const { Title, Paragraph } = Typography;
 const { TabPane } = Tabs;
@@ -11,6 +12,8 @@ const { Panel } = Collapse;
 const { Option } = Select;
 
 const StrategyBuilder: React.FC = () => {
+  const location = useLocation();
+  const navigate = useNavigate();
   const [activeKey, setActiveKey] = useState('visual');
   const [codeValue, setCodeValue] = useState(`# 策略示例：移动平均线交叉策略
 import pandas as pd
@@ -47,11 +50,54 @@ def handle_data(context, data):
   const [form] = Form.useForm();
   const [stockList, setStockList] = useState<Stock[]>([]);
   const [loading, setLoading] = useState(false);
+  const [currentStrategy, setCurrentStrategy] = useState<Strategy | null>(null);
+  const [isSaving, setIsSaving] = useState(false);
+  
+  // 从URL获取策略ID（如果有）
+  const getStrategyIdFromUrl = () => {
+    const searchParams = new URLSearchParams(location.search);
+    return searchParams.get('id');
+  };
   
   // 加载数据
   useEffect(() => {
     fetchStocks();
-  }, []);
+    loadStrategyIfNeeded();
+  }, [location]);
+  
+  // 如果URL中有策略ID，加载该策略
+  const loadStrategyIfNeeded = async () => {
+    const strategyId = getStrategyIdFromUrl();
+    if (strategyId) {
+      try {
+        setLoading(true);
+        // 使用封装好的API函数加载策略详情
+        const strategy = await fetchStrategyById(strategyId);
+        
+        setCurrentStrategy(strategy);
+        
+        // 设置表单值
+        if (strategy.code) {
+          // 如果有代码，切换到代码编辑模式
+          setActiveKey('code');
+          setCodeValue(strategy.code);
+        }
+        
+        // 设置表单值
+        form.setFieldsValue({
+          strategyName: strategy.name,
+          description: strategy.description,
+          template: strategy.template,
+          ...(strategy.parameters || {})
+        });
+      } catch (error) {
+        console.error('加载策略详情失败:', error);
+        message.error('加载策略详情失败');
+      } finally {
+        setLoading(false);
+      }
+    }
+  };
   
   // 获取股票列表
   const fetchStocks = async () => {
@@ -66,8 +112,67 @@ def handle_data(context, data):
     }
   };
 
-  const handleSave = () => {
-    message.success('策略保存成功');
+  const handleSave = async () => {
+    try {
+      // 根据activeKey获取不同的策略数据
+      let strategyData: Strategy;
+      
+      if (activeKey === 'visual') {
+        // 从表单获取可视化编辑器的数据
+        const formValues = form.getFieldsValue();
+        strategyData = {
+          name: formValues.strategyName,
+          description: formValues.description,
+          template: formValues.template,
+          parameters: {
+            symbol: formValues.symbol,
+            timeframe: formValues.timeframe,
+            shortPeriod: formValues.shortPeriod,
+            longPeriod: formValues.longPeriod,
+            positionSizing: formValues.positionSizing,
+            useStopLoss: formValues.useStopLoss,
+            useTakeProfit: formValues.useTakeProfit,
+            singleRisk: formValues.singleRisk,
+            maxDrawdown: formValues.maxDrawdown,
+            dailyRisk: formValues.dailyRisk,
+            indicators: formValues.indicators
+          }
+        };
+      } else {
+        // 使用代码编辑器的数据
+        strategyData = {
+          name: form.getFieldValue('strategyName') || '自定义策略',
+          description: form.getFieldValue('description') || '通过代码编辑器创建的自定义策略',
+          code: codeValue
+        };
+      }
+      
+      // 如果是更新已有策略，添加ID
+      if (currentStrategy && currentStrategy.id) {
+        strategyData.id = currentStrategy.id;
+      }
+      
+      setIsSaving(true);
+      
+      // 调用API保存策略
+      const savedStrategy = await saveStrategy(strategyData);
+      
+      message.success('策略保存成功');
+      console.log('保存的策略数据:', savedStrategy);
+      
+      // 保存成功后，如果是新创建的策略，跳转到策略详情页
+      if (!currentStrategy && savedStrategy.id) {
+        navigate(`/strategy-builder?id=${savedStrategy.id}`);
+      }
+      
+      // 更新当前策略
+      setCurrentStrategy(savedStrategy);
+    } catch (error) {
+      console.error('保存策略失败:', error);
+      message.error('保存策略失败，请重试');
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   const handleTest = () => {
