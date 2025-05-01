@@ -348,7 +348,61 @@ class StrategyBase:
             results['win_rate'] = 0.0
             logger.info("胜率: 0.0% (没有交易记录)")
         
-        # 将结果整合为前端期望的格式
+        # 直接计算总收益率，使用最终资金与初始资金
+        final_equity = 0.0
+        
+        # 如果有未平仓持仓，则添加到最终资金
+        if position == 1:  # 如果回测结束时还有持仓
+            # 使用最后一个交易日的收盘价计算持仓价值
+            last_close_price = data['close'].iloc[-1]
+            position_value = position_shares * last_close_price
+            final_equity = cash + position_value
+        else:
+            # 如果没有持仓，最终资金就是现金
+            final_equity = cash
+        
+        # 如果有交易，使用交易后现金计算收益率
+        if trades and len(trades) > 0:
+            # 检查是否有卖出交易
+            sell_trades = [t for t in trades if t.get('action') == 'SELL']
+            if sell_trades:
+                # 找出最新的交易记录
+                latest_trade = trades[-1]
+                # 更新最终资金
+                if latest_trade.get('action') == 'SELL':
+                    # 如果最后一笔是卖出，用卖出后现金作为最终权益
+                    final_equity = latest_trade.get('after_cash', cash)
+                elif latest_trade.get('action') == 'BUY':
+                    # 如果最后一笔是买入，需要加上持仓价值
+                    position_value = latest_trade.get('shares', 0) * data['close'].iloc[-1]
+                    final_equity = latest_trade.get('after_cash', cash) + position_value
+                    
+        # 计算总收益率
+        total_return = ((final_equity - initial_capital) / initial_capital) * 100
+        results['total_return'] = round(total_return, 2)
+        logger.info(f"更新计算总收益率: {total_return:.2f}% (初始资金: {initial_capital:.2f}, 最终资金: {final_equity:.2f})")
+        
+        # 计算年化收益率
+        if len(returns) > 1:
+            # 获取第一个和最后一个交易日
+            first_date = pd.to_datetime(returns.index[0])
+            last_date = pd.to_datetime(returns.index[-1])
+            # 计算交易天数
+            trading_days = (last_date - first_date).days
+            # 避免除以零
+            if trading_days > 0:
+                # 计算年化收益率
+                annual_return = total_return * (365 / trading_days)
+                results['annual_return'] = round(annual_return, 2)
+                logger.info(f"更新计算年化收益率: {annual_return:.2f}% (交易天数: {trading_days}天)")
+            else:
+                results['annual_return'] = 0.0
+                logger.info("年化收益率: 0.0% (交易天数为0)")
+        else:
+            results['annual_return'] = 0.0
+            logger.info("年化收益率: 0.0% (没有足够的数据)")
+        
+        # 更新性能指标
         performance = {
             'total_return': round(results['total_return'], 2),
             'annual_return': round(results['annual_return'], 2),
