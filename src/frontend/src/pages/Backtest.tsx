@@ -1053,6 +1053,49 @@ const Backtest: React.FC = () => {
       `${validData[0].date}(${validData[0].equity}) ~ ${validData[validData.length-1].date}(${validData[validData.length-1].equity})` : 
       '无数据');
     
+    // 添加买卖点标记
+    let buyPoints: any[] = [];
+    let sellPoints: any[] = [];
+    
+    // 建立日期与索引的映射，用于定位买卖点
+    const dateIndexMap = new Map<string, number>();
+    
+    // 处理权益曲线数据的日期，创建映射
+    validData.forEach((item, index) => {
+      const dateStr = normalizeDate(item.date);
+      dateIndexMap.set(dateStr, index);
+    });
+    
+    // 从交易记录中提取买入和卖出点
+    if (tradeRecords.length > 0) {
+      console.log('准备在权益曲线上标记交易点，总交易记录：', tradeRecords.length);
+      
+      // 遍历所有交易记录
+      tradeRecords.forEach(record => {
+        const dateStr = normalizeDate(record.date);
+        const index = dateIndexMap.get(dateStr);
+        
+        if (index !== undefined) {
+          // 创建交易点标记
+          const point = {
+            name: record.direction === '买入' ? '买入点' : '卖出点',
+            value: validData[index].equity,
+            xAxis: index,
+            yAxis: validData[index].equity,
+            itemStyle: {
+              color: record.direction === '买入' ? '#f64034' : '#00b46a'
+            }
+          };
+          
+          if (record.direction === '买入') {
+            buyPoints.push(point);
+          } else {
+            sellPoints.push(point);
+          }
+        }
+      });
+    }
+    
     return {
       title: {
         text: '策略收益曲线',
@@ -1061,13 +1104,31 @@ const Backtest: React.FC = () => {
       tooltip: {
         trigger: 'axis',
         formatter: function(params: any) {
-          const date = params[0].axisValue;
-          const value = params[0].data;
-          return `${date}<br/>${params[0].seriesName}: ¥${parseFloat(value).toLocaleString('zh-CN', {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
+          // 处理数组类型的参数
+          if (Array.isArray(params) && params.length > 0) {
+            const date = params[0].axisValue;
+            const value = params[0].data;
+            
+            // 查找是否有额外的买卖点信息
+            let extraInfo = '';
+            for (let i = 0; i < params.length; i++) {
+              const param = params[i];
+              if (param.seriesName === '买入点' || param.seriesName === '卖出点') {
+                extraInfo = `<br/><span style="color:${param.color}">● ${param.seriesName}</span>`;
+                break;
+              }
+            }
+            
+            return `${date}<br/>策略收益: ¥${parseFloat(value).toLocaleString('zh-CN', {minimumFractionDigits: 2, maximumFractionDigits: 2})}${extraInfo}`;
+          }
+          
+          // 单个值的处理
+          const value = params.value;
+          return `${params.name}: ¥${parseFloat(value).toLocaleString('zh-CN', {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
         }
       },
       legend: {
-        data: ['策略收益'],
+        data: ['策略收益', '买入点', '卖出点'],
         bottom: 10
       },
       grid: {
@@ -1088,6 +1149,20 @@ const Backtest: React.FC = () => {
           formatter: '¥{value}'
         }
       },
+      dataZoom: [
+        {
+          type: 'inside',
+          start: 0,
+          end: 100
+        },
+        {
+          show: true,
+          type: 'slider',
+          bottom: 60,
+          start: 0,
+          end: 100
+        }
+      ],
       series: [
         {
           name: '策略收益',
@@ -1100,6 +1175,47 @@ const Backtest: React.FC = () => {
           },
           areaStyle: {
             opacity: 0.2
+          },
+          markPoint: {
+            data: [
+              ...buyPoints.map(point => ({
+                name: '买入点',
+                coord: [point.xAxis, point.yAxis],
+                value: point.value,
+                itemStyle: {
+                  color: '#f64034'
+                },
+                symbol: 'pin',
+                symbolSize: 30,
+                label: {
+                  formatter: function(dataIndex: number, params: any): string {
+                    return 'B';
+                  },
+                  color: '#fff',
+                  position: 'inside'
+                }
+              })),
+              ...sellPoints.map(point => ({
+                name: '卖出点',
+                coord: [point.xAxis, point.yAxis],
+                value: point.value,
+                itemStyle: {
+                  color: '#00b46a'
+                },
+                symbol: 'pin',
+                symbolSize: 30,
+                label: {
+                  formatter: function(dataIndex: number, params: any): string {
+                    return 'S';
+                  },
+                  color: '#fff',
+                  position: 'inside'
+                }
+              }))
+            ],
+            symbolSize: function(value: any, params: any): number {
+              return 30;
+            }
           }
         }
       ]
