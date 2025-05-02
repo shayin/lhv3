@@ -73,20 +73,33 @@ def handle_data(context, data):
   
   // 加载数据
   useEffect(() => {
-    fetchStocks();
-    fetchStrategyList();
-    loadStrategyTemplates();
+    // 仅在首次挂载时获取股票列表和策略模板列表
+    const loadInitialData = async () => {
+      await Promise.all([
+        fetchStocks(),
+        fetchStrategyList(),
+        loadStrategyTemplates()
+      ]);
+    };
     
-    // 获取当前URL中的策略ID和时间戳
+    loadInitialData();
+    
+    // 获取当前URL中的策略ID
     const strategyId = getStrategyIdFromUrl();
-    const urlHasTimestamp = new URLSearchParams(location.search).has('t');
     
-    // 仅在以下情况加载策略详情：
-    // 1. URL中有策略ID但当前没有加载策略
-    // 2. URL中有时间戳参数（表示需要强制刷新）
-    if ((strategyId && !currentStrategy?.id) || 
-        (strategyId && currentStrategy?.id !== strategyId) || 
-        urlHasTimestamp) {
+    // 仅在URL中有策略ID且与当前策略不同时加载
+    if (strategyId && (!currentStrategy || currentStrategy.id !== strategyId)) {
+      loadStrategyIfNeeded();
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  
+  // 仅当URL中的id参数变化时加载策略
+  useEffect(() => {
+    const strategyId = getStrategyIdFromUrl();
+    
+    // 仅在URL中有策略ID且与当前策略不同时加载
+    if (strategyId && (!currentStrategy || currentStrategy.id !== strategyId)) {
       loadStrategyIfNeeded();
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -228,8 +241,12 @@ def handle_data(context, data):
         // 设置所有表单字段值
         form.setFieldsValue(formValues);
         
-        // 更新URL，但不触发新的加载
-        navigate(`/strategy-builder?id=${strategy.id}`, { replace: true });
+        // 更新URL，但不触发导航操作（仅更新浏览器历史）
+        window.history.replaceState(
+          {}, 
+          '', 
+          `/strategy-builder?id=${strategy.id}`
+        );
         
       } catch (error) {
         console.error('加载策略详情失败:', error);
@@ -242,8 +259,7 @@ def handle_data(context, data):
 
   // 处理新建策略
   const handleCreateStrategy = () => {
-    // 清除URL中的ID参数，重置表单
-    navigate('/strategy-builder');
+    // 清除当前策略
     setCurrentStrategy(null);
     
     // 重置为默认值
@@ -260,6 +276,9 @@ def handle_data(context, data):
     
     // 默认切换到可视化编辑模式
     setActiveKey('visual');
+    
+    // 更新URL，去掉id参数
+    window.history.replaceState({}, '', '/strategy-builder');
   };
 
   // 处理复制策略
@@ -283,11 +302,11 @@ def handle_data(context, data):
       const savedStrategy = await saveStrategy(newStrategy);
       message.success('策略复制成功');
       
-      // 刷新策略列表
-      fetchStrategyList();
+      // 刷新策略列表并加载新策略
+      await fetchStrategyList();
       
-      // 导航到新策略
-      navigate(`/strategy-builder?id=${savedStrategy.id}`);
+      // 直接调用handleStrategyClick加载新策略
+      handleStrategyClick(savedStrategy);
     } catch (error) {
       console.error('复制策略失败:', error);
       message.error('复制策略失败');
@@ -307,12 +326,28 @@ def handle_data(context, data):
         try {
           await deleteStrategy(strategy.id as string);
           message.success('策略删除成功');
-          // 如果当前正在编辑被删除的策略，则返回策略列表
+          
+          // 如果当前正在编辑被删除的策略，则清空表单和当前策略
           if (currentStrategy && currentStrategy.id === strategy.id) {
             setCurrentStrategy(null);
-            navigate('/strategy-builder');
             form.resetFields();
+            
+            // 设置默认值
+            form.setFieldsValue({
+              strategyName: '新策略',
+              description: '请输入策略描述',
+              template: 'ma_cross',
+              symbol: '000300.SH',
+              timeframe: 'D',
+              shortPeriod: 20,
+              longPeriod: 60,
+              positionSizing: 'all_in',
+            });
+            
+            // 更新URL，去掉id参数
+            window.history.replaceState({}, '', '/strategy-builder');
           }
+          
           // 刷新策略列表
           fetchStrategyList();
         } catch (error) {
@@ -384,18 +419,19 @@ def handle_data(context, data):
       message.success('策略保存成功');
       console.log('保存的策略数据:', savedStrategy);
       
-      // 更新当前策略并重新加载
+      // 更新当前策略
       setCurrentStrategy(savedStrategy);
       
-      // 重要：刷新页面以确保数据更新
+      // 刷新策略列表
+      fetchStrategyList();
+      
+      // 更新URL，不触发导航跳转
       if (savedStrategy && savedStrategy.id) {
-        // 刷新策略列表
-        fetchStrategyList();
-        
-        // 设置一个新的ID参数，确保路由变化触发组件重新加载
-        const newUrl = `/strategy-builder?id=${savedStrategy.id}&t=${new Date().getTime()}`;
-        console.log('重定向到:', newUrl);
-        navigate(newUrl);
+        window.history.replaceState(
+          {}, 
+          '', 
+          `/strategy-builder?id=${savedStrategy.id}`
+        );
       }
     } catch (error) {
       console.error('保存策略失败:', error);
