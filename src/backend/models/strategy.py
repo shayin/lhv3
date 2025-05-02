@@ -16,6 +16,7 @@ class Strategy(Base):
     created_at = Column(DateTime, default=datetime.now)
     updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
     is_template = Column(Boolean, default=False)  # 是否为模板策略
+    template = Column(String, nullable=True)  # 策略模板类型
     
     # 一对多关系：一个策略可以有多个回测
     backtests = relationship("Backtest", back_populates="strategy")
