@@ -12,7 +12,7 @@ class Strategy(Base):
     name = Column(String, index=True)
     description = Column(String, nullable=True)
     code = Column(String)  # 策略代码
-    parameters = Column(JSON, nullable=True)  # 策略参数，JSON格式
+    parameters = Column(String, nullable=True)  # 策略参数，JSON字符串格式
     created_at = Column(DateTime, default=datetime.now)
     updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
     is_template = Column(Boolean, default=False)  # 是否为模板策略

@@ -147,9 +147,15 @@ def handle_data(context, data):
         };
       }
       
+      // 添加日志，确认策略数据格式正确
+      console.log('准备保存的策略数据:', JSON.stringify(strategyData, null, 2));
+      
       // 如果是更新已有策略，添加ID
       if (currentStrategy && currentStrategy.id) {
         strategyData.id = currentStrategy.id;
+        console.log('更新现有策略，ID:', currentStrategy.id);
+      } else {
+        console.log('创建新策略');
       }
       
       setIsSaving(true);
@@ -160,9 +166,17 @@ def handle_data(context, data):
       message.success('策略保存成功');
       console.log('保存的策略数据:', savedStrategy);
       
-      // 保存成功后，如果是新创建的策略，跳转到策略详情页
-      if (!currentStrategy && savedStrategy.id) {
-        navigate(`/strategy-builder?id=${savedStrategy.id}`);
+      // 重要：刷新页面以确保数据更新
+      if (savedStrategy && savedStrategy.id) {
+        // 设置一个新的ID参数，确保路由变化触发组件重新加载
+        const newUrl = `/strategy-builder?id=${savedStrategy.id}&t=${new Date().getTime()}`;
+        console.log('重定向到:', newUrl);
+        navigate(newUrl);
+        
+        // 强制重新加载策略数据
+        setTimeout(() => {
+          loadStrategyIfNeeded();
+        }, 500);
       }
       
       // 更新当前策略
