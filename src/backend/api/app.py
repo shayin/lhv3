@@ -174,7 +174,8 @@ async def get_strategies(name: Optional[str] = None, include_templates: bool = T
                 "parameters": params_dict,
                 "created_at": strategy.created_at.isoformat() if strategy.created_at else None,
                 "updated_at": strategy.updated_at.isoformat() if strategy.updated_at else None,
-                "is_template": strategy.is_template
+                "is_template": strategy.is_template,
+                "template": strategy.template
             }
             result_data.append(strategy_data)
         
@@ -260,10 +261,30 @@ async def create_strategy_endpoint(request: Request):
 def create_strategy(data):
     """创建新策略"""
     try:
-        logger.info(f"收到创建策略请求: {data}")
+        logger.info(f"处理策略创建请求: {data}")
         
-        # 确保参数是JSON字符串格式
+        from ..models.strategy import Strategy as StrategyModel
+        from sqlalchemy import text
+        
+        # 获取SQLAlchemy数据库会话
+        db = next(get_db())
+        
+        name = data.get("name")
+        
+        if not name:
+            logger.error("请求中没有策略名称")
+            raise HTTPException(status_code=400, detail="缺少策略名称")
+        
+        # 检查是否存在具有相同名称的策略
+        check_sql = f"SELECT * FROM strategies WHERE name = '{name}'"
+        logger.info(f"执行SQL查询: {check_sql}")
+        
+        existing = db.query(StrategyModel).filter(StrategyModel.name == name).first()
+        
+        # 处理参数字段
         parameters = data.get("parameters")
+        template_type = data.get("template")  # 获取模板类型
+        
         if parameters is not None:
             if isinstance(parameters, dict):
                 parameters = json.dumps(parameters)
@@ -280,21 +301,13 @@ def create_strategy(data):
                 logger.error(f"不支持的参数类型: {type(parameters)}")
                 raise HTTPException(status_code=400, detail="不支持的参数类型")
         
-        # 导入策略模型（如果尚未导入）
-        from ..models.strategy import Strategy as StrategyModel
-        
-        # 获取数据库连接
-        db = next(get_db())
-        
-        # 检查是否已存在同名策略
-        existing = db.query(StrategyModel).filter(StrategyModel.name == data.get("name")).first()
-        
         if existing:
             logger.info(f"存在同名策略，更新现有策略: {existing.name} (ID: {existing.id})")
             # 更新现有策略字段
             existing.description = data.get("description", existing.description)
             existing.code = data.get("code", existing.code)
             existing.parameters = parameters
+            existing.template = template_type  # 更新模板类型
             existing.is_template = data.get("is_template", existing.is_template)
             existing.updated_at = datetime.now()
             
@@ -307,6 +320,7 @@ def create_strategy(data):
                 description=data.get("description"),
                 code=data.get("code"),
                 parameters=parameters,  # 使用处理后的参数
+                template=template_type,  # 使用模板类型
                 is_template=data.get("is_template", False),
                 created_at=datetime.now(),
                 updated_at=datetime.now()
@@ -317,7 +331,9 @@ def create_strategy(data):
         logger.info(f"创建的策略对象参数: parameters={strategy.parameters}, 类型={type(strategy.parameters)}")
         
         # 执行SQL语句检查，使用text()函数
-        table_check = db.execute(text("SELECT name FROM sqlite_master WHERE type='table' AND name='strategies'")).fetchone()
+        check_table_sql = "SELECT name FROM sqlite_master WHERE type='table' AND name='strategies'"
+        logger.info(f"执行SQL查询: {check_table_sql}")
+        table_check = db.execute(text(check_table_sql)).fetchone()
         logger.info(f"数据库表检查结果: {table_check}")
         
         if not table_check:
@@ -334,7 +350,6 @@ def create_strategy(data):
         
         # 提交到数据库
         db.commit()
-        logger.info(f"成功创建策略: {strategy.name} (ID: {strategy.id})")
         
         # 验证创建是否成功
         verification_sql = f"SELECT * FROM strategies WHERE id = {strategy.id}"
@@ -343,7 +358,9 @@ def create_strategy(data):
         logger.info(f"验证结果: {verification_result}")
         
         # 使用原生SQL查询再次检查
-        raw_check = db.execute(text(f"SELECT COUNT(*) FROM strategies WHERE id = {strategy.id}")).scalar()
+        raw_check_sql = f"SELECT COUNT(*) FROM strategies WHERE id = {strategy.id}"
+        logger.info(f"执行计数SQL: {raw_check_sql}")
+        raw_check = db.execute(text(raw_check_sql)).scalar()
         logger.info(f"原生SQL验证结果: 找到{raw_check}条记录")
         
         # 使用ORM查询验证
@@ -372,7 +389,8 @@ def create_strategy(data):
             "parameters": params_dict,
             "created_at": new_strategy.created_at.isoformat() if new_strategy.created_at else None,
             "updated_at": new_strategy.updated_at.isoformat() if new_strategy.updated_at else None,
-            "is_template": new_strategy.is_template
+            "is_template": new_strategy.is_template,
+            "template": new_strategy.template
         }
         
         logger.info(f"返回给客户端的数据: {result_data}")
@@ -406,6 +424,10 @@ async def get_strategy(strategy_id: int, db: Session = Depends(get_db)):
         # 导入策略模型（如果尚未导入）
         from ..models.strategy import Strategy as StrategyModel
         
+        # 构建SQL查询
+        sql_query = f"SELECT * FROM strategies WHERE id = {strategy_id}"
+        logger.info(f"执行SQL查询: {sql_query}")
+        
         strategy = db.query(StrategyModel).filter(StrategyModel.id == strategy_id).first()
         if not strategy:
             logger.warning(f"未找到策略: ID={strategy_id}")
@@ -432,7 +454,8 @@ async def get_strategy(strategy_id: int, db: Session = Depends(get_db)):
             "parameters": params_dict,
             "created_at": strategy.created_at.isoformat() if strategy.created_at else None,
             "updated_at": strategy.updated_at.isoformat() if strategy.updated_at else None,
-            "is_template": strategy.is_template
+            "is_template": strategy.is_template,
+            "template": strategy.template  # 添加模板字段
         }
         
         logger.info(f"返回策略数据: ID={strategy.id}, 名称={strategy.name}")
@@ -456,6 +479,11 @@ async def update_strategy(strategy_id: int, request: Request, db: Session = Depe
         
         # 从数据库获取策略
         from ..models.strategy import Strategy as StrategyModel
+        
+        # 构建SQL查询
+        sql_query = f"SELECT * FROM strategies WHERE id = {strategy_id}"
+        logger.info(f"执行SQL查询: {sql_query}")
+        
         db_strategy = db.query(StrategyModel).filter(StrategyModel.id == strategy_id).first()
         
         if not db_strategy:
@@ -496,6 +524,8 @@ async def update_strategy(strategy_id: int, request: Request, db: Session = Depe
             db_strategy.parameters = data["parameters"]
         if "is_template" in data:
             db_strategy.is_template = data["is_template"]
+        if "template" in data:
+            db_strategy.template = data["template"]
         
         db_strategy.updated_at = datetime.now()
         
@@ -503,6 +533,9 @@ async def update_strategy(strategy_id: int, request: Request, db: Session = Depe
         logger.info(f"更新后的策略对象: {db_strategy.__dict__}")
         
         # 保存到数据库
+        update_query = f"UPDATE strategies SET name='{db_strategy.name}', description='{db_strategy.description or ''}', template='{db_strategy.template or ''}', parameters='{db_strategy.parameters or ''}' WHERE id={strategy_id}"
+        logger.info(f"执行更新SQL: {update_query}")
+        
         db.commit()
         logger.info(f"策略更新成功: ID={db_strategy.id}, 名称={db_strategy.name}")
         
@@ -525,7 +558,8 @@ async def update_strategy(strategy_id: int, request: Request, db: Session = Depe
             "parameters": params_dict,
             "created_at": db_strategy.created_at.isoformat() if db_strategy.created_at else None,
             "updated_at": db_strategy.updated_at.isoformat() if db_strategy.updated_at else None,
-            "is_template": db_strategy.is_template
+            "is_template": db_strategy.is_template,
+            "template": db_strategy.template
         }
         
         return {

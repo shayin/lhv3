@@ -30,6 +30,7 @@ export interface Strategy {
   created_at?: string;
   updated_at?: string;
   is_custom?: boolean;
+  is_template?: boolean;
 }
 
 // 获取所有交易品种列表
