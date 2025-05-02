@@ -84,26 +84,33 @@ export const fetchChartData = async (stockId: string) => {
 };
 
 // 保存策略
-export const saveStrategy = async (strategy: Strategy): Promise<Strategy> => {
+export async function saveStrategy(strategyData: Strategy): Promise<Strategy> {
   try {
+    console.log('保存策略数据:', JSON.stringify(strategyData, null, 2));
+    
     let response;
-    if (strategy.id) {
+    if (strategyData.id) {
       // 更新现有策略
-      response = await axios.put(`/api/strategies/${strategy.id}`, strategy);
+      response = await axios.put(`/api/strategies/${strategyData.id}`, strategyData);
     } else {
       // 创建新策略
-      response = await axios.post('/api/strategies', strategy);
+      response = await axios.post('/api/strategies', strategyData);
     }
     
-    if (response.data && response.data.data) {
+    console.log('策略保存响应:', response.data);
+    
+    if (response.data && response.data.status === 'success') {
       return response.data.data;
+    } else if (response.data) {
+      return response.data; // 兼容旧版API格式
+    } else {
+      throw new Error('保存策略失败，返回数据格式错误');
     }
-    return response.data;
   } catch (error) {
-    console.error('保存策略失败:', error);
+    console.error('保存策略时发生错误:', error);
     throw error;
   }
-};
+}
 
 // 获取所有策略列表
 export const fetchStrategies = async (): Promise<Strategy[]> => {

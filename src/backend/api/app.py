@@ -8,6 +8,7 @@ from datetime import datetime, date
 import os
 import sys
 import json
+from sqlalchemy import text
 
 # 添加系统路径，确保可以导入后端模块
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -134,208 +135,409 @@ async def fetch_data(
 
 # 策略API
 @app.get("/api/strategies")
-async def get_strategies(db: Session = Depends(get_db)):
-    """获取所有可用策略"""
+async def get_strategies(name: Optional[str] = None, include_templates: bool = True, db: Session = Depends(get_db)):
+    """获取所有策略列表或按名称搜索"""
     try:
-        # 从数据库获取自定义策略
-        from ..models.strategy import Strategy as StrategyModel
-        db_strategies = db.query(StrategyModel).filter(StrategyModel.is_template == False).all()
+        logger.info(f"获取策略列表请求: 名称过滤={name}, 包含模板={include_templates}")
         
-        # 构建自定义策略列表
-        user_strategies = []
-        for strategy in db_strategies:
-            user_strategies.append({
-                "id": str(strategy.id),
+        # 导入策略模型
+        from ..models.strategy import Strategy as StrategyModel
+        
+        # 构建查询
+        query = db.query(StrategyModel)
+        
+        # 如果提供了名称参数，进行过滤
+        if name:
+            query = query.filter(StrategyModel.name.like(f"%{name}%"))
+            logger.info(f"应用名称过滤条件: %{name}%")
+        
+        # 执行查询
+        strategies = query.all()
+        logger.info(f"找到 {len(strategies)} 个策略")
+        
+        # 处理结果并返回
+        result_data = []
+        for strategy in strategies:
+            # 解析参数字符串为字典
+            params_dict = {}
+            if strategy.parameters:
+                try:
+                    params_dict = json.loads(strategy.parameters)
+                except Exception as e:
+                    logger.error(f"解析策略 {strategy.id} 的参数失败: {e}")
+            
+            # 构建单个策略数据
+            strategy_data = {
+                "id": strategy.id,
                 "name": strategy.name,
-                "description": strategy.description or "",
-                "is_custom": True,
-                "code": strategy.code,
-                "parameters": strategy.parameters,
+                "description": strategy.description,
+                "parameters": params_dict,
                 "created_at": strategy.created_at.isoformat() if strategy.created_at else None,
                 "updated_at": strategy.updated_at.isoformat() if strategy.updated_at else None,
-            })
-        
-        # 预定义策略模板
-        predefined_strategies = [
-            {
-                "id": "ma_crossover",
-                "name": "移动平均交叉策略",
-                "description": "利用短期和长期移动平均线交叉产生买卖信号",
-                "is_custom": False,
-                "parameters": {
-                    "short_window": {"type": "int", "default": 5, "min": 1, "max": 30, "description": "短期移动平均窗口"},
-                    "long_window": {"type": "int", "default": 20, "min": 5, "max": 120, "description": "长期移动平均窗口"},
-                }
-            },
-            {
-                "id": "bollinger_bands",
-                "name": "布林带策略",
-                "description": "利用价格突破布林带上下轨产生买卖信号",
-                "is_custom": False,
-                "parameters": {
-                    "window": {"type": "int", "default": 20, "min": 5, "max": 100, "description": "布林带窗口"},
-                    "num_std": {"type": "float", "default": 2.0, "min": 0.5, "max": 4.0, "description": "标准差倍数"},
-                }
-            },
-            {
-                "id": "macd",
-                "name": "MACD策略",
-                "description": "利用MACD指标的金叉和死叉产生买卖信号",
-                "is_custom": False,
-                "parameters": {
-                    "fast_period": {"type": "int", "default": 12, "min": 5, "max": 50, "description": "快速EMA周期"},
-                    "slow_period": {"type": "int", "default": 26, "min": 10, "max": 100, "description": "慢速EMA周期"},
-                    "signal_period": {"type": "int", "default": 9, "min": 3, "max": 30, "description": "信号线周期"},
-                }
-            },
-            {
-                "id": "rsi",
-                "name": "RSI策略",
-                "description": "利用相对强弱指数的超买超卖产生买卖信号",
-                "is_custom": False,
-                "parameters": {
-                    "rsi_period": {"type": "int", "default": 14, "min": 5, "max": 50, "description": "RSI周期"},
-                    "overbought": {"type": "int", "default": 70, "min": 60, "max": 90, "description": "超买阈值"},
-                    "oversold": {"type": "int", "default": 30, "min": 10, "max": 40, "description": "超卖阈值"},
-                }
+                "is_template": strategy.is_template
             }
-        ]
+            result_data.append(strategy_data)
         
-        # 合并自定义策略和预定义模板
-        strategies = user_strategies + predefined_strategies
-        return {"status": "success", "data": strategies}
-    except Exception as e:
-        logger.error(f"获取策略列表失败: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-@app.post("/api/strategies")
-async def create_strategy(data: Dict[str, Any], db: Session = Depends(get_db)):
-    """创建新策略"""
-    try:
-        # 从请求数据中获取策略信息
-        name = data.get("name", "未命名策略")
-        description = data.get("description", "")
-        code = data.get("code", "")
-        parameters = data.get("parameters", {})
-        template = data.get("template", "")
+        # 如果需要包含预定义模板
+        if include_templates:
+            # 预定义策略模板
+            predefined_strategies = [
+                {
+                    "id": "ma_crossover",
+                    "name": "移动平均交叉策略",
+                    "description": "利用短期和长期移动平均线交叉产生买卖信号",
+                    "parameters": {
+                        "short_window": {"type": "int", "default": 5, "min": 1, "max": 30, "description": "短期移动平均窗口"},
+                        "long_window": {"type": "int", "default": 20, "min": 5, "max": 120, "description": "长期移动平均窗口"},
+                    },
+                    "is_template": True
+                },
+                {
+                    "id": "bollinger_bands",
+                    "name": "布林带策略",
+                    "description": "利用价格突破布林带上下轨产生买卖信号",
+                    "parameters": {
+                        "window": {"type": "int", "default": 20, "min": 5, "max": 100, "description": "布林带窗口"},
+                        "num_std": {"type": "float", "default": 2.0, "min": 0.5, "max": 4.0, "description": "标准差倍数"},
+                    },
+                    "is_template": True
+                },
+                {
+                    "id": "macd",
+                    "name": "MACD策略",
+                    "description": "利用MACD指标的金叉和死叉产生买卖信号",
+                    "parameters": {
+                        "fast_period": {"type": "int", "default": 12, "min": 5, "max": 50, "description": "快速EMA周期"},
+                        "slow_period": {"type": "int", "default": 26, "min": 10, "max": 100, "description": "慢速EMA周期"},
+                        "signal_period": {"type": "int", "default": 9, "min": 3, "max": 30, "description": "信号线周期"},
+                    },
+                    "is_template": True
+                },
+                {
+                    "id": "rsi",
+                    "name": "RSI策略",
+                    "description": "利用相对强弱指数的超买超卖产生买卖信号",
+                    "parameters": {
+                        "rsi_period": {"type": "int", "default": 14, "min": 5, "max": 50, "description": "RSI周期"},
+                        "overbought": {"type": "int", "default": 70, "min": 60, "max": 90, "description": "超买阈值"},
+                        "oversold": {"type": "int", "default": 30, "min": 10, "max": 40, "description": "超卖阈值"},
+                    },
+                    "is_template": True
+                }
+            ]
+            
+            # 如果有名称过滤条件，筛选预定义模板
+            if name:
+                predefined_strategies = [
+                    s for s in predefined_strategies 
+                    if name.lower() in s["name"].lower() or name.lower() in s["description"].lower()
+                ]
+            
+            # 合并结果
+            result_data.extend(predefined_strategies)
+            logger.info(f"添加了 {len(predefined_strategies)} 个预定义策略模板")
         
-        logger.info(f"创建新策略: {name}")
+        logger.info(f"最终返回 {len(result_data)} 个策略数据")
         
-        # 创建策略对象
-        from ..models.strategy import Strategy as StrategyModel
-        
-        # 直接使用parameters，SQLAlchemy会处理JSON
-        db_strategy = StrategyModel(
-            name=name,
-            description=description,
-            code=code,
-            parameters=parameters,
-            is_template=False
-        )
-        
-        db.add(db_strategy)
-        db.commit()
-        db.refresh(db_strategy)
-        
-        # 返回创建的策略
         return {
-            "status": "success", 
-            "message": "策略创建成功", 
-            "data": {
-                "id": db_strategy.id,
-                "name": db_strategy.name,
-                "description": db_strategy.description,
-                "parameters": db_strategy.parameters,
-                "created_at": db_strategy.created_at.isoformat() if db_strategy.created_at else None,
-                "updated_at": db_strategy.updated_at.isoformat() if db_strategy.updated_at else None
-            }
+            "status": "success",
+            "data": result_data
         }
     except Exception as e:
-        logger.error(f"创建策略失败: {e}")
-        db.rollback()
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"获取策略列表失败: {e}")
+        raise HTTPException(status_code=500, detail=f"获取策略列表失败: {str(e)}")
+
+@app.post("/api/strategies")
+async def create_strategy_endpoint(request: Request):
+    try:
+        data = await request.json()
+        strategy = create_strategy(data)
+        return strategy
+    except Exception as e:
+        logger.exception(f"创建策略端点错误: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"创建策略失败: {str(e)}")
+
+def create_strategy(data):
+    """创建新策略"""
+    try:
+        logger.info(f"收到创建策略请求: {data}")
+        
+        # 确保参数是JSON字符串格式
+        parameters = data.get("parameters")
+        if parameters is not None:
+            if isinstance(parameters, dict):
+                parameters = json.dumps(parameters)
+                logger.info(f"已将参数字典序列化为JSON字符串: {parameters}")
+            elif isinstance(parameters, str):
+                # 验证是否为有效的JSON字符串
+                try:
+                    json.loads(parameters)
+                    logger.info("参数已经是有效的JSON字符串")
+                except Exception as e:
+                    logger.error(f"提供的参数字符串不是有效的JSON: {e}")
+                    raise HTTPException(status_code=400, detail="提供的参数不是有效的JSON格式")
+            else:
+                logger.error(f"不支持的参数类型: {type(parameters)}")
+                raise HTTPException(status_code=400, detail="不支持的参数类型")
+        
+        # 导入策略模型（如果尚未导入）
+        from ..models.strategy import Strategy as StrategyModel
+        
+        # 获取数据库连接
+        db = next(get_db())
+        
+        # 检查是否已存在同名策略
+        existing = db.query(StrategyModel).filter(StrategyModel.name == data.get("name")).first()
+        
+        if existing:
+            logger.info(f"存在同名策略，更新现有策略: {existing.name} (ID: {existing.id})")
+            # 更新现有策略字段
+            existing.description = data.get("description", existing.description)
+            existing.code = data.get("code", existing.code)
+            existing.parameters = parameters
+            existing.is_template = data.get("is_template", existing.is_template)
+            existing.updated_at = datetime.now()
+            
+            # 使用现有策略
+            strategy = existing
+        else:
+            # 实例化新策略模型
+            strategy = StrategyModel(
+                name=data.get("name"),
+                description=data.get("description"),
+                code=data.get("code"),
+                parameters=parameters,  # 使用处理后的参数
+                is_template=data.get("is_template", False),
+                created_at=datetime.now(),
+                updated_at=datetime.now()
+            )
+            # 添加到会话
+            db.add(strategy)
+        
+        logger.info(f"创建的策略对象参数: parameters={strategy.parameters}, 类型={type(strategy.parameters)}")
+        
+        # 执行SQL语句检查，使用text()函数
+        table_check = db.execute(text("SELECT name FROM sqlite_master WHERE type='table' AND name='strategies'")).fetchone()
+        logger.info(f"数据库表检查结果: {table_check}")
+        
+        if not table_check:
+            logger.error("strategies表不存在!")
+            raise HTTPException(status_code=500, detail="数据库表不存在")
+            
+        # 获取ID
+        db.flush()  # 获取ID但不提交
+        generated_id = strategy.id
+        logger.info(f"生成新策略ID: {generated_id}")
+        
+        # 记录当前策略对象状态
+        logger.info(f"策略对象状态: {strategy.__dict__}")
+        
+        # 提交到数据库
+        db.commit()
+        logger.info(f"成功创建策略: {strategy.name} (ID: {strategy.id})")
+        
+        # 验证创建是否成功
+        verification_sql = f"SELECT * FROM strategies WHERE id = {strategy.id}"
+        logger.info(f"执行验证SQL: {verification_sql}")
+        verification_result = db.execute(text(verification_sql)).fetchone()
+        logger.info(f"验证结果: {verification_result}")
+        
+        # 使用原生SQL查询再次检查
+        raw_check = db.execute(text(f"SELECT COUNT(*) FROM strategies WHERE id = {strategy.id}")).scalar()
+        logger.info(f"原生SQL验证结果: 找到{raw_check}条记录")
+        
+        # 使用ORM查询验证
+        new_strategy = db.query(StrategyModel).get(strategy.id)
+        if not new_strategy:
+            logger.error(f"策略创建验证失败: 未找到ID为{strategy.id}的策略")
+            raise HTTPException(status_code=500, detail="策略创建成功但无法验证")
+        
+        logger.info(f"ORM查询到的策略信息: {new_strategy.__dict__}")
+        
+        # 解析参数
+        params_dict = {}
+        if new_strategy.parameters:
+            try:
+                params_dict = json.loads(new_strategy.parameters)
+                logger.info(f"成功解析参数: {params_dict}")
+            except Exception as e:
+                logger.error(f"解析参数失败: {e}")
+                params_dict = {}
+        
+        # 返回创建的策略数据
+        result_data = {
+            "id": new_strategy.id,
+            "name": new_strategy.name,
+            "description": new_strategy.description,
+            "parameters": params_dict,
+            "created_at": new_strategy.created_at.isoformat() if new_strategy.created_at else None,
+            "updated_at": new_strategy.updated_at.isoformat() if new_strategy.updated_at else None,
+            "is_template": new_strategy.is_template
+        }
+        
+        logger.info(f"返回给客户端的数据: {result_data}")
+        
+        # 记录操作结果
+        if existing:
+            logger.info(f"成功更新策略: {strategy.name} (ID: {strategy.id})")
+            operation_message = "策略更新成功"
+        else:
+            logger.info(f"成功创建策略: {strategy.name} (ID: {strategy.id})")
+            operation_message = "策略创建成功"
+        
+        # 验证操作是否成功
+        return {
+            "status": "success",
+            "message": operation_message,
+            "data": result_data
+        }
+    except HTTPException as he:
+        # 直接重新抛出HTTP异常
+        raise he
+    except Exception as e:
+        logger.error(f"处理策略创建请求时发生错误: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"创建策略时发生错误: {str(e)}")
 
 @app.get("/api/strategies/{strategy_id}")
 async def get_strategy(strategy_id: int, db: Session = Depends(get_db)):
-    """根据ID获取策略详情"""
     try:
-        # 从数据库获取策略
+        logger.info(f"获取策略请求: ID={strategy_id}")
+        
+        # 导入策略模型（如果尚未导入）
         from ..models.strategy import Strategy as StrategyModel
-        db_strategy = db.query(StrategyModel).filter(StrategyModel.id == strategy_id).first()
         
-        if not db_strategy:
-            raise HTTPException(status_code=404, detail=f"找不到ID为{strategy_id}的策略")
+        strategy = db.query(StrategyModel).filter(StrategyModel.id == strategy_id).first()
+        if not strategy:
+            logger.warning(f"未找到策略: ID={strategy_id}")
+            raise HTTPException(status_code=404, detail=f"未找到ID为{strategy_id}的策略")
         
-        # 返回策略详情
-        return {
-            "status": "success", 
-            "data": {
-                "id": str(db_strategy.id),
-                "name": db_strategy.name,
-                "description": db_strategy.description,
-                "code": db_strategy.code,
-                "parameters": db_strategy.parameters,
-                "is_custom": True,
-                "created_at": db_strategy.created_at.isoformat() if db_strategy.created_at else None,
-                "updated_at": db_strategy.updated_at.isoformat() if db_strategy.updated_at else None
-            }
+        logger.info(f"找到策略: {strategy.name} (ID: {strategy.id})")
+        
+        # 解析参数字符串为字典
+        params_dict = {}
+        if strategy.parameters:
+            try:
+                params_dict = json.loads(strategy.parameters)
+                logger.info(f"成功解析参数: {params_dict}")
+            except Exception as e:
+                logger.error(f"解析参数失败: {e}")
+                params_dict = {}
+        
+        # 构建返回数据
+        result_data = {
+            "id": strategy.id,
+            "name": strategy.name,
+            "description": strategy.description,
+            "code": strategy.code,
+            "parameters": params_dict,
+            "created_at": strategy.created_at.isoformat() if strategy.created_at else None,
+            "updated_at": strategy.updated_at.isoformat() if strategy.updated_at else None,
+            "is_template": strategy.is_template
         }
-    except HTTPException:
-        raise
+        
+        logger.info(f"返回策略数据: ID={strategy.id}, 名称={strategy.name}")
+        
+        return {
+            "status": "success",
+            "data": result_data
+        }
+    except HTTPException as he:
+        raise he
     except Exception as e:
-        logger.error(f"获取策略详情失败: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"获取策略时发生错误: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"获取策略时发生错误: {str(e)}")
 
 @app.put("/api/strategies/{strategy_id}")
-async def update_strategy(strategy_id: int, data: Dict[str, Any], db: Session = Depends(get_db)):
-    """更新已有策略"""
+async def update_strategy(strategy_id: int, request: Request, db: Session = Depends(get_db)):
+    """更新现有策略"""
     try:
+        data = await request.json()
+        logger.info(f"更新策略请求: ID={strategy_id}, 数据={data}")
+        
         # 从数据库获取策略
         from ..models.strategy import Strategy as StrategyModel
         db_strategy = db.query(StrategyModel).filter(StrategyModel.id == strategy_id).first()
         
         if not db_strategy:
+            logger.warning(f"未找到要更新的策略: ID={strategy_id}")
             raise HTTPException(status_code=404, detail=f"找不到ID为{strategy_id}的策略")
         
-        # 更新策略属性
+        logger.info(f"找到要更新的策略: {db_strategy.name} (ID: {db_strategy.id})")
+        
+        # 处理参数字段
+        if "parameters" in data:
+            parameters = data["parameters"]
+            if parameters is not None:
+                if isinstance(parameters, dict):
+                    parameters = json.dumps(parameters)
+                    logger.info(f"已将参数字典序列化为JSON字符串: {parameters}")
+                elif isinstance(parameters, str):
+                    # 验证是否为有效的JSON字符串
+                    try:
+                        json.loads(parameters)
+                        logger.info("参数已经是有效的JSON字符串")
+                    except Exception as e:
+                        logger.error(f"提供的参数字符串不是有效的JSON: {e}")
+                        raise HTTPException(status_code=400, detail="提供的参数不是有效的JSON格式")
+                else:
+                    logger.error(f"不支持的参数类型: {type(parameters)}")
+                    raise HTTPException(status_code=400, detail="不支持的参数类型")
+                
+                data["parameters"] = parameters
+        
+        # 更新策略字段
         if "name" in data:
             db_strategy.name = data["name"]
-        
         if "description" in data:
             db_strategy.description = data["description"]
-            
         if "code" in data:
             db_strategy.code = data["code"]
-            
         if "parameters" in data:
             db_strategy.parameters = data["parameters"]
+        if "is_template" in data:
+            db_strategy.is_template = data["is_template"]
         
-        # 更新策略
         db_strategy.updated_at = datetime.now()
-        db.commit()
-        db.refresh(db_strategy)
         
-        logger.info(f"更新策略: {db_strategy.name}(ID: {strategy_id})")
+        # 记录更新状态
+        logger.info(f"更新后的策略对象: {db_strategy.__dict__}")
+        
+        # 保存到数据库
+        db.commit()
+        logger.info(f"策略更新成功: ID={db_strategy.id}, 名称={db_strategy.name}")
+        
+        # 解析参数字符串为字典
+        params_dict = {}
+        if db_strategy.parameters:
+            try:
+                params_dict = json.loads(db_strategy.parameters)
+                logger.info(f"成功解析参数: {params_dict}")
+            except Exception as e:
+                logger.error(f"解析参数失败: {e}")
+                params_dict = {}
         
         # 返回更新后的策略
-        return {
-            "status": "success", 
-            "message": "策略更新成功", 
-            "data": {
-                "id": db_strategy.id,
-                "name": db_strategy.name,
-                "description": db_strategy.description,
-                "parameters": db_strategy.parameters,
-                "created_at": db_strategy.created_at.isoformat() if db_strategy.created_at else None,
-                "updated_at": db_strategy.updated_at.isoformat() if db_strategy.updated_at else None
-            }
+        result_data = {
+            "id": db_strategy.id,
+            "name": db_strategy.name,
+            "description": db_strategy.description,
+            "code": db_strategy.code,
+            "parameters": params_dict,
+            "created_at": db_strategy.created_at.isoformat() if db_strategy.created_at else None,
+            "updated_at": db_strategy.updated_at.isoformat() if db_strategy.updated_at else None,
+            "is_template": db_strategy.is_template
         }
-    except HTTPException:
-        raise
+        
+        return {
+            "status": "success",
+            "message": "策略更新成功",
+            "data": result_data
+        }
+    except HTTPException as he:
+        raise he
     except Exception as e:
-        logger.error(f"更新策略失败: {e}")
-        db.rollback()
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"更新策略时发生错误: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"更新策略时发生错误: {str(e)}")
 
 @app.delete("/api/strategies/{strategy_id}")
 async def delete_strategy(strategy_id: int, db: Session = Depends(get_db)):
