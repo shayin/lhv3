@@ -501,15 +501,20 @@ def handle_data(context, data):
       <Row gutter={24}>
         {/* 左侧策略列表 */}
         <Col span={6}>
-          <Card title="策略列表" extra={
-            <Button 
-              type="primary" 
-              icon={<PlusOutlined />}
-              onClick={handleCreateStrategy}
-            >
-              新建
-            </Button>
-          }>
+          <Card 
+            title="策略列表" 
+            extra={
+              <Button 
+                type="primary" 
+                icon={<PlusOutlined />}
+                onClick={handleCreateStrategy}
+              >
+                新建
+              </Button>
+            }
+            style={{ height: '100%', display: 'flex', flexDirection: 'column' }}
+            bodyStyle={{ flex: 1, padding: '12px', overflowY: 'hidden', display: 'flex', flexDirection: 'column' }}
+          >
             <Input.Search 
               placeholder="搜索策略" 
               style={{ marginBottom: 16 }} 
@@ -517,53 +522,90 @@ def handle_data(context, data):
               allowClear
             />
             
-            <List
-              loading={loadingStrategies}
-              dataSource={filteredStrategies}
-              renderItem={strategy => (
-                <List.Item
-                  key={strategy.id as string}
-                  actions={[
-                    <Tooltip title="编辑">
-                      <Button 
-                        icon={<EditOutlined />} 
-                        type="text" 
-                        onClick={() => handleStrategyClick(strategy)}
-                      />
-                    </Tooltip>,
-                    <Tooltip title="复制">
-                      <Button 
-                        icon={<CopyOutlined />} 
-                        type="text" 
-                        onClick={() => handleCopyStrategy(strategy)}
-                      />
-                    </Tooltip>,
-                    <Tooltip title="删除">
-                      <Button 
-                        icon={<DeleteOutlined />} 
-                        type="text" 
-                        danger
-                        onClick={() => showDeleteConfirm(strategy)}
-                      />
-                    </Tooltip>
-                  ]}
-                  className={currentStrategy?.id === strategy.id ? 'ant-list-item-selected' : ''}
-                  style={currentStrategy?.id === strategy.id ? { background: '#e6f7ff' } : {}}
-                >
-                  <List.Item.Meta
-                    title={<a onClick={() => handleStrategyClick(strategy)}>{strategy.name}</a>}
-                    description={strategy.description || '无描述'}
-                  />
-                </List.Item>
-              )}
-              locale={{ 
-                emptyText: '暂无策略，点击"新建"创建第一个策略' 
-              }}
-              style={{ 
-                height: '500px', 
-                overflowY: 'auto' 
-              }}
-            />
+            <div style={{ flex: 1, overflow: 'hidden' }}>
+              <List
+                loading={loadingStrategies}
+                dataSource={filteredStrategies}
+                renderItem={strategy => (
+                  <List.Item
+                    key={strategy.id as string}
+                    actions={[
+                      <div style={{ display: 'flex', flexShrink: 0 }}>
+                        <Button.Group size="small">
+                          <Tooltip title="编辑">
+                            <Button 
+                              icon={<EditOutlined />} 
+                              type="text" 
+                              onClick={() => handleStrategyClick(strategy)}
+                            />
+                          </Tooltip>
+                          <Tooltip title="复制">
+                            <Button 
+                              icon={<CopyOutlined />} 
+                              type="text" 
+                              onClick={() => handleCopyStrategy(strategy)}
+                            />
+                          </Tooltip>
+                          <Tooltip title="删除">
+                            <Button 
+                              icon={<DeleteOutlined />} 
+                              type="text" 
+                              danger
+                              onClick={() => showDeleteConfirm(strategy)}
+                            />
+                          </Tooltip>
+                        </Button.Group>
+                      </div>
+                    ]}
+                    className={currentStrategy?.id === strategy.id ? 'ant-list-item-selected' : ''}
+                    style={{
+                      ...(currentStrategy?.id === strategy.id ? { background: '#e6f7ff' } : {}),
+                      padding: '8px 12px',
+                      borderRadius: '4px',
+                      marginBottom: '8px',
+                      display: 'flex',
+                      justifyContent: 'space-between'
+                    }}
+                  >
+                    <List.Item.Meta
+                      title={
+                        <div style={{ 
+                          overflow: 'hidden', 
+                          textOverflow: 'ellipsis', 
+                          whiteSpace: 'nowrap',
+                          maxWidth: '100%',
+                          fontSize: '14px',
+                          fontWeight: 500
+                        }}>
+                          <a onClick={() => handleStrategyClick(strategy)}>{strategy.name}</a>
+                        </div>
+                      }
+                      description={
+                        <div style={{ 
+                          overflow: 'hidden', 
+                          textOverflow: 'ellipsis', 
+                          whiteSpace: 'nowrap',
+                          maxWidth: '100%',
+                          fontSize: '12px',
+                          color: 'rgba(0, 0, 0, 0.45)'
+                        }}>
+                          {strategy.description || '无描述'}
+                        </div>
+                      }
+                    />
+                  </List.Item>
+                )}
+                locale={{ 
+                  emptyText: '暂无策略，点击"新建"创建第一个策略' 
+                }}
+                style={{ 
+                  height: '100%', 
+                  overflow: 'auto',
+                  padding: '0 4px'
+                }}
+                itemLayout="horizontal"
+              />
+            </div>
           </Card>
         </Col>
         
