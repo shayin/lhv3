@@ -67,8 +67,9 @@ def handle_data(context, data):
   
   // 从URL获取策略ID（如果有）
   const getStrategyIdFromUrl = () => {
-    // 不再使用URL参数
-    return null;
+    const searchParams = new URLSearchParams(location.search);
+    const id = searchParams.get('id');
+    return id;
   };
   
   // 加载数据
@@ -77,9 +78,11 @@ def handle_data(context, data):
     const loadInitialData = async () => {
       await Promise.all([
         fetchStocks(),
-        fetchStrategyList(),
         loadStrategyTemplates()
       ]);
+      
+      // 加载策略列表
+      await fetchStrategyList();
     };
     
     loadInitialData();
@@ -95,6 +98,17 @@ def handle_data(context, data):
       const userStrategies = strategies.filter(s => !s.is_template);
       setStrategyList(userStrategies);
       console.log('加载到策略列表:', userStrategies.length, '个策略');
+      
+      // 获取URL中的策略ID
+      const strategyId = getStrategyIdFromUrl();
+      
+      // 如果URL中有策略ID，加载该策略
+      if (strategyId) {
+        loadStrategyIfNeeded(strategyId);
+      } else if (userStrategies.length > 0) {
+        // 如果没有策略ID且策略列表不为空，加载第一个策略
+        handleStrategyClick(userStrategies[0]);
+      }
     } catch (error) {
       console.error('获取策略列表失败:', error);
       message.error('获取策略列表失败');
@@ -220,6 +234,9 @@ def handle_data(context, data):
         // 设置所有表单字段值
         form.setFieldsValue(formValues);
         
+        // 更新URL参数
+        window.history.replaceState(null, '', `?id=${strategy.id}`);
+        
       } catch (error) {
         console.error('加载策略详情失败:', error);
         message.error('加载策略详情失败');
@@ -248,6 +265,9 @@ def handle_data(context, data):
     
     // 默认切换到可视化编辑模式
     setActiveKey('visual');
+    
+    // 清除URL参数
+    window.history.replaceState(null, '', window.location.pathname);
   };
 
   // 处理复制策略
@@ -276,6 +296,9 @@ def handle_data(context, data):
       
       // 直接调用handleStrategyClick加载新策略，但不更新URL
       handleStrategyClick(savedStrategy);
+      
+      // 更新URL参数
+      window.history.replaceState(null, '', `?id=${savedStrategy.id}`);
     } catch (error) {
       console.error('复制策略失败:', error);
       message.error('复制策略失败');
@@ -312,6 +335,9 @@ def handle_data(context, data):
               longPeriod: 60,
               positionSizing: 'all_in',
             });
+            
+            // 清除URL参数
+            window.history.replaceState(null, '', window.location.pathname);
           }
           
           // 刷新策略列表
@@ -387,6 +413,9 @@ def handle_data(context, data):
       
       // 更新当前策略
       setCurrentStrategy(savedStrategy);
+      
+      // 更新URL参数
+      window.history.replaceState(null, '', `?id=${savedStrategy.id}`);
       
       // 刷新策略列表
       fetchStrategyList();
