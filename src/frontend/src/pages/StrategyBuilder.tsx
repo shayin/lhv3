@@ -67,8 +67,8 @@ def handle_data(context, data):
   
   // 从URL获取策略ID（如果有）
   const getStrategyIdFromUrl = () => {
-    const searchParams = new URLSearchParams(location.search);
-    return searchParams.get('id');
+    // 不再使用URL参数
+    return null;
   };
   
   // 加载数据
@@ -83,28 +83,9 @@ def handle_data(context, data):
     };
     
     loadInitialData();
-    
-    // 获取当前URL中的策略ID
-    const strategyId = getStrategyIdFromUrl();
-    
-    // 仅在URL中有策略ID且与当前策略不同时加载
-    if (strategyId && (!currentStrategy || currentStrategy.id !== strategyId)) {
-      loadStrategyIfNeeded();
-    }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   
-  // 仅当URL中的id参数变化时加载策略
-  useEffect(() => {
-    const strategyId = getStrategyIdFromUrl();
-    
-    // 仅在URL中有策略ID且与当前策略不同时加载
-    if (strategyId && (!currentStrategy || currentStrategy.id !== strategyId)) {
-      loadStrategyIfNeeded();
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [location.search]);
-
   // 获取策略列表
   const fetchStrategyList = async () => {
     setLoadingStrategies(true);
@@ -123,9 +104,7 @@ def handle_data(context, data):
   };
   
   // 如果URL中有策略ID，加载该策略
-  const loadStrategyIfNeeded = async () => {
-    const strategyId = getStrategyIdFromUrl();
-    
+  const loadStrategyIfNeeded = async (strategyId?: string) => {
     // 初始默认值
     const defaultValues = {
       strategyName: '新策略',
@@ -241,13 +220,6 @@ def handle_data(context, data):
         // 设置所有表单字段值
         form.setFieldsValue(formValues);
         
-        // 更新URL，但不触发导航操作（仅更新浏览器历史）
-        window.history.replaceState(
-          {}, 
-          '', 
-          `/strategy-builder?id=${strategy.id}`
-        );
-        
       } catch (error) {
         console.error('加载策略详情失败:', error);
         message.error('加载策略详情失败');
@@ -276,9 +248,6 @@ def handle_data(context, data):
     
     // 默认切换到可视化编辑模式
     setActiveKey('visual');
-    
-    // 更新URL，去掉id参数
-    window.history.replaceState({}, '', '/strategy-builder');
   };
 
   // 处理复制策略
@@ -305,7 +274,7 @@ def handle_data(context, data):
       // 刷新策略列表并加载新策略
       await fetchStrategyList();
       
-      // 直接调用handleStrategyClick加载新策略
+      // 直接调用handleStrategyClick加载新策略，但不更新URL
       handleStrategyClick(savedStrategy);
     } catch (error) {
       console.error('复制策略失败:', error);
@@ -343,9 +312,6 @@ def handle_data(context, data):
               longPeriod: 60,
               positionSizing: 'all_in',
             });
-            
-            // 更新URL，去掉id参数
-            window.history.replaceState({}, '', '/strategy-builder');
           }
           
           // 刷新策略列表
@@ -424,15 +390,6 @@ def handle_data(context, data):
       
       // 刷新策略列表
       fetchStrategyList();
-      
-      // 更新URL，不触发导航跳转
-      if (savedStrategy && savedStrategy.id) {
-        window.history.replaceState(
-          {}, 
-          '', 
-          `/strategy-builder?id=${savedStrategy.id}`
-        );
-      }
     } catch (error) {
       console.error('保存策略失败:', error);
       message.error('保存策略失败，请重试');
