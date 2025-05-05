@@ -63,12 +63,16 @@ class BacktestService:
                 return self._get_data_from_database(symbol, start_date, end_date, features)
             except Exception as e:
                 logger.error(f"从数据库获取数据失败: {e}")
-                logger.info(f"尝试从外部数据源获取数据: {symbol}")
-                # 如果从数据库获取失败，尝试从外部获取
-                return self._get_data_from_external(symbol, start_date, end_date, "yahoo", features)
+                # 不再尝试从外部获取数据，而是直接返回空的DataFrame
+                logger.warning(f"数据库中找不到 {symbol} 的数据，返回空数据集")
+                return pd.DataFrame()
         else:
-            # 从外部数据源获取
-            return self._get_data_from_external(symbol, start_date, end_date, data_source, features)
+            # 如果显式指定使用外部数据源，仍然从外部获取
+            if data_source.lower() != "database":
+                return self._get_data_from_external(symbol, start_date, end_date, data_source, features)
+            else:
+                logger.warning("数据库未初始化或无效，返回空数据集")
+                return pd.DataFrame()
     
     def _get_data_from_database(self, 
                                symbol: str, 
@@ -319,19 +323,35 @@ class BacktestService:
                         logger.warning(f"解析策略默认参数失败")
                 
                 # 导入必要的模块，确保策略代码中的相对导入能够正常工作
-                import src.backend.strategy.templates.strategy_template
-                import src.backend.strategy.templates.ma_crossover_strategy
-                
-                # 创建导入上下文
-                globals_dict = {
-                    '__name__': '__main__',
-                    '__file__': '__tmp_strategy__',
-                    'StrategyTemplate': src.backend.strategy.templates.strategy_template.StrategyTemplate
-                }
-                
-                # 从代码加载策略
-                strategy_instance = load_strategy_from_code(db_strategy.code, parameters, globals_dict)
-                return strategy_instance
+                try:
+                    # 使用正确的导入路径，包含templates文件夹
+                    import src.backend.strategy.templates.strategy_template
+                    import src.backend.strategy.templates.ma_crossover_strategy
+                    
+                    # 记录导入路径，用于调试
+                    logger.debug(f"成功导入策略模板，路径: {src.backend.strategy.templates.strategy_template.__file__}")
+                    
+                    # 创建导入上下文
+                    globals_dict = {
+                        '__name__': '__main__',
+                        '__file__': '__tmp_strategy__',
+                        'StrategyTemplate': src.backend.strategy.templates.strategy_template.StrategyTemplate,
+                        'pd': __import__('pandas'),
+                        'np': __import__('numpy')
+                    }
+                    
+                    # 输出策略代码前几行进行调试
+                    code_preview = "\n".join(db_strategy.code.split("\n")[:5])
+                    logger.debug(f"策略代码预览:\n{code_preview}")
+                    
+                    # 从代码加载策略
+                    strategy_instance = load_strategy_from_code(db_strategy.code, parameters, globals_dict)
+                    return strategy_instance
+                except ImportError as ie:
+                    logger.error(f"导入策略模板模块失败: {str(ie)}")
+                    import sys
+                    logger.error(f"Python路径: {sys.path}")
+                    return None
             except Exception as e:
                 logger.error(f"加载数据库策略失败: {e}")
                 import traceback

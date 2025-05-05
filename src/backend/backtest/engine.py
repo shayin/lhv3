@@ -79,36 +79,67 @@ class BacktestEngine:
         运行回测
         
         Args:
-            data: 回测数据，如果为None则使用策略中的数据
-            benchmark_data: 基准数据，用于计算alpha、beta等指标
+            data: 可选，市场数据，如果为None则使用设置的数据
+            benchmark_data: 可选，基准数据，用于计算alpha、beta等指标
             
         Returns:
-            回测结果
+            Dict[str, Any]: 回测结果
         """
-        logger.info("开始执行回测...")
+        # 初始化结果记录
+        self.results = {
+            "equity_curve": [],
+            "trades": [],
+            "drawdowns": [],
+            "performance": {}
+        }
         
-        # 获取策略数据
+        # 使用参数中的数据或已设置的数据
         if data is not None:
+            self.data = data.copy()
             logger.info(f"使用外部提供的回测数据，数据量: {len(data)}行")
-            self.strategy.set_data(data)
+        elif self.data is None or self.data.empty:
+            raise ValueError("无法进行回测: 未提供市场数据")
         else:
-            data = self.strategy.data
-            if data is None or data.empty:
-                error_msg = "策略数据为空，无法进行回测"
-                logger.error(error_msg)
-                raise ValueError(error_msg)
-            logger.info(f"使用策略数据进行回测，数据量: {len(data)}行")
+            logger.info(f"使用策略数据进行回测，数据量: {len(self.data)}行")
+        
+        # 确保数据的日期列是datetime类型
+        if 'date' in self.data.columns and self.data['date'].dtype != 'datetime64[ns]':
+            self.data['date'] = pd.to_datetime(self.data['date'])
+            logger.debug("将数据的date列转换为datetime类型")
+        
+        # 设置数据索引为日期，以便于后续处理
+        if 'date' in self.data.columns and self.data.index.name != 'date':
+            self.data = self.data.set_index('date')
+            logger.debug("将数据的date列设置为索引")
         
         # 生成信号
         logger.info("开始生成交易信号...")
         signals = self.strategy.generate_signals()
         logger.info(f"信号生成完成，交易日总数: {len(signals)}")
         
-        # 处理日期范围
+        # 确保信号数据的索引是datetime类型
+        if not pd.api.types.is_datetime64_dtype(signals.index):
+            try:
+                signals.index = pd.to_datetime(signals.index)
+                logger.debug("将信号数据的索引转换为datetime类型")
+            except Exception as e:
+                logger.error(f"转换信号索引为datetime失败: {e}")
+                signals = signals.reset_index()
+                if 'date' in signals.columns:
+                    signals['date'] = pd.to_datetime(signals['date'])
+                    signals = signals.set_index('date')
+                    logger.debug("使用date列重设信号索引")
+        
+        # 处理日期范围 - 确保日期类型一致
         if self.start_date:
-            signals = signals[signals.index >= self.start_date]
+            start_date = pd.to_datetime(self.start_date)
+            signals = signals[signals.index >= start_date]
+            logger.debug(f"按开始日期过滤: {start_date}")
+        
         if self.end_date:
-            signals = signals[signals.index <= self.end_date]
+            end_date = pd.to_datetime(self.end_date)
+            signals = signals[signals.index <= end_date]
+            logger.debug(f"按结束日期过滤: {end_date}")
         
         logger.info(f"回测日期范围过滤后的交易日总数: {len(signals)}")
         

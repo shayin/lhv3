@@ -476,6 +476,9 @@ def load_strategy_from_code(code: str, parameters: Dict[str, Any] = None, global
     temp_module_name = f"temp_strategy_module_{hash(code) % 10000}"
     
     try:
+        # 预处理代码，修复可能存在的导入问题
+        code = preprocess_strategy_code(code)
+        
         # 创建临时模块
         logger.debug(f"创建临时模块: {temp_module_name}")
         spec = importlib.util.spec_from_loader(temp_module_name, loader=None)
@@ -489,6 +492,18 @@ def load_strategy_from_code(code: str, parameters: Dict[str, Any] = None, global
             # 合并提供的globals_dict和模块的__dict__
             for key, value in globals_dict.items():
                 module.__dict__[key] = value
+        
+        # 添加必要的导入
+        module.__dict__['pd'] = __import__('pandas')
+        module.__dict__['np'] = __import__('numpy')
+        
+        # 确保可以访问到StrategyTemplate
+        try:
+            import src.backend.strategy.templates.strategy_template
+            module.__dict__['StrategyTemplate'] = src.backend.strategy.templates.strategy_template.StrategyTemplate
+        except ImportError:
+            logger.warning("无法导入StrategyTemplate，尝试其他方式")
+            pass
         
         # 执行代码
         exec(code, module.__dict__)
@@ -531,6 +546,105 @@ def load_strategy_from_code(code: str, parameters: Dict[str, Any] = None, global
         # 清理临时模块
         if temp_module_name in sys.modules:
             del sys.modules[temp_module_name]
+
+def preprocess_strategy_code(code: str) -> str:
+    """
+    预处理策略代码，修复常见问题
+    
+    Args:
+        code: 原始策略代码
+        
+    Returns:
+        处理后的策略代码
+    """
+    # 替换相对导入为绝对导入
+    import re
+    
+    # 记录原始代码，用于调试
+    logger.debug(f"原始策略代码:\n{code[:200]}...")
+    
+    # 最关键的替换：确保.strategy_template的导入使用正确的路径
+    if "from .strategy_template import" in code:
+        logger.debug("发现策略模板导入语句，执行关键替换")
+        code = code.replace(
+            "from .strategy_template import",
+            "from src.backend.strategy.templates.strategy_template import"
+        )
+    
+    # 修复对strategy_template模块的导入
+    if "from src.backend.strategy.strategy_template import" in code:
+        code = code.replace(
+            "from src.backend.strategy.strategy_template import",
+            "from src.backend.strategy.templates.strategy_template import"
+        )
+    
+    # 检测并替换from .templates 或 from ..strategy 等相对导入
+    code = re.sub(
+        r'from\s+\.templates\s+import', 
+        r'from src.backend.strategy.templates import', 
+        code
+    )
+    
+    # 特殊情况处理
+    code = re.sub(
+        r'from\s+\.(templates\.strategy_template)\s+import', 
+        r'from src.backend.strategy.\1 import', 
+        code
+    )
+    
+    # 一般相对导入替换
+    code = re.sub(
+        r'from\s+\.([a-zA-Z0-9_]+)\s+import', 
+        r'from src.backend.strategy.\1 import', 
+        code
+    )
+    
+    code = re.sub(
+        r'from\s+\.\.([a-zA-Z0-9_]+)\s+import', 
+        r'from src.backend.\1 import', 
+        code
+    )
+    
+    # 特别处理常见导入
+    if "from .templates.strategy_template import StrategyTemplate" in code:
+        code = code.replace(
+            "from .templates.strategy_template import StrategyTemplate",
+            "from src.backend.strategy.templates.strategy_template import StrategyTemplate"
+        )
+    
+    if "from ..strategy.templates.strategy_template import StrategyTemplate" in code:
+        code = code.replace(
+            "from ..strategy.templates.strategy_template import StrategyTemplate",
+            "from src.backend.strategy.templates.strategy_template import StrategyTemplate"
+        )
+    
+    # 查找并输出替换后的导入语句，用于调试
+    import_lines = [line for line in code.split('\n') if line.strip().startswith('from') or line.strip().startswith('import')]
+    if import_lines:
+        logger.debug(f"处理后的导入语句:\n" + "\n".join(import_lines[:5]))
+    
+    # 最后的保险：如果仍然有".strategy_template"的导入，直接修复
+    line_fixed = False
+    fixed_lines = []
+    for line in code.split('\n'):
+        if '.strategy_template' in line and 'import' in line and not line_fixed:
+            fixed_line = "from src.backend.strategy.templates.strategy_template import StrategyTemplate"
+            fixed_lines.append(fixed_line)
+            logger.debug(f"强制修复导入行: {line} -> {fixed_line}")
+            line_fixed = True
+        else:
+            fixed_lines.append(line)
+    
+    if line_fixed:
+        code = '\n'.join(fixed_lines)
+    
+    # 如果代码第一行包含相对导入，则添加绝对导入
+    lines = code.strip().split('\n')
+    if lines and (lines[0].startswith("from .") or lines[0].startswith("from ..")):
+        # 添加绝对导入策略模板
+        code = "from src.backend.strategy.templates.strategy_template import StrategyTemplate\n" + code
+        
+    return code
 
 @router.post("/backtest")
 async def backtest_strategy(request: Request, db: Session = Depends(get_db)):
