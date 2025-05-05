@@ -135,9 +135,19 @@ const Backtest: React.FC = () => {
       console.log('当前选择的策略名称:', selectedStrategyName);
       console.log('策略列表:', strategiesList);
       
+      // 查找完整的策略对象
+      const strategyObj = strategiesList.find(s => s.id?.toString() === selectedStrategy || s.template === selectedStrategy);
+      console.log('选中的策略对象:', strategyObj);
+      
+      if (!strategyObj) {
+        message.error('无法找到所选策略，请重新选择');
+        setRunning(false);
+        return;
+      }
+      
       // 获取表单值
       const formValues = {
-        strategy_id: selectedStrategy, // 使用选定的策略ID
+        strategy_id: strategyObj.id, // 使用数据库中的策略ID
         symbol: selectedStock.symbol, // 使用选定的股票符号
         start_date: dateRange[0].format('YYYY-MM-DD'), // 开始日期
         end_date: dateRange[1].format('YYYY-MM-DD'), // 结束日期
@@ -1395,49 +1405,23 @@ const Backtest: React.FC = () => {
       if (strategies && strategies.length > 0) {
         setStrategiesList(strategies);
         // 如果当前选择的策略不在列表中，则选择第一个策略
-        if (!strategies.some(s => s.id?.toString() === selectedStrategy || s.template === selectedStrategy)) {
-          setSelectedStrategy(strategies[0].id?.toString() || strategies[0].template || 'ma_crossover');
+        if (!strategies.some(s => s.id?.toString() === selectedStrategy)) {
+          setSelectedStrategy(strategies[0].id?.toString() || '');
           setSelectedStrategyName(strategies[0].name || '移动平均线交叉策略');
         } else {
           // 找到当前选择的策略并更新名称
-          const currentStrategy = strategies.find(s => s.id?.toString() === selectedStrategy || s.template === selectedStrategy);
+          const currentStrategy = strategies.find(s => s.id?.toString() === selectedStrategy);
           if (currentStrategy) {
             setSelectedStrategyName(currentStrategy.name);
           }
         }
       } else {
         // 如果没有策略，则使用默认策略列表
-        const defaultStrategies = [
-          { id: 'ma_crossover', name: '移动平均线交叉策略', template: 'ma_crossover' },
-          { id: 'rsi', name: 'RSI策略', template: 'rsi' },
-          { id: 'macd', name: 'MACD策略', template: 'macd' },
-          { id: 'bollinger_bands', name: '布林带策略', template: 'bollinger_bands' }
-        ];
-        setStrategiesList(defaultStrategies);
-        
-        // 更新当前选中策略的名称
-        const currentStrategy = defaultStrategies.find(s => s.id === selectedStrategy || s.template === selectedStrategy);
-        if (currentStrategy) {
-          setSelectedStrategyName(currentStrategy.name);
-        }
+        message.error('未找到策略列表，请先创建策略');
       }
     } catch (error) {
       console.error('获取策略列表失败:', error);
-      message.error('获取策略列表失败，使用默认策略');
-      // 设置默认策略列表
-      const defaultStrategies = [
-        { id: 'ma_crossover', name: '移动平均线交叉策略', template: 'ma_crossover' },
-        { id: 'rsi', name: 'RSI策略', template: 'rsi' },
-        { id: 'macd', name: 'MACD策略', template: 'macd' },
-        { id: 'bollinger_bands', name: '布林带策略', template: 'bollinger_bands' }
-      ];
-      setStrategiesList(defaultStrategies);
-      
-      // 更新当前选中策略的名称
-      const currentStrategy = defaultStrategies.find(s => s.id === selectedStrategy || s.template === selectedStrategy);
-      if (currentStrategy) {
-        setSelectedStrategyName(currentStrategy.name);
-      }
+      message.error('获取策略列表失败，请检查网络连接');
     }
   };
 
@@ -1498,7 +1482,7 @@ const Backtest: React.FC = () => {
                   >
                     {strategiesList.map(strategy => (
                       <Option 
-                        key={strategy.id || strategy.template} 
+                        key={strategy.id} 
                         value={strategy.name}
                       >
                         {strategy.name}

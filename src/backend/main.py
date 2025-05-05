@@ -13,13 +13,21 @@ from src.backend.config import DEBUG, LOG_LEVEL
 
 # 配置日志
 logging.basicConfig(
-    level=getattr(logging, LOG_LEVEL),
+    level=logging.DEBUG,  # 使用DEBUG级别，输出详细日志
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
 )
+
+# 设置相关模块的日志级别
+logging.getLogger('src.backend.strategy').setLevel(logging.DEBUG)
+logging.getLogger('src.backend.backtest').setLevel(logging.DEBUG)
+logging.getLogger('src.backend.api').setLevel(logging.DEBUG)
 
 logger = logging.getLogger(__name__)
 
 if __name__ == "__main__":
+    logger.info("=" * 50)
+    logger.info("系统启动中...")
+    
     # 初始化数据库
     init_db()
     logger.info("数据库已初始化")
@@ -29,9 +37,12 @@ if __name__ == "__main__":
     
     # 启动API服务
     logger.info("启动API服务...")
+    logger.info("=" * 50)
+    
     uvicorn.run(
         "src.backend.api:app",
         host="0.0.0.0",
         port=8000,
-        reload=DEBUG
+        reload=DEBUG,
+        log_level="debug"  # uvicorn日志也设为debug级别
     ) 

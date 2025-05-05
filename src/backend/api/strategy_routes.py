@@ -348,21 +348,47 @@ async def delete_strategy(strategy_id: int, db: Session = Depends(get_db)):
         raise HTTPException(status_code=500, detail=f"删除策略失败: {str(e)}")
 
 @router.post("/test")
-async def test_strategy(request: Request):
+async def test_strategy(request: Request, db: Session = Depends(get_db)):
     """测试策略代码"""
     try:
         data = await request.json()
         code = data.get("code")
         test_data = data.get("data")
         parameters = data.get("parameters", {})
+        strategy_id = data.get("strategy_id")
+        
+        logger.info(f"收到策略测试请求: strategy_id={strategy_id}, 参数={parameters}")
+        
+        # 如果提供了strategy_id，则从数据库获取策略代码
+        if strategy_id and not code:
+            logger.info(f"从数据库获取策略代码，策略ID: {strategy_id}")
+            strategy = db.query(StrategyModel).filter(StrategyModel.id == strategy_id).first()
+            if not strategy:
+                error_msg = f"未找到ID为{strategy_id}的策略"
+                logger.error(error_msg)
+                raise HTTPException(status_code=404, detail=error_msg)
+            code = strategy.code
+            logger.info(f"成功获取策略代码，策略名称: {strategy.name}")
+            
+            # 如果没有提供参数，使用策略默认参数
+            if not parameters and strategy.parameters:
+                try:
+                    parameters = json.loads(strategy.parameters)
+                    logger.info(f"使用策略默认参数: {parameters}")
+                except Exception as e:
+                    logger.error(f"解析策略参数失败: {e}")
         
         if not code:
-            raise HTTPException(status_code=400, detail="缺少必要字段: code")
+            error_msg = "缺少必要字段: code或strategy_id"
+            logger.error(error_msg)
+            raise HTTPException(status_code=400, detail=error_msg)
         
         # 验证策略代码
+        logger.info("开始验证策略代码...")
         is_valid, errors = StrategyValidator.validate_strategy_code(code)
         if not is_valid:
             error_message = "策略代码验证失败:\n" + "\n".join(errors)
+            logger.error(f"策略代码验证失败: {error_message}")
             return {
                 "status": "error",
                 "message": error_message,
@@ -372,11 +398,15 @@ async def test_strategy(request: Request):
                 }
             }
         
+        logger.info("策略代码验证通过")
+        
         # 如果提供了测试数据，进行简单回测
         if test_data:
             try:
+                logger.info("开始加载策略实例...")
                 # 导入与实例化策略
                 strategy_instance = load_strategy_from_code(code, parameters)
+                logger.info(f"策略实例加载成功: {type(strategy_instance).__name__}")
                 
                 # 准备数据
                 if isinstance(test_data, list):
@@ -385,15 +415,18 @@ async def test_strategy(request: Request):
                     df = pd.DataFrame()
                 
                 if not df.empty:
+                    logger.info(f"测试数据加载成功，数据量: {len(df)}行")
                     # 设置数据
                     strategy_instance.set_data(df)
                     
                     # 生成信号
+                    logger.info("开始生成交易信号...")
                     signals = strategy_instance.generate_signals()
                     
                     # 统计信号
                     buy_count = (signals['signal'] == 1).sum()
                     sell_count = (signals['signal'] == -1).sum()
+                    logger.info(f"信号生成完成: 买入信号 {buy_count}个, 卖出信号 {sell_count}个")
                     
                     result = {
                         "signals": signals.to_dict(orient='records'),
@@ -404,6 +437,7 @@ async def test_strategy(request: Request):
                         }
                     }
                 else:
+                    logger.error("测试数据为空")
                     result = {"error": "测试数据为空"}
             except Exception as e:
                 logger.error(f"策略测试失败: {e}")
@@ -413,6 +447,7 @@ async def test_strategy(request: Request):
             # 仅验证代码是否有效
             result = {"is_valid": True}
         
+        logger.info("策略测试完成")
         return {
             "status": "success",
             "message": "策略代码验证通过",
@@ -441,6 +476,7 @@ def load_strategy_from_code(code: str, parameters: Dict[str, Any] = None):
     
     try:
         # 创建临时模块
+        logger.debug(f"创建临时模块: {temp_module_name}")
         spec = importlib.util.spec_from_loader(temp_module_name, loader=None)
         module = importlib.util.module_from_spec(spec)
         sys.modules[temp_module_name] = module
@@ -457,12 +493,16 @@ def load_strategy_from_code(code: str, parameters: Dict[str, Any] = None):
                 obj is not StrategyTemplate and 
                 issubclass(obj, StrategyTemplate)):
                 strategy_class = obj
+                logger.debug(f"找到策略类: {name}")
                 break
         
         if strategy_class is None:
-            raise ValueError("未找到策略类")
+            error_msg = "未找到策略类"
+            logger.error(error_msg)
+            raise ValueError(error_msg)
         
         # 实例化策略类
+        logger.debug(f"实例化策略类: {strategy_class.__name__}, 参数: {parameters}")
         strategy_instance = strategy_class(parameters=parameters)
         return strategy_instance
     

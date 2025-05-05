@@ -4,9 +4,11 @@ from datetime import datetime
 import logging
 import json
 from multiprocessing import Pool, cpu_count
+from typing import Dict, Any, List, Optional, Union
 
 from ..config import DEFAULT_COMMISSION_RATE, DEFAULT_SLIPPAGE_RATE
 from ..strategy.base import StrategyBase
+from ..strategy.templates.strategy_template import StrategyTemplate
 
 logger = logging.getLogger(__name__)
 
@@ -44,6 +46,10 @@ class BacktestEngine:
             'signals': None
         }
         
+        logger.info(f"回测引擎初始化完成: 初始资金={initial_capital}, 手续费率={commission_rate}, 滑点率={slippage_rate}")
+        if start_date and end_date:
+            logger.info(f"回测时间范围: {start_date} 至 {end_date}")
+        
     def set_data(self, data):
         """设置回测数据"""
         self.data = data
@@ -68,45 +74,71 @@ class BacktestEngine:
         if 'end_date' in parameters:
             self.end_date = parameters['end_date']
             
-    def run(self):
+    def run(self, data: Optional[pd.DataFrame] = None, benchmark_data: Optional[pd.DataFrame] = None) -> Dict[str, Any]:
         """
         运行回测
         
+        Args:
+            data: 回测数据，如果为None则使用策略中的数据
+            benchmark_data: 基准数据，用于计算alpha、beta等指标
+            
         Returns:
-            dict: 回测结果
+            回测结果
         """
-        if self.data is None or self.data.empty:
-            raise ValueError("无法进行回测: 未提供市场数据")
-            
-        if self.strategy is None:
-            raise ValueError("无法进行回测: 未提供交易策略")
-            
-        # 过滤数据
-        filtered_data = self._filter_data()
+        logger.info("开始执行回测...")
         
-        # 准备策略
-        self.strategy.set_data(filtered_data)
+        # 获取策略数据
+        if data is not None:
+            logger.info(f"使用外部提供的回测数据，数据量: {len(data)}行")
+            self.strategy.set_data(data)
+        else:
+            data = self.strategy.data
+            if data is None or data.empty:
+                error_msg = "策略数据为空，无法进行回测"
+                logger.error(error_msg)
+                raise ValueError(error_msg)
+            logger.info(f"使用策略数据进行回测，数据量: {len(data)}行")
         
-        # 设置策略参数
-        strategy_params = self.strategy.parameters.copy()
-        strategy_params['commission_rate'] = self.commission_rate
-        strategy_params['slippage_rate'] = self.slippage_rate
-        self.strategy.set_parameters(strategy_params)
+        # 生成信号
+        logger.info("开始生成交易信号...")
+        signals = self.strategy.generate_signals()
+        logger.info(f"信号生成完成，交易日总数: {len(signals)}")
         
-        # 初始化策略
-        self.strategy.initialize(self.initial_capital)
+        # 处理日期范围
+        if self.start_date:
+            signals = signals[signals.index >= self.start_date]
+        if self.end_date:
+            signals = signals[signals.index <= self.end_date]
         
-        # 执行回测
-        backtest_results = self.strategy.backtest()
+        logger.info(f"回测日期范围过滤后的交易日总数: {len(signals)}")
         
-        # 保存回测结果
-        self.results['trades'] = backtest_results.get('trades', [])
-        self.results['performance'] = backtest_results.get('performance', {})
-        self.results['equity_curve'] = backtest_results.get('equity_curve', None)
-        self.results['drawdowns'] = backtest_results.get('drawdowns', None)
-        self.results['signals'] = backtest_results.get('signals', None)
+        # 执行交易
+        logger.info("开始执行交易模拟...")
+        self._simulate_trades(signals)
         
-        return self.results
+        # 计算性能指标
+        logger.info("开始计算绩效指标...")
+        self._calculate_performance(benchmark_data)
+        
+        # 返回回测结果
+        result = {
+            "equity_curve": self.results['equity_curve'],
+            "trades": self.results['trades'],
+            "drawdowns": self.results['drawdowns'],
+            "total_return": self.results['performance'].get('total_return', 0.0),
+            "annual_return": self.results['performance'].get('annual_return', 0.0),
+            "sharpe_ratio": self.results['performance'].get('sharpe_ratio', 0.0),
+            "max_drawdown": self.results['performance'].get('max_drawdown', 0.0),
+            "win_rate": self.results['performance'].get('win_rate', 0.0),
+            "profit_factor": self.results['performance'].get('profit_factor', 0.0),
+            "alpha": self.results['performance'].get('alpha', 0.0),
+            "beta": self.results['performance'].get('beta', 0.0)
+        }
+        
+        logger.info(f"回测完成: 总收益率={result['total_return']:.2%}, 最大回撤={result['max_drawdown']:.2%}, 夏普比率={result['sharpe_ratio']:.2f}")
+        logger.info(f"交易统计: 总交易次数={len(self.results['trades'])}, 胜率={result['win_rate']:.2%}")
+        
+        return result
     
     def run_parallel(self, parameter_sets):
         """
@@ -273,3 +305,247 @@ class BacktestEngine:
         else:
             # 如果已经是字典，直接返回
             return trade 
+
+    def _simulate_trades(self, signals: pd.DataFrame) -> None:
+        """
+        模拟交易过程
+        
+        Args:
+            signals: 包含交易信号的DataFrame
+        """
+        logger.debug("开始模拟交易过程...")
+        
+        # 初始化权益曲线
+        self.results['equity_curve'] = []
+        self.results['trades'] = []
+        self.capital = self.initial_capital
+        self.equity = self.initial_capital
+        self.position = 0
+        self.position_value = 0.0
+        self.position_avg_price = 0.0
+        
+        # 回测过程中的指标
+        max_equity = self.equity  # 历史最高总资产
+        current_drawdown = 0.0  # 当前回撤
+        
+        # 添加起始点到权益曲线
+        if not signals.empty:
+            first_date = signals.index[0]
+            self.results['equity_curve'].append({
+                "date": first_date,
+                "equity": self.equity,
+                "capital": self.capital,
+                "position": self.position,
+                "position_value": self.position_value,
+                "drawdown": current_drawdown
+            })
+        
+        previous_trade_date = None  # 上一次交易日，用于计算持仓天数
+        entry_price = None  # 买入价格
+        entry_date = None  # 买入日期
+        
+        # 遍历每个交易日
+        for date, row in signals.iterrows():
+            price = row["close"]
+            signal = row["signal"] if "signal" in row else 0
+            trigger_reason = row.get("trigger_reason", "未记录")
+            
+            # 记录交易前状态
+            before_capital = self.capital
+            before_equity = self.equity
+            
+            logger.debug(f"日期: {date}, 价格: {price}, 信号: {signal}, 当前持仓: {self.position}")
+            
+            # 根据信号执行交易
+            if signal == 1 and self.position == 0:  # 买入信号且当前无持仓
+                # 计算可买数量
+                max_shares = int(self.capital * 0.95 / price)  # 保留5%资金作为缓冲
+                shares = max_shares  # 这里可以根据策略调整买入数量
+                
+                # 执行买入
+                execution_price = price * (1 + self.slippage_rate)  # 考虑滑点
+                cost = shares * execution_price
+                commission_fee = cost * self.commission_rate
+                total_cost = cost + commission_fee
+                
+                if total_cost <= self.capital and shares > 0:
+                    self.capital -= total_cost
+                    self.position = shares
+                    self.position_avg_price = execution_price
+                    self.position_value = shares * price
+                    
+                    # 记录买入交易
+                    entry_price = execution_price
+                    entry_date = date
+                    
+                    trade = {
+                        "date": date,
+                        "action": "BUY",
+                        "price": execution_price,
+                        "shares": shares,
+                        "value": cost,
+                        "commission": commission_fee,
+                        "before_cash": before_capital,
+                        "after_cash": self.capital,
+                        "before_equity": before_equity,
+                        "after_equity": self.capital + self.position_value,
+                        "trigger_reason": trigger_reason
+                    }
+                    self.results['trades'].append(trade)
+                    
+                    logger.info(f"买入: 日期={date}, 价格={execution_price:.4f}, 数量={shares}, 金额={cost:.2f}, 手续费={commission_fee:.2f}")
+                
+            elif signal == -1 and self.position > 0:  # 卖出信号且当前有持仓
+                # 执行卖出
+                execution_price = price * (1 - self.slippage_rate)  # 考虑滑点
+                shares = self.position
+                revenue = shares * execution_price
+                commission_fee = revenue * self.commission_rate
+                net_revenue = revenue - commission_fee
+                
+                # 计算收益
+                profit = net_revenue - (shares * self.position_avg_price)
+                profit_percent = profit / (shares * self.position_avg_price) if self.position_avg_price > 0 else 0
+                
+                # 计算持仓天数
+                if previous_trade_date and entry_date:
+                    holding_days = (datetime.strptime(str(date)[:10], "%Y-%m-%d") - 
+                                    datetime.strptime(str(entry_date)[:10], "%Y-%m-%d")).days
+                else:
+                    holding_days = 0
+                
+                self.capital += net_revenue
+                self.position = 0
+                self.position_value = 0
+                self.position_avg_price = 0
+                
+                # 记录卖出交易
+                trade = {
+                    "date": date,
+                    "action": "SELL",
+                    "price": execution_price,
+                    "shares": shares,
+                    "value": revenue,
+                    "commission": commission_fee,
+                    "profit": profit,
+                    "profit_percent": profit_percent,
+                    "entry_price": entry_price,
+                    "entry_date": entry_date,
+                    "holding_days": holding_days,
+                    "before_cash": before_capital,
+                    "after_cash": self.capital,
+                    "before_equity": before_equity,
+                    "after_equity": self.capital,
+                    "trigger_reason": trigger_reason
+                }
+                self.results['trades'].append(trade)
+                
+                # 重置入场信息
+                entry_price = None
+                entry_date = None
+                
+                logger.info(f"卖出: 日期={date}, 价格={execution_price:.4f}, 数量={shares}, 金额={revenue:.2f}, 手续费={commission_fee:.2f}, 收益={profit:.2f}({profit_percent:.2%})")
+            
+            # 更新持仓市值
+            if self.position > 0:
+                self.position_value = self.position * price
+            
+            # 更新总资产
+            self.equity = self.capital + self.position_value
+            
+            # 计算回撤
+            if self.equity > max_equity:
+                max_equity = self.equity
+                current_drawdown = 0.0
+            else:
+                current_drawdown = (max_equity - self.equity) / max_equity
+            
+            # 添加当日数据到权益曲线
+            self.results['equity_curve'].append({
+                "date": date,
+                "equity": self.equity,
+                "capital": self.capital,
+                "position": self.position,
+                "position_value": self.position_value,
+                "drawdown": current_drawdown
+            })
+            
+            # 添加回撤记录
+            self.results['drawdowns'].append({
+                "date": date,
+                "drawdown": current_drawdown
+            })
+            
+            previous_trade_date = date
+        
+        logger.debug(f"交易模拟完成: 总交易次数={len(self.results['trades'])}, 最终资产={self.equity:.2f}")
+    
+    def _calculate_performance(self, benchmark_data: Optional[pd.DataFrame] = None) -> None:
+        """
+        计算回测性能指标
+        
+        Args:
+            benchmark_data: 基准数据，用于计算alpha、beta等指标
+        """
+        if not self.results['equity_curve']:
+            logger.warning("权益曲线为空，无法计算性能指标")
+            return
+        
+        # 计算总收益率
+        final_equity = self.results['equity_curve'][-1]["equity"]
+        self.results['performance']['total_return'] = (final_equity / self.initial_capital) - 1
+        
+        # 计算年化收益率
+        if len(self.results['equity_curve']) > 1:
+            start_date = self.results['equity_curve'][0]["date"]
+            end_date = self.results['equity_curve'][-1]["date"]
+            if isinstance(start_date, str):
+                start_date = datetime.strptime(start_date, "%Y-%m-%d")
+            if isinstance(end_date, str):
+                end_date = datetime.strptime(end_date, "%Y-%m-%d")
+            
+            days = (end_date - start_date).days
+            if days > 0:
+                self.results['performance']['annual_return'] = pow((1 + self.results['performance']['total_return']), (365 / days)) - 1
+        
+        # 计算最大回撤
+        if self.results['drawdowns']:
+            self.results['performance']['max_drawdown'] = max([d["drawdown"] for d in self.results['drawdowns']])
+        
+        # 计算胜率
+        win_trades = [t for t in self.results['trades'] if t["action"] == "SELL" and t.get("profit", 0) > 0]
+        lose_trades = [t for t in self.results['trades'] if t["action"] == "SELL" and t.get("profit", 0) <= 0]
+        total_sell_trades = len(win_trades) + len(lose_trades)
+        
+        if total_sell_trades > 0:
+            self.results['performance']['win_rate'] = len(win_trades) / total_sell_trades
+        
+        # 计算盈亏比
+        total_profit = sum([t.get("profit", 0) for t in win_trades])
+        total_loss = abs(sum([t.get("profit", 0) for t in lose_trades]))
+        
+        if total_loss > 0:
+            self.results['performance']['profit_factor'] = total_profit / total_loss
+        
+        # 计算夏普比率
+        if len(self.results['equity_curve']) > 1:
+            # 提取权益数据计算收益率序列
+            equity_values = [ec["equity"] for ec in self.results['equity_curve']]
+            returns = pd.Series(equity_values).pct_change().dropna()
+            
+            # 计算年化收益率和年化标准差
+            annual_std = returns.std() * np.sqrt(252)
+            risk_free_rate = 0.02  # 假设无风险利率2%
+            
+            # 计算夏普比率
+            if annual_std > 0:
+                self.results['performance']['sharpe_ratio'] = (self.results['performance']['annual_return'] - risk_free_rate) / annual_std
+        
+        # 计算Alpha和Beta(需要基准数据)
+        if benchmark_data is not None and not benchmark_data.empty:
+            # 待实现
+            pass
+        
+        logger.info(f"性能指标计算完成: 总收益率={self.results['performance']['total_return']:.2%}, 年化收益率={self.results['performance']['annual_return']:.2%}, 最大回撤={self.results['performance']['max_drawdown']:.2%}")
+        if total_sell_trades > 0:
+            logger.info(f"交易统计: 总交易次数={total_sell_trades}, 盈利交易={len(win_trades)}, 亏损交易={len(lose_trades)}, 胜率={self.results['performance']['win_rate']:.2%}, 盈亏比={self.results['performance']['profit_factor']:.2f}") 
