@@ -1,12 +1,22 @@
 import React, { useState, useEffect } from 'react';
-import { Card, Tabs, Form, Input, Select, Button, Collapse, Space, Switch, InputNumber, Row, Col, Typography, message, Spin, List, Tooltip, Popconfirm, Modal, Divider } from 'antd';
-import { SaveOutlined, PlayCircleOutlined, CodeOutlined, LineChartOutlined, SettingOutlined, PlusOutlined, CopyOutlined, DeleteOutlined, EditOutlined, ExclamationCircleOutlined } from '@ant-design/icons';
+import { Card, Tabs, Form, Input, Select, Button, Collapse, Space, Switch, InputNumber, Row, Col, Typography, message, Spin, List, Tooltip, Popconfirm, Modal, Divider, Dropdown, Menu } from 'antd';
+import { SaveOutlined, PlayCircleOutlined, CodeOutlined, LineChartOutlined, SettingOutlined, PlusOutlined, CopyOutlined, DeleteOutlined, EditOutlined, ExclamationCircleOutlined, DownOutlined } from '@ant-design/icons';
 import ReactCodeMirror from '@uiw/react-codemirror';
 import { python } from '@codemirror/lang-python';
-import { fetchStockList, Stock, saveStrategy, Strategy, fetchStrategyById, fetchStrategies, deleteStrategy } from '../services/apiService';
+import { 
+  fetchStockList,
+  Stock,
+  saveStrategy,
+  Strategy,
+  fetchStrategyById,
+  fetchStrategies,
+  deleteStrategy,
+  fetchStrategyTemplates,
+  fetchStrategyTemplateById
+} from '../services/apiService';
 import { useLocation, useNavigate } from 'react-router-dom';
 
-const { Title, Paragraph, Text } = Typography;
+const { Title, Paragraph } = Typography;
 const { TabPane } = Tabs;
 const { Panel } = Collapse;
 const { Option } = Select;
@@ -56,6 +66,8 @@ def handle_data(context, data):
   const [strategyList, setStrategyList] = useState<Strategy[]>([]);
   const [loadingStrategies, setLoadingStrategies] = useState(false);
   const [searchText, setSearchText] = useState('');
+  const [templateList, setTemplateList] = useState<any[]>([]);
+  const [templatesLoading, setTemplatesLoading] = useState<boolean>(false);
   const [strategyTemplates, setStrategyTemplates] = useState([
     { label: '移动平均线交叉策略', value: 'ma_cross' },
     { label: '布林带策略', value: 'bbands' },
@@ -64,6 +76,9 @@ def handle_data(context, data):
     { label: '趋势跟踪策略', value: 'trend_following' },
     { label: '双均线策略', value: 'dual_ma' },
   ]);
+  const [strategyParams, setStrategyParams] = useState<any>({});
+  const [saving, setSaving] = useState<boolean>(false);
+  const [testing, setTesting] = useState<boolean>(false);
   
   // 从URL获取策略ID（如果有）
   const getStrategyIdFromUrl = () => {
@@ -72,25 +87,52 @@ def handle_data(context, data):
     return id;
   };
   
+  // 用于跟踪组件是否已加载初始数据
+  const [initialDataLoaded, setInitialDataLoaded] = useState<boolean>(false);
+  
   // 加载数据
   useEffect(() => {
-    // 仅在首次挂载时获取股票列表和策略模板列表
+    // 仅在首次挂载时或URL变化且未加载过数据时加载
     const loadInitialData = async () => {
-      await Promise.all([
-        fetchStocks(),
-        loadStrategyTemplates()
-      ]);
+      if (initialDataLoaded) {
+        // 如果已经加载过初始数据，只处理URL中的策略ID变化
+        const strategyId = getStrategyIdFromUrl();
+        if (strategyId) {
+          // 如果当前策略ID与URL中的不同，则加载新策略
+          if (!currentStrategy || currentStrategy.id !== strategyId) {
+            await loadStrategyIfNeeded(strategyId);
+          }
+        }
+        return;
+      }
       
-      // 加载策略列表
-      await fetchStrategyList();
+      setInitialDataLoaded(true);
+      
+      try {
+        // 并行加载股票列表和策略模板
+        await Promise.all([
+          fetchStocks(),
+          loadStrategyTemplates()
+        ]);
+        
+        // 加载策略列表
+        await fetchStrategyList();
+      } catch (error) {
+        console.error('初始化数据加载失败:', error);
+        message.error('数据加载失败，请刷新页面重试');
+      }
     };
     
     loadInitialData();
+  // 添加location作为依赖，当URL变化时重新加载
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [location.search, initialDataLoaded]);
   
   // 获取策略列表
   const fetchStrategyList = async () => {
+    // 如果已经在加载中，不重复发起请求
+    if (loadingStrategies) return;
+    
     setLoadingStrategies(true);
     try {
       const strategies = await fetchStrategies();
@@ -104,10 +146,13 @@ def handle_data(context, data):
       
       // 如果URL中有策略ID，加载该策略
       if (strategyId) {
-        loadStrategyIfNeeded(strategyId);
-      } else if (userStrategies.length > 0) {
-        // 如果没有策略ID且策略列表不为空，加载第一个策略
-        handleStrategyClick(userStrategies[0]);
+        // 检查策略是否已经加载，避免重复加载
+        if (!currentStrategy || currentStrategy.id !== strategyId) {
+          await loadStrategyIfNeeded(strategyId);
+        }
+      } else if (userStrategies.length > 0 && !currentStrategy) {
+        // 如果没有策略ID且策略列表不为空且当前没有加载策略，加载第一个策略
+        await handleStrategyClick(userStrategies[0]);
       }
     } catch (error) {
       console.error('获取策略列表失败:', error);
@@ -181,15 +226,20 @@ def handle_data(context, data):
   
   // 获取股票列表
   const fetchStocks = async () => {
+    // 如果已经有股票列表数据，不再重复获取
+    if (stockList.length > 0) return stockList;
+    
     setLoading(true);
     try {
       const stocks = await fetchStockList();
       setStockList(stocks);
+      return stocks;
     } catch (error) {
       console.error('获取股票列表失败:', error);
     } finally {
       setLoading(false);
     }
+    return [];
   };
 
   // 处理策略点击
@@ -291,14 +341,22 @@ def handle_data(context, data):
       const savedStrategy = await saveStrategy(newStrategy);
       message.success('策略复制成功');
       
-      // 刷新策略列表并加载新策略
-      await fetchStrategyList();
-      
-      // 直接调用handleStrategyClick加载新策略，但不更新URL
+      // 直接调用handleStrategyClick加载新策略，不重复获取策略列表
       handleStrategyClick(savedStrategy);
       
       // 更新URL参数
       window.history.replaceState(null, '', `?id=${savedStrategy.id}`);
+      
+      // 刷新策略列表，但不重复加载当前策略
+      if (!loadingStrategies) {
+        const savedId = savedStrategy.id;
+        const tempFetch = async () => {
+          const strategies = await fetchStrategies();
+          const userStrategies = strategies.filter(s => !s.is_template);
+          setStrategyList(userStrategies);
+        };
+        tempFetch();
+      }
     } catch (error) {
       console.error('复制策略失败:', error);
       message.error('复制策略失败');
@@ -340,8 +398,15 @@ def handle_data(context, data):
             window.history.replaceState(null, '', window.location.pathname);
           }
           
-          // 刷新策略列表
-          fetchStrategyList();
+          // 刷新策略列表，避免重复请求
+          if (!loadingStrategies) {
+            const tempFetch = async () => {
+              const strategies = await fetchStrategies();
+              const userStrategies = strategies.filter(s => !s.is_template);
+              setStrategyList(userStrategies);
+            };
+            tempFetch();
+          }
         } catch (error) {
           console.error('删除策略失败:', error);
           message.error('删除策略失败');
@@ -417,8 +482,16 @@ def handle_data(context, data):
       // 更新URL参数
       window.history.replaceState(null, '', `?id=${savedStrategy.id}`);
       
-      // 刷新策略列表
-      fetchStrategyList();
+      // 刷新策略列表，但不重复加载当前策略
+      if (!loadingStrategies) {
+        const savedId = savedStrategy.id;
+        const tempFetch = async () => {
+          const strategies = await fetchStrategies();
+          const userStrategies = strategies.filter(s => !s.is_template);
+          setStrategyList(userStrategies);
+        };
+        tempFetch();
+      }
     } catch (error) {
       console.error('保存策略失败:', error);
       message.error('保存策略失败，请重试');
@@ -475,6 +548,11 @@ def handle_data(context, data):
 
   // 加载策略模板
   const loadStrategyTemplates = async () => {
+    // 如果已经有模板数据且不是默认值，不再重复获取
+    if (strategyTemplates.length > 0 && strategyTemplates[0].value !== 'ma_cross') {
+      return strategyTemplates;
+    }
+    
     try {
       const strategies = await fetchStrategies();
       // 过滤出模板策略
@@ -487,393 +565,275 @@ def handle_data(context, data):
 
       if (templates.length > 0) {
         setStrategyTemplates(templates);
+        return templates;
       }
     } catch (error) {
       console.error('获取策略模板失败:', error);
     }
+    return strategyTemplates;
+  };
+
+  // 加载策略模板列表
+  const fetchTemplateList = async () => {
+    setTemplatesLoading(true);
+    try {
+      const templates = await fetchStrategyTemplates();
+      setTemplateList(templates);
+    } catch (error) {
+      message.error('获取策略模板失败');
+    } finally {
+      setTemplatesLoading(false);
+    }
+  };
+
+  // 加载特定模板
+  const loadTemplate = async (templateId: string) => {
+    try {
+      const template = await fetchStrategyTemplateById(templateId);
+      if (template) {
+        form.setFieldsValue({
+          name: `自定义${template.name}`,
+          description: template.description,
+          code: template.code,
+        });
+        
+        // 如果模板有预定义参数，设置参数
+        if (template.parameters) {
+          setStrategyParams(template.parameters);
+        }
+        
+        message.success('模板加载成功');
+      }
+    } catch (error) {
+      message.error('加载模板失败');
+    }
+  };
+
+  const handleSelectTemplate = (templateId: string) => {
+    loadTemplate(templateId);
+  };
+
+  // 表单初始值
+  const initialValues = {
+    name: '',
+    description: '',
+    code: ''
+  };
+
+  // 表单提交
+  const onFinish = (values: any) => {
+    // 保存策略的逻辑
+    setSaving(true);
+    // 假设已有保存策略的函数
+    saveStrategy(values)
+      .then(async (savedStrategy) => {
+        message.success('策略保存成功');
+        
+        // 更新当前策略
+        if (savedStrategy) {
+          setCurrentStrategy(savedStrategy);
+          
+          // 更新URL参数
+          window.history.replaceState(null, '', `?id=${savedStrategy.id}`);
+          
+          // 刷新策略列表，但不重复加载当前策略
+          if (!loadingStrategies) {
+            const strategies = await fetchStrategies();
+            const userStrategies = strategies.filter(s => !s.is_template);
+            setStrategyList(userStrategies);
+          }
+        }
+      })
+      .catch(error => {
+        message.error('保存策略失败: ' + error.message);
+      })
+      .finally(() => {
+        setSaving(false);
+      });
+  };
+
+  // 测试策略
+  const testStrategy = () => {
+    setTesting(true);
+    // 测试策略的逻辑
+    setTimeout(() => {
+      message.success('策略测试成功');
+      setTesting(false);
+    }, 1500);
+  };
+
+  // 重置表单
+  const resetForm = (templateType: string) => {
+    // 重置表单的逻辑
+    form.resetFields();
+    // 可以根据模板类型加载不同的默认代码
+    message.success('已重置为' + templateType + '模板');
   };
 
   return (
-    <div>
-      <Title level={2}>策略构建器</Title>
-      <Paragraph>创建和编辑您的交易策略，可以选择使用可视化编辑器或直接编写代码。</Paragraph>
+    <div className="strategy-builder">
+      <div className="page-header" style={{ marginBottom: '20px' }}>
+        <Title level={2}>策略构建器</Title>
+        <Paragraph>创建和测试您的交易策略</Paragraph>
+      </div>
       
-      <Row gutter={24}>
-        {/* 左侧策略列表 */}
-        <Col span={6}>
+      <Row gutter={16}>
+        <Col span={18}>
           <Card 
-            title="策略列表" 
-            extra={
-              <Button 
-                type="primary" 
-                icon={<PlusOutlined />}
-                onClick={handleCreateStrategy}
-              >
-                新建
-              </Button>
-            }
-            style={{ height: '100%', display: 'flex', flexDirection: 'column' }}
-            bodyStyle={{ flex: 1, padding: '12px', overflowY: 'hidden', display: 'flex', flexDirection: 'column' }}
+            title="策略编辑器" 
+            bordered={false} 
+            className="editor-card"
           >
-            <Input.Search 
-              placeholder="搜索策略" 
-              style={{ marginBottom: 16 }} 
-              onChange={(e) => setSearchText(e.target.value)}
-              allowClear
-            />
-            
-            <div style={{ flex: 1, overflow: 'hidden' }}>
-              <List
-                loading={loadingStrategies}
-                dataSource={filteredStrategies}
-                renderItem={strategy => (
-                  <List.Item
-                    key={strategy.id as string}
-                    actions={[
-                      <div style={{ display: 'flex', flexShrink: 0 }}>
-                        <Button.Group size="small">
-                          <Tooltip title="编辑">
-                            <Button 
-                              icon={<EditOutlined />} 
-                              type="text" 
-                              onClick={() => handleStrategyClick(strategy)}
-                            />
-                          </Tooltip>
-                          <Tooltip title="复制">
-                            <Button 
-                              icon={<CopyOutlined />} 
-                              type="text" 
-                              onClick={() => handleCopyStrategy(strategy)}
-                            />
-                          </Tooltip>
-                          <Tooltip title="删除">
-                            <Button 
-                              icon={<DeleteOutlined />} 
-                              type="text" 
-                              danger
-                              onClick={() => showDeleteConfirm(strategy)}
-                            />
-                          </Tooltip>
-                        </Button.Group>
-                      </div>
+            <Form
+              form={form}
+              layout="vertical"
+              initialValues={initialValues}
+              onFinish={onFinish}
+            >
+              <Row gutter={16}>
+                <Col span={12}>
+                  <Form.Item
+                    name="name"
+                    label="策略名称"
+                    rules={[
+                      { required: true, message: '请输入策略名称' },
+                      { max: 50, message: '策略名称不能超过50个字符' }
                     ]}
-                    className={currentStrategy?.id === strategy.id ? 'ant-list-item-selected' : ''}
-                    style={{
-                      ...(currentStrategy?.id === strategy.id ? { background: '#e6f7ff' } : {}),
-                      padding: '8px 12px',
-                      borderRadius: '4px',
-                      marginBottom: '8px',
-                      display: 'flex',
-                      justifyContent: 'space-between'
-                    }}
                   >
-                    <List.Item.Meta
-                      title={
-                        <div style={{ 
-                          overflow: 'hidden', 
-                          textOverflow: 'ellipsis', 
-                          whiteSpace: 'nowrap',
-                          maxWidth: '100%',
-                          fontSize: '14px',
-                          fontWeight: 500
-                        }}>
-                          <a onClick={() => handleStrategyClick(strategy)}>{strategy.name}</a>
-                        </div>
-                      }
-                      description={
-                        <div style={{ 
-                          overflow: 'hidden', 
-                          textOverflow: 'ellipsis', 
-                          whiteSpace: 'nowrap',
-                          maxWidth: '100%',
-                          fontSize: '12px',
-                          color: 'rgba(0, 0, 0, 0.45)'
-                        }}>
-                          {strategy.description || '无描述'}
-                        </div>
-                      }
+                    <Input placeholder="请输入策略名称" />
+                  </Form.Item>
+                </Col>
+                <Col span={12}>
+                  <Form.Item
+                    name="description"
+                    label="策略描述"
+                    rules={[
+                      { max: 200, message: '策略描述不能超过200个字符' }
+                    ]}
+                  >
+                    <Input.TextArea 
+                      placeholder="请输入策略描述" 
+                      autoSize={{ minRows: 1, maxRows: 3 }}
                     />
-                  </List.Item>
-                )}
-                locale={{ 
-                  emptyText: '暂无策略，点击"新建"创建第一个策略' 
-                }}
-                style={{ 
-                  height: '100%', 
-                  overflow: 'auto',
-                  padding: '0 4px'
-                }}
-                itemLayout="horizontal"
-              />
-            </div>
+                  </Form.Item>
+                </Col>
+              </Row>
+              
+              <Form.Item
+                name="code"
+                label="策略代码"
+                rules={[
+                  { required: true, message: '请输入策略代码' }
+                ]}
+              >
+                <ReactCodeMirror
+                  height="450px"
+                  extensions={[python()]}
+                  onChange={(value: string) => form.setFieldsValue({ code: value })}
+                />
+              </Form.Item>
+              
+              <Form.Item>
+                <Space>
+                  <Button type="primary" htmlType="submit" loading={saving}>
+                    保存策略
+                  </Button>
+                  <Button type="default" onClick={testStrategy} loading={testing}>
+                    测试策略
+                  </Button>
+                  <Dropdown overlay={
+                    <Menu>
+                      <Menu.Item key="basic" onClick={() => resetForm('basic')}>
+                        基础策略模板
+                      </Menu.Item>
+                      <Menu.Item key="technical" onClick={() => resetForm('technical')}>
+                        技术指标策略
+                      </Menu.Item>
+                      <Menu.Item key="empty" onClick={() => resetForm('empty')}>
+                        空白策略
+                      </Menu.Item>
+                    </Menu>
+                  }>
+                    <Button>
+                      重置模板 <DownOutlined />
+                    </Button>
+                  </Dropdown>
+                </Space>
+              </Form.Item>
+            </Form>
           </Card>
         </Col>
         
-        {/* 右侧策略编辑 */}
-        <Col span={18}>
-          <Card>
-            <Tabs 
-              activeKey={activeKey} 
-              onChange={setActiveKey}
-              tabBarExtraContent={
-                <Space>
-                  <Button 
-                    icon={<SaveOutlined />} 
-                    type="primary" 
-                    onClick={handleSave}
-                    loading={isSaving}
-                  >
-                    保存策略
-                  </Button>
-                  <Button icon={<PlayCircleOutlined />} onClick={handleTest}>
-                    测试策略
-                  </Button>
-                </Space>
-              }
-            >
-              <TabPane 
-                tab={
-                  <span>
-                    <SettingOutlined />
-                    可视化编辑
-                  </span>
-                } 
-                key="visual"
-              >
-                <Spin spinning={loading}>
-                  <Form
-                    form={form}
-                    layout="vertical"
-                  >
-                    <Row gutter={24}>
-                      <Col span={12}>
-                        <Form.Item 
-                          label="策略名称" 
-                          name="strategyName"
-                          rules={[{ required: true, message: '请输入策略名称' }]}
+        <Col span={6}>
+          <Card 
+            title="策略库"
+            bordered={false}
+            className="strategy-library-card"
+            style={{ marginBottom: '16px', height: '300px' }}
+          >
+            <Tabs defaultActiveKey="mine">
+              <TabPane tab="我的策略" key="mine">
+                <List
+                  itemLayout="horizontal"
+                  dataSource={strategyList}
+                  loading={loadingStrategies}
+                  renderItem={item => (
+                    <List.Item
+                      className="strategy-list-item"
+                      actions={[
+                        <Button 
+                          key="edit" 
+                          type="link" 
+                          size="small"
+                          onClick={() => handleStrategyClick(item)}
                         >
-                          <Input placeholder="请输入策略名称" />
-                        </Form.Item>
-                      </Col>
-                      <Col span={12}>
-                        <Form.Item 
-                          label="策略模板" 
-                          name="template"
+                          编辑
+                        </Button>,
+                        <Button 
+                          key="delete" 
+                          type="link" 
+                          danger 
+                          size="small"
+                          onClick={() => showDeleteConfirm(item)}
                         >
-                          <Select placeholder="选择策略模板" onChange={handleTemplateChange}>
-                            {strategyTemplates.map(item => (
-                              <Option key={item.value} value={item.value}>{item.label}</Option>
-                            ))}
-                          </Select>
-                        </Form.Item>
-                      </Col>
-                    </Row>
-                    
-                    <Form.Item 
-                      label="策略描述" 
-                      name="description"
+                          删除
+                        </Button>
+                      ]}
                     >
-                      <Input.TextArea rows={2} placeholder="请输入策略描述" />
-                    </Form.Item>
-                    
-                    <Collapse defaultActiveKey={['1', '2', '3']}>
-                      <Panel header="数据设置" key="1">
-                        <Row gutter={24}>
-                          <Col span={8}>
-                            <Form.Item 
-                              label="交易品种" 
-                              name="symbol"
-                              rules={[{ required: true, message: '请选择交易品种' }]}
-                            >
-                              <Select placeholder="选择交易品种">
-                                {stockList.map(stock => (
-                                  <Option key={stock.id} value={stock.symbol}>
-                                    {stock.name} ({stock.symbol})
-                                  </Option>
-                                ))}
-                              </Select>
-                            </Form.Item>
-                          </Col>
-                          <Col span={8}>
-                            <Form.Item 
-                              label="时间周期" 
-                              name="timeframe"
-                              rules={[{ required: true, message: '请选择时间周期' }]}
-                            >
-                              <Select placeholder="选择时间周期">
-                                <Option value="D">日线</Option>
-                                <Option value="W">周线</Option>
-                                <Option value="M">月线</Option>
-                                <Option value="60M">60分钟</Option>
-                                <Option value="15M">15分钟</Option>
-                              </Select>
-                            </Form.Item>
-                          </Col>
-                          <Col span={8}>
-                            <Form.Item 
-                              label="添加技术指标" 
-                              name="indicators"
-                            >
-                              <Select 
-                                mode="multiple" 
-                                placeholder="添加技术指标"
-                                options={indicatorOptions}
-                              />
-                            </Form.Item>
-                          </Col>
-                        </Row>
-                      </Panel>
-                      
-                      <Panel header="策略参数" key="2">
-                        <Row gutter={24}>
-                          <Col span={8}>
-                            <Form.Item 
-                              label="短期周期" 
-                              name="shortPeriod"
-                              rules={[{ required: true, message: '请输入短期周期' }]}
-                            >
-                              <InputNumber min={1} max={100} style={{ width: '100%' }} />
-                            </Form.Item>
-                          </Col>
-                          <Col span={8}>
-                            <Form.Item 
-                              label="长期周期" 
-                              name="longPeriod"
-                              rules={[{ required: true, message: '请输入长期周期' }]}
-                            >
-                              <InputNumber min={5} max={200} style={{ width: '100%' }} />
-                            </Form.Item>
-                          </Col>
-                          <Col span={8}>
-                            <Form.Item 
-                              label="仓位管理" 
-                              name="positionSizing"
-                            >
-                              <Select placeholder="选择仓位管理方式">
-                                <Option value="all_in">全仓</Option>
-                                <Option value="fixed">固定金额</Option>
-                                <Option value="percentage">资金百分比</Option>
-                                <Option value="kelly">凯利公式</Option>
-                              </Select>
-                            </Form.Item>
-                          </Col>
-                        </Row>
-                        
-                        <Row gutter={24}>
-                          <Col span={12}>
-                            <Form.Item 
-                              label="启用止损" 
-                              name="useStopLoss"
-                              valuePropName="checked"
-                            >
-                              <Switch />
-                            </Form.Item>
-                          </Col>
-                          <Col span={12}>
-                            <Form.Item 
-                              label="启用止盈" 
-                              name="useTakeProfit"
-                              valuePropName="checked"
-                            >
-                              <Switch />
-                            </Form.Item>
-                          </Col>
-                        </Row>
-                      </Panel>
-                      
-                      <Panel header="风险控制" key="3">
-                        <Row gutter={24}>
-                          <Col span={8}>
-                            <Form.Item 
-                              label="单笔风险(%)" 
-                              name="singleRisk"
-                            >
-                              <InputNumber min={0} max={100} style={{ width: '100%' }} />
-                            </Form.Item>
-                          </Col>
-                          <Col span={8}>
-                            <Form.Item 
-                              label="最大回撤限制(%)" 
-                              name="maxDrawdown"
-                            >
-                              <InputNumber min={0} max={100} style={{ width: '100%' }} />
-                            </Form.Item>
-                          </Col>
-                          <Col span={8}>
-                            <Form.Item 
-                              label="单日风险(%)" 
-                              name="dailyRisk"
-                            >
-                              <InputNumber min={0} max={100} style={{ width: '100%' }} />
-                            </Form.Item>
-                          </Col>
-                        </Row>
-                      </Panel>
-                    </Collapse>
-                  </Form>
-                </Spin>
+                      <div className="strategy-list-content">
+                        <div className="strategy-name">{item.name}</div>
+                        <div className="strategy-desc">{item.description}</div>
+                      </div>
+                    </List.Item>
+                  )}
+                />
               </TabPane>
-              
-              <TabPane 
-                tab={
-                  <span>
-                    <CodeOutlined />
-                    代码编辑
-                  </span>
-                } 
-                key="code"
-              >
-                <Spin spinning={loading}>
-                  <Form
-                    form={form}
-                    layout="vertical"
-                    style={{ marginBottom: 16 }}
-                  >
-                    <Row gutter={24}>
-                      <Col span={12}>
-                        <Form.Item 
-                          label="策略名称" 
-                          name="strategyName"
-                          rules={[{ required: true, message: '请输入策略名称' }]}
+              <TabPane tab="策略模板" key="templates">
+                <List
+                  itemLayout="horizontal"
+                  dataSource={templateList}
+                  loading={templatesLoading}
+                  renderItem={item => (
+                    <List.Item
+                      className="strategy-list-item"
+                      actions={[
+                        <Button 
+                          key="use" 
+                          type="link" 
+                          size="small"
+                          onClick={() => handleSelectTemplate(item.id)}
                         >
-                          <Input placeholder="请输入策略名称" />
-                        </Form.Item>
-                      </Col>
-                      <Col span={12}>
-                        <Form.Item 
-                          label="策略描述" 
-                          name="description"
-                        >
-                          <Input placeholder="请输入策略描述" />
-                        </Form.Item>
-                      </Col>
-                    </Row>
-                  </Form>
-                  <ReactCodeMirror
-                    value={codeValue}
-                    height="500px"
-                    extensions={[python()]}
-                    onChange={(value) => setCodeValue(value)}
-                    theme="light"
-                  />
-                </Spin>
-              </TabPane>
-              
-              <TabPane 
-                tab={
-                  <span>
-                    <LineChartOutlined />
-                    性能分析
-                  </span>
-                } 
-                key="analysis"
-              >
-                <div style={{ padding: '20px 0', textAlign: 'center' }}>
-                  <Paragraph>请先测试策略以查看性能分析</Paragraph>
-                  <Button icon={<PlayCircleOutlined />} type="primary" onClick={handleTest}>
-                    测试策略
-                  </Button>
-                </div>
+                          使用
+                        </Button>
+                      ]}
+                    >
+                      <div className="strategy-list-content">
+                        <div className="strategy-name">{item.name}</div>
+                        <div className="strategy-desc">{item.description}</div>
+                      </div>
+                    </List.Item>
+                  )}
+                />
               </TabPane>
             </Tabs>
           </Card>

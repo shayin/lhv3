@@ -1,5 +1,5 @@
 import React from 'react';
-import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { ConfigProvider, Layout } from 'antd';
 import enUS from 'antd/locale/en_US';
 import { theme } from './theme';
@@ -11,6 +11,8 @@ import DataManagement from './pages/DataManagement';
 import StrategyBuilder from './pages/StrategyBuilder';
 import Backtest from './pages/Backtest';
 import StrategyOptimization from './pages/StrategyOptimization';
+import StrategyList from './pages/StrategyList';
+import StrategyEditor from './pages/StrategyEditor';
 
 import './App.css';
 
@@ -35,9 +37,13 @@ const App: React.FC = () => {
                 }}
               >
                 <Routes>
-                  <Route path="/" element={<Dashboard />} />
+                  <Route path="/" element={<Navigate to="/dashboard" replace />} />
+                  <Route path="/dashboard" element={<Dashboard />} />
                   <Route path="/data" element={<DataManagement />} />
-                  <Route path="/strategy" element={<StrategyBuilder />} />
+                  <Route path="/strategy" element={<StrategyList />} />
+                  <Route path="/strategy/edit" element={<StrategyEditor />} />
+                  <Route path="/strategy/edit/:id" element={<StrategyEditor />} />
+                  <Route path="/strategy/builder" element={<StrategyBuilder />} />
                   <Route path="/backtest" element={<Backtest />} />
                   <Route path="/optimization" element={<StrategyOptimization />} />
                 </Routes>
