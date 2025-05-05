@@ -62,6 +62,10 @@ async def log_requests(request: Request, call_next):
 # 注册数据管理路由
 app.include_router(data_routes.router, prefix="/api/data", tags=["数据管理"])
 
+# 注册策略管理路由
+from .strategy_routes import router as strategy_router
+app.include_router(strategy_router, prefix="/api/strategies", tags=["策略管理"])
+
 # 初始化数据库
 @app.on_event("startup")
 async def startup():
@@ -69,9 +73,143 @@ async def startup():
         # 确保每次启动时初始化数据库表结构
         init_db()
         logger.info("数据库初始化成功，所有表已创建")
+        
+        # 初始化第一个示例策略
+        initialize_default_strategy()
     except Exception as e:
         logger.error(f"数据库初始化失败: {e}")
         raise
+
+def initialize_default_strategy():
+    """初始化第一个示例策略到数据库"""
+    try:
+        from ..models.strategy import Strategy as StrategyModel
+        from sqlalchemy import text
+        
+        # 获取数据库会话
+        db = next(get_db())
+        
+        # 检查是否已存在默认策略
+        table_check = db.execute(text("SELECT name FROM sqlite_master WHERE type='table' AND name='strategies'")).fetchone()
+        if not table_check:
+            logger.warning("strategies表不存在，无法初始化默认策略")
+            return
+            
+        # 检查是否已存在移动平均交叉策略
+        existing = db.query(StrategyModel).filter(StrategyModel.name == "MA交叉策略").first()
+        if existing:
+            logger.info("默认MA交叉策略已存在，跳过初始化")
+            return
+            
+        # MA交叉策略代码
+        ma_strategy_code = '''from .strategy_template import StrategyTemplate
+import pandas as pd
+import numpy as np
+import logging
+
+logger = logging.getLogger(__name__)
+
+class MACrossoverStrategy(StrategyTemplate):
+    """
+    移动平均线交叉策略
+    当MA5上穿MA20时买入，当MA5下穿MA20时卖出
+    """
+    
+    def __init__(self, parameters=None):
+        """初始化策略"""
+        default_params = {
+            "short_window": 5,   # 短期移动平均窗口
+            "long_window": 20,   # 长期移动平均窗口
+        }
+        
+        # 合并用户参数与默认参数
+        if parameters:
+            default_params.update(parameters)
+            
+        super().__init__("MA交叉策略", default_params)
+        
+    def generate_signals(self) -> pd.DataFrame:
+        """
+        生成交易信号
+        
+        Returns:
+            包含信号的DataFrame，包括:
+            - signal: 交易信号 (1: 买入, -1: 卖出, 0: 不操作)
+            - trigger_reason: 信号触发原因
+        """
+        if self.data is None or self.data.empty:
+            logger.warning("未设置数据或数据为空，无法生成信号")
+            return pd.DataFrame()
+        
+        # 获取参数
+        short_window = self.parameters["short_window"]
+        long_window = self.parameters["long_window"]
+        
+        logger.info(f"生成MA交叉信号: 短期窗口={short_window}, 长期窗口={long_window}")
+        
+        # 计算指标
+        df = self.data.copy()
+        
+        # 计算移动平均线
+        df[f"ma_{short_window}"] = df["close"].rolling(window=short_window).mean()
+        df[f"ma_{long_window}"] = df["close"].rolling(window=long_window).mean()
+        
+        # 计算当前日期和前一日期的移动平均线差值
+        df["ma_diff"] = df[f"ma_{short_window}"] - df[f"ma_{long_window}"]
+        df["prev_ma_diff"] = df["ma_diff"].shift(1)
+        
+        # 初始化信号列
+        df["signal"] = 0
+        df["trigger_reason"] = ""
+        
+        # 生成买入信号：短期均线从下方上穿长期均线
+        buy_signal = (df["ma_diff"] > 0) & (df["prev_ma_diff"] <= 0)
+        df.loc[buy_signal, "signal"] = 1
+        df.loc[buy_signal, "trigger_reason"] = f"MA{short_window}从下方上穿MA{long_window}"
+        
+        # 生成卖出信号：短期均线从上方下穿长期均线
+        sell_signal = (df["ma_diff"] < 0) & (df["prev_ma_diff"] >= 0)
+        df.loc[sell_signal, "signal"] = -1
+        df.loc[sell_signal, "trigger_reason"] = f"MA{short_window}从上方下穿MA{long_window}"
+        
+        # 统计信号数量
+        buy_count = (df["signal"] == 1).sum()
+        sell_count = (df["signal"] == -1).sum()
+        logger.info(f"信号统计: 买入信号={buy_count}个, 卖出信号={sell_count}个")
+        
+        return df
+'''
+        
+        # 默认参数
+        default_parameters = {
+            "short_window": 5,
+            "long_window": 20
+        }
+        
+        # 创建策略记录
+        new_strategy = StrategyModel(
+            name="MA交叉策略",
+            description="当短期移动平均线(MA5)上穿长期移动平均线(MA20)时买入，下穿时卖出",
+            code=ma_strategy_code,
+            parameters=json.dumps(default_parameters),
+            is_template=True,
+            template="ma_crossover",
+            created_at=datetime.now(),
+            updated_at=datetime.now()
+        )
+        
+        # 添加到数据库
+        db.add(new_strategy)
+        db.commit()
+        
+        logger.info(f"成功创建默认MA交叉策略 (ID: {new_strategy.id})")
+    except Exception as e:
+        logger.error(f"初始化默认策略失败: {e}")
+        # 回滚数据库
+        try:
+            db.rollback()
+        except:
+            pass
 
 # 健康检查端点
 @app.get("/")
@@ -138,7 +276,7 @@ async def fetch_data(
 async def get_strategies(name: Optional[str] = None, include_templates: bool = True, db: Session = Depends(get_db)):
     """获取所有策略列表或按名称搜索"""
     try:
-        logger.info(f"获取策略列表请求: 名称过滤={name}, 包含模板={include_templates}")
+        logger.info(f"获取策略列表请求: 名称过滤={name}")
         
         # 导入策略模型
         from ..models.strategy import Strategy as StrategyModel
@@ -178,65 +316,6 @@ async def get_strategies(name: Optional[str] = None, include_templates: bool = T
                 "template": strategy.template
             }
             result_data.append(strategy_data)
-        
-        # 如果需要包含预定义模板
-        if include_templates:
-            # 预定义策略模板
-            predefined_strategies = [
-                {
-                    "id": "ma_crossover",
-                    "name": "移动平均交叉策略",
-                    "description": "利用短期和长期移动平均线交叉产生买卖信号",
-                    "parameters": {
-                        "short_window": {"type": "int", "default": 5, "min": 1, "max": 30, "description": "短期移动平均窗口"},
-                        "long_window": {"type": "int", "default": 20, "min": 5, "max": 120, "description": "长期移动平均窗口"},
-                    },
-                    "is_template": True
-                },
-                {
-                    "id": "bollinger_bands",
-                    "name": "布林带策略",
-                    "description": "利用价格突破布林带上下轨产生买卖信号",
-                    "parameters": {
-                        "window": {"type": "int", "default": 20, "min": 5, "max": 100, "description": "布林带窗口"},
-                        "num_std": {"type": "float", "default": 2.0, "min": 0.5, "max": 4.0, "description": "标准差倍数"},
-                    },
-                    "is_template": True
-                },
-                {
-                    "id": "macd",
-                    "name": "MACD策略",
-                    "description": "利用MACD指标的金叉和死叉产生买卖信号",
-                    "parameters": {
-                        "fast_period": {"type": "int", "default": 12, "min": 5, "max": 50, "description": "快速EMA周期"},
-                        "slow_period": {"type": "int", "default": 26, "min": 10, "max": 100, "description": "慢速EMA周期"},
-                        "signal_period": {"type": "int", "default": 9, "min": 3, "max": 30, "description": "信号线周期"},
-                    },
-                    "is_template": True
-                },
-                {
-                    "id": "rsi",
-                    "name": "RSI策略",
-                    "description": "利用相对强弱指数的超买超卖产生买卖信号",
-                    "parameters": {
-                        "rsi_period": {"type": "int", "default": 14, "min": 5, "max": 50, "description": "RSI周期"},
-                        "overbought": {"type": "int", "default": 70, "min": 60, "max": 90, "description": "超买阈值"},
-                        "oversold": {"type": "int", "default": 30, "min": 10, "max": 40, "description": "超卖阈值"},
-                    },
-                    "is_template": True
-                }
-            ]
-            
-            # 如果有名称过滤条件，筛选预定义模板
-            if name:
-                predefined_strategies = [
-                    s for s in predefined_strategies 
-                    if name.lower() in s["name"].lower() or name.lower() in s["description"].lower()
-                ]
-            
-            # 合并结果
-            result_data.extend(predefined_strategies)
-            logger.info(f"添加了 {len(predefined_strategies)} 个预定义策略模板")
         
         logger.info(f"最终返回 {len(result_data)} 个策略数据")
         
@@ -1000,4 +1079,498 @@ async def generate_report(
         return {"status": "success", "data": {"report_path": report_path}}
     except Exception as e:
         logger.error(f"生成报告失败: {e}")
-        raise HTTPException(status_code=500, detail=str(e)) 
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/strategies/templates")
+async def get_templates(db: Session = Depends(get_db)):
+    """获取所有策略模板"""
+    try:
+        # 预定义策略模板
+        predefined_strategies = [
+            {
+                "id": "ma_crossover",
+                "name": "移动平均交叉策略",
+                "description": "利用短期和长期移动平均线交叉产生买卖信号",
+                "parameters": {
+                    "short_window": {"type": "int", "default": 5, "min": 1, "max": 30, "description": "短期移动平均窗口"},
+                    "long_window": {"type": "int", "default": 20, "min": 5, "max": 120, "description": "长期移动平均窗口"},
+                },
+                "code": """# 策略示例：移动平均线交叉策略
+import pandas as pd
+import numpy as np
+import talib
+
+def initialize(context):
+    '''初始化策略参数'''
+    # @param symbol: str = '000300.SH'
+    # @param short_window: int = 20
+    # @param long_window: int = 60
+    context.params = {
+        'symbol': '000300.SH',
+        'short_window': 20,
+        'long_window': 60
+    }
+
+def handle_data(context, data):
+    '''处理每个交易日的数据'''
+    params = context.params
+    df = data[params['symbol']]
+    
+    # 计算移动平均线
+    df['short_ma'] = talib.SMA(df['close'], timeperiod=params['short_window'])
+    df['long_ma'] = talib.SMA(df['close'], timeperiod=params['long_window'])
+    
+    # 生成交易信号
+    df['signal'] = 0
+    # 短均线上穿长均线，买入信号
+    df.loc[(df['short_ma'] > df['long_ma']) & (df['short_ma'].shift(1) <= df['long_ma'].shift(1)), 'signal'] = 1
+    # 短均线下穿长均线，卖出信号
+    df.loc[(df['short_ma'] < df['long_ma']) & (df['short_ma'].shift(1) >= df['long_ma'].shift(1)), 'signal'] = -1
+    
+    # 记录信号触发原因
+    for idx in df.index[df['signal'] == 1]:
+        df.loc[idx, 'trigger_reason'] = f"短期均线({params['short_window']}日)上穿长期均线({params['long_window']}日)"
+    
+    for idx in df.index[df['signal'] == -1]:
+        df.loc[idx, 'trigger_reason'] = f"短期均线({params['short_window']}日)下穿长期均线({params['long_window']}日)"
+    
+    return df['signal']
+"""
+            },
+            {
+                "id": "bollinger_bands",
+                "name": "布林带策略",
+                "description": "利用价格突破布林带上下轨产生买卖信号",
+                "parameters": {
+                    "window": {"type": "int", "default": 20, "min": 5, "max": 100, "description": "布林带窗口"},
+                    "num_std": {"type": "float", "default": 2.0, "min": 0.5, "max": 4.0, "description": "标准差倍数"},
+                },
+                "code": """# 策略示例：布林带策略
+import pandas as pd
+import numpy as np
+import talib
+
+def initialize(context):
+    '''初始化策略参数'''
+    # @param symbol: str = '000300.SH'
+    # @param window: int = 20
+    # @param num_std: float = 2.0
+    context.params = {
+        'symbol': '000300.SH',
+        'window': 20,
+        'num_std': 2.0
+    }
+
+def handle_data(context, data):
+    '''处理每个交易日的数据'''
+    params = context.params
+    df = data[params['symbol']]
+    
+    # 计算布林带指标
+    df['middle'] = df['close'].rolling(window=params['window'], min_periods=1).mean()
+    df['std'] = df['close'].rolling(window=params['window'], min_periods=1).std()
+    df['upper'] = df['middle'] + (df['std'] * params['num_std'])
+    df['lower'] = df['middle'] - (df['std'] * params['num_std'])
+    
+    # 初始化信号列
+    df['signal'] = 0
+    
+    # 价格由下方突破下轨，买入信号
+    buy_signal = (df['close'] >= df['lower']) & (df['close'].shift(1) < df['lower'].shift(1))
+    df.loc[buy_signal, 'signal'] = 1
+    
+    # 价格由上方突破上轨，卖出信号
+    sell_signal = (df['close'] <= df['upper']) & (df['close'].shift(1) > df['upper'].shift(1))
+    df.loc[sell_signal, 'signal'] = -1
+    
+    # 记录信号触发原因
+    for idx in df.index[buy_signal]:
+        df.loc[idx, 'trigger_reason'] = f"价格从下方突破布林带下轨（{params['window']}日，{params['num_std']}倍标准差）"
+    
+    for idx in df.index[sell_signal]:
+        df.loc[idx, 'trigger_reason'] = f"价格从上方突破布林带上轨（{params['window']}日，{params['num_std']}倍标准差）"
+    
+    return df['signal']
+"""
+            },
+            {
+                "id": "macd",
+                "name": "MACD策略",
+                "description": "利用MACD指标的金叉和死叉产生买卖信号",
+                "parameters": {
+                    "fast_period": {"type": "int", "default": 12, "min": 5, "max": 50, "description": "快速EMA周期"},
+                    "slow_period": {"type": "int", "default": 26, "min": 10, "max": 100, "description": "慢速EMA周期"},
+                    "signal_period": {"type": "int", "default": 9, "min": 3, "max": 30, "description": "信号线周期"},
+                },
+                "code": """# 策略示例：MACD策略
+import pandas as pd
+import numpy as np
+import talib
+
+def initialize(context):
+    '''初始化策略参数'''
+    # @param symbol: str = '000300.SH'
+    # @param fast_period: int = 12
+    # @param slow_period: int = 26
+    # @param signal_period: int = 9
+    context.params = {
+        'symbol': '000300.SH',
+        'fast_period': 12,
+        'slow_period': 26,
+        'signal_period': 9
+    }
+
+def handle_data(context, data):
+    '''处理每个交易日的数据'''
+    params = context.params
+    df = data[params['symbol']]
+    
+    # 计算MACD指标
+    macd, signal, hist = talib.MACD(
+        df['close'], 
+        fastperiod=params['fast_period'], 
+        slowperiod=params['slow_period'], 
+        signalperiod=params['signal_period']
+    )
+    
+    df['macd'] = macd
+    df['signal_line'] = signal
+    df['hist'] = hist
+    
+    # 初始化信号列
+    df['signal'] = 0
+    
+    # MACD金叉，买入信号
+    buy_signal = (df['hist'] > 0) & (df['hist'].shift(1) <= 0)
+    df.loc[buy_signal, 'signal'] = 1
+    
+    # MACD死叉，卖出信号
+    sell_signal = (df['hist'] < 0) & (df['hist'].shift(1) >= 0)
+    df.loc[sell_signal, 'signal'] = -1
+    
+    # 记录信号触发原因
+    for idx in df.index[buy_signal]:
+        df.loc[idx, 'trigger_reason'] = f"MACD金叉（快线{params['fast_period']}日，慢线{params['slow_period']}日，信号线{params['signal_period']}日）"
+    
+    for idx in df.index[sell_signal]:
+        df.loc[idx, 'trigger_reason'] = f"MACD死叉（快线{params['fast_period']}日，慢线{params['slow_period']}日，信号线{params['signal_period']}日）"
+    
+    return df['signal']
+"""
+            },
+            {
+                "id": "rsi",
+                "name": "RSI策略",
+                "description": "利用相对强弱指数的超买超卖产生买卖信号",
+                "parameters": {
+                    "rsi_period": {"type": "int", "default": 14, "min": 5, "max": 50, "description": "RSI周期"},
+                    "overbought": {"type": "int", "default": 70, "min": 60, "max": 90, "description": "超买阈值"},
+                    "oversold": {"type": "int", "default": 30, "min": 10, "max": 40, "description": "超卖阈值"},
+                },
+                "code": """# 策略示例：RSI策略
+import pandas as pd
+import numpy as np
+import talib
+
+def initialize(context):
+    '''初始化策略参数'''
+    # @param symbol: str = '000300.SH'
+    # @param rsi_period: int = 14
+    # @param overbought: int = 70
+    # @param oversold: int = 30
+    context.params = {
+        'symbol': '000300.SH',
+        'rsi_period': 14,
+        'overbought': 70,
+        'oversold': 30
+    }
+
+def handle_data(context, data):
+    '''处理每个交易日的数据'''
+    params = context.params
+    df = data[params['symbol']]
+    
+    # 计算RSI指标
+    df['rsi'] = talib.RSI(df['close'], timeperiod=params['rsi_period'])
+    
+    # 初始化信号列
+    df['signal'] = 0
+    
+    # RSI超卖后回升，买入信号
+    buy_signal = (df['rsi'] > params['oversold']) & (df['rsi'].shift(1) <= params['oversold'])
+    df.loc[buy_signal, 'signal'] = 1
+    
+    # RSI超买后回落，卖出信号
+    sell_signal = (df['rsi'] < params['overbought']) & (df['rsi'].shift(1) >= params['overbought'])
+    df.loc[sell_signal, 'signal'] = -1
+    
+    # 记录信号触发原因
+    for idx in df.index[buy_signal]:
+        df.loc[idx, 'trigger_reason'] = f"RSI({params['rsi_period']}日)从超卖区域({params['oversold']})回升，当前值: {df.loc[idx, 'rsi']:.2f}"
+    
+    for idx in df.index[sell_signal]:
+        df.loc[idx, 'trigger_reason'] = f"RSI({params['rsi_period']}日)从超买区域({params['overbought']})回落，当前值: {df.loc[idx, 'rsi']:.2f}"
+    
+    return df['signal']
+"""
+            }
+        ]
+        
+        # 如果有名称过滤条件，筛选模板
+        return {
+            "status": "success",
+            "data": predefined_strategies
+        }
+    except Exception as e:
+        logger.error(f"获取策略模板列表失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/strategies/templates/{template_id}")
+async def get_template(template_id: str, db: Session = Depends(get_db)):
+    """获取单个策略模板"""
+    try:
+        # 预定义策略模板
+        predefined_strategies = {
+            "ma_crossover": {
+                "id": "ma_crossover",
+                "name": "移动平均交叉策略",
+                "description": "利用短期和长期移动平均线交叉产生买卖信号",
+                "parameters": {
+                    "short_window": {"type": "int", "default": 5, "min": 1, "max": 30, "description": "短期移动平均窗口"},
+                    "long_window": {"type": "int", "default": 20, "min": 5, "max": 120, "description": "长期移动平均窗口"},
+                },
+                "code": """# 策略示例：移动平均线交叉策略
+import pandas as pd
+import numpy as np
+import talib
+
+def initialize(context):
+    '''初始化策略参数'''
+    # @param symbol: str = '000300.SH'
+    # @param short_window: int = 20
+    # @param long_window: int = 60
+    context.params = {
+        'symbol': '000300.SH',
+        'short_window': 20,
+        'long_window': 60
+    }
+
+def handle_data(context, data):
+    '''处理每个交易日的数据'''
+    params = context.params
+    df = data[params['symbol']]
+    
+    # 计算移动平均线
+    df['short_ma'] = talib.SMA(df['close'], timeperiod=params['short_window'])
+    df['long_ma'] = talib.SMA(df['close'], timeperiod=params['long_window'])
+    
+    # 生成交易信号
+    df['signal'] = 0
+    # 短均线上穿长均线，买入信号
+    df.loc[(df['short_ma'] > df['long_ma']) & (df['short_ma'].shift(1) <= df['long_ma'].shift(1)), 'signal'] = 1
+    # 短均线下穿长均线，卖出信号
+    df.loc[(df['short_ma'] < df['long_ma']) & (df['short_ma'].shift(1) >= df['long_ma'].shift(1)), 'signal'] = -1
+    
+    # 记录信号触发原因
+    for idx in df.index[df['signal'] == 1]:
+        df.loc[idx, 'trigger_reason'] = f"短期均线({params['short_window']}日)上穿长期均线({params['long_window']}日)"
+    
+    for idx in df.index[df['signal'] == -1]:
+        df.loc[idx, 'trigger_reason'] = f"短期均线({params['short_window']}日)下穿长期均线({params['long_window']}日)"
+    
+    return df['signal']
+"""
+            },
+            "bollinger_bands": {
+                "id": "bollinger_bands",
+                "name": "布林带策略",
+                "description": "利用价格突破布林带上下轨产生买卖信号",
+                "parameters": {
+                    "window": {"type": "int", "default": 20, "min": 5, "max": 100, "description": "布林带窗口"},
+                    "num_std": {"type": "float", "default": 2.0, "min": 0.5, "max": 4.0, "description": "标准差倍数"},
+                },
+                "code": """# 策略示例：布林带策略
+import pandas as pd
+import numpy as np
+import talib
+
+def initialize(context):
+    '''初始化策略参数'''
+    # @param symbol: str = '000300.SH'
+    # @param window: int = 20
+    # @param num_std: float = 2.0
+    context.params = {
+        'symbol': '000300.SH',
+        'window': 20,
+        'num_std': 2.0
+    }
+
+def handle_data(context, data):
+    '''处理每个交易日的数据'''
+    params = context.params
+    df = data[params['symbol']]
+    
+    # 计算布林带指标
+    df['middle'] = df['close'].rolling(window=params['window'], min_periods=1).mean()
+    df['std'] = df['close'].rolling(window=params['window'], min_periods=1).std()
+    df['upper'] = df['middle'] + (df['std'] * params['num_std'])
+    df['lower'] = df['middle'] - (df['std'] * params['num_std'])
+    
+    # 初始化信号列
+    df['signal'] = 0
+    
+    # 价格由下方突破下轨，买入信号
+    buy_signal = (df['close'] >= df['lower']) & (df['close'].shift(1) < df['lower'].shift(1))
+    df.loc[buy_signal, 'signal'] = 1
+    
+    # 价格由上方突破上轨，卖出信号
+    sell_signal = (df['close'] <= df['upper']) & (df['close'].shift(1) > df['upper'].shift(1))
+    df.loc[sell_signal, 'signal'] = -1
+    
+    # 记录信号触发原因
+    for idx in df.index[buy_signal]:
+        df.loc[idx, 'trigger_reason'] = f"价格从下方突破布林带下轨（{params['window']}日，{params['num_std']}倍标准差）"
+    
+    for idx in df.index[sell_signal]:
+        df.loc[idx, 'trigger_reason'] = f"价格从上方突破布林带上轨（{params['window']}日，{params['num_std']}倍标准差）"
+    
+    return df['signal']
+"""
+            },
+            "macd": {
+                "id": "macd",
+                "name": "MACD策略",
+                "description": "利用MACD指标的金叉和死叉产生买卖信号",
+                "parameters": {
+                    "fast_period": {"type": "int", "default": 12, "min": 5, "max": 50, "description": "快速EMA周期"},
+                    "slow_period": {"type": "int", "default": 26, "min": 10, "max": 100, "description": "慢速EMA周期"},
+                    "signal_period": {"type": "int", "default": 9, "min": 3, "max": 30, "description": "信号线周期"},
+                },
+                "code": """# 策略示例：MACD策略
+import pandas as pd
+import numpy as np
+import talib
+
+def initialize(context):
+    '''初始化策略参数'''
+    # @param symbol: str = '000300.SH'
+    # @param fast_period: int = 12
+    # @param slow_period: int = 26
+    # @param signal_period: int = 9
+    context.params = {
+        'symbol': '000300.SH',
+        'fast_period': 12,
+        'slow_period': 26,
+        'signal_period': 9
+    }
+
+def handle_data(context, data):
+    '''处理每个交易日的数据'''
+    params = context.params
+    df = data[params['symbol']]
+    
+    # 计算MACD指标
+    macd, signal, hist = talib.MACD(
+        df['close'], 
+        fastperiod=params['fast_period'], 
+        slowperiod=params['slow_period'], 
+        signalperiod=params['signal_period']
+    )
+    
+    df['macd'] = macd
+    df['signal_line'] = signal
+    df['hist'] = hist
+    
+    # 初始化信号列
+    df['signal'] = 0
+    
+    # MACD金叉，买入信号
+    buy_signal = (df['hist'] > 0) & (df['hist'].shift(1) <= 0)
+    df.loc[buy_signal, 'signal'] = 1
+    
+    # MACD死叉，卖出信号
+    sell_signal = (df['hist'] < 0) & (df['hist'].shift(1) >= 0)
+    df.loc[sell_signal, 'signal'] = -1
+    
+    # 记录信号触发原因
+    for idx in df.index[buy_signal]:
+        df.loc[idx, 'trigger_reason'] = f"MACD金叉（快线{params['fast_period']}日，慢线{params['slow_period']}日，信号线{params['signal_period']}日）"
+    
+    for idx in df.index[sell_signal]:
+        df.loc[idx, 'trigger_reason'] = f"MACD死叉（快线{params['fast_period']}日，慢线{params['slow_period']}日，信号线{params['signal_period']}日）"
+    
+    return df['signal']
+"""
+            },
+            "rsi": {
+                "id": "rsi",
+                "name": "RSI策略",
+                "description": "利用相对强弱指数的超买超卖产生买卖信号",
+                "parameters": {
+                    "rsi_period": {"type": "int", "default": 14, "min": 5, "max": 50, "description": "RSI周期"},
+                    "overbought": {"type": "int", "default": 70, "min": 60, "max": 90, "description": "超买阈值"},
+                    "oversold": {"type": "int", "default": 30, "min": 10, "max": 40, "description": "超卖阈值"},
+                },
+                "code": """# 策略示例：RSI策略
+import pandas as pd
+import numpy as np
+import talib
+
+def initialize(context):
+    '''初始化策略参数'''
+    # @param symbol: str = '000300.SH'
+    # @param rsi_period: int = 14
+    # @param overbought: int = 70
+    # @param oversold: int = 30
+    context.params = {
+        'symbol': '000300.SH',
+        'rsi_period': 14,
+        'overbought': 70,
+        'oversold': 30
+    }
+
+def handle_data(context, data):
+    '''处理每个交易日的数据'''
+    params = context.params
+    df = data[params['symbol']]
+    
+    # 计算RSI指标
+    df['rsi'] = talib.RSI(df['close'], timeperiod=params['rsi_period'])
+    
+    # 初始化信号列
+    df['signal'] = 0
+    
+    # RSI超卖后回升，买入信号
+    buy_signal = (df['rsi'] > params['oversold']) & (df['rsi'].shift(1) <= params['oversold'])
+    df.loc[buy_signal, 'signal'] = 1
+    
+    # RSI超买后回落，卖出信号
+    sell_signal = (df['rsi'] < params['overbought']) & (df['rsi'].shift(1) >= params['overbought'])
+    df.loc[sell_signal, 'signal'] = -1
+    
+    # 记录信号触发原因
+    for idx in df.index[buy_signal]:
+        df.loc[idx, 'trigger_reason'] = f"RSI({params['rsi_period']}日)从超卖区域({params['oversold']})回升，当前值: {df.loc[idx, 'rsi']:.2f}"
+    
+    for idx in df.index[sell_signal]:
+        df.loc[idx, 'trigger_reason'] = f"RSI({params['rsi_period']}日)从超买区域({params['overbought']})回落，当前值: {df.loc[idx, 'rsi']:.2f}"
+    
+    return df['signal']
+"""
+            }
+        }
+        
+        # 获取模板详情
+        template = predefined_strategies.get(template_id)
+        if not template:
+            raise HTTPException(status_code=404, detail=f"模板ID {template_id} 不存在")
+            
+        return {
+            "status": "success",
+            "data": template
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"获取策略模板 {template_id} 失败: {e}")
+        raise HTTPException(status_code=500, detail=f"获取策略模板失败: {str(e)}") 

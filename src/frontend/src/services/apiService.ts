@@ -149,4 +149,32 @@ export const deleteStrategy = async (id: string): Promise<void> => {
     console.error(`删除策略(ID:${id})失败:`, error);
     throw error;
   }
+};
+
+// 获取策略模板列表
+export const fetchStrategyTemplates = async (): Promise<Strategy[]> => {
+  try {
+    const response = await axios.get('/api/strategies/templates');
+    if (response.data && response.data.data) {
+      return response.data.data;
+    }
+    return [];
+  } catch (error) {
+    console.error('获取策略模板列表失败:', error);
+    throw error;
+  }
+};
+
+// 获取单个策略模板详情
+export const fetchStrategyTemplateById = async (id: string): Promise<Strategy> => {
+  try {
+    const response = await axios.get(`/api/strategies/templates/${id}`);
+    if (response.data && response.data.data) {
+      return response.data.data;
+    }
+    throw new Error('未找到策略模板数据');
+  } catch (error) {
+    console.error(`获取策略模板(ID:${id})详情失败:`, error);
+    throw error;
+  }
 }; 

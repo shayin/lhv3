@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Card, Form, Button, DatePicker, Select, InputNumber, Row, Col, Divider, Typography, Tabs, Table, Statistic, Spin, message, Alert, Space, Tooltip, Modal, Tag } from 'antd';
 import { LineChartOutlined, PlayCircleOutlined, DownloadOutlined, SaveOutlined, InfoCircleOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
@@ -11,6 +11,21 @@ import 'moment/locale/zh-cn'; // 添加中文支持
 import type { RangePickerProps } from 'antd/es/date-picker';
 import dayjs from 'dayjs';
 import type { Dayjs } from 'dayjs';
+import * as echarts from 'echarts/core';
+import { CandlestickChart, LineChart, BarChart } from 'echarts/charts';
+import {
+  TitleComponent, TooltipComponent, GridComponent, DataZoomComponent,
+  ToolboxComponent, LegendComponent, MarkPointComponent, MarkLineComponent
+} from 'echarts/components';
+import { CanvasRenderer } from 'echarts/renderers';
+import { getStrategies } from '../services/strategyService';
+
+// 注册 ECharts 必要的组件
+echarts.use([
+  TitleComponent, TooltipComponent, GridComponent, DataZoomComponent,
+  ToolboxComponent, LegendComponent, MarkPointComponent, MarkLineComponent,
+  CandlestickChart, LineChart, BarChart, CanvasRenderer
+]);
 
 moment.locale('zh-cn'); // 设置为中文
 
@@ -48,6 +63,7 @@ const Backtest: React.FC = () => {
   const [stockList, setStockList] = useState<Stock[]>([]);
   const [loading, setLoading] = useState(false);
   const [selectedStrategy, setSelectedStrategy] = useState('ma_crossover');
+  const [selectedStrategyName, setSelectedStrategyName] = useState('MA交叉策略');
   const [selectedStock, setSelectedStock] = useState<Stock | null>(null);
   const [dateRange, setDateRange] = useState<[Dayjs, Dayjs]>([
     dayjs().subtract(1, 'year').startOf('day'),
@@ -68,6 +84,8 @@ const Backtest: React.FC = () => {
     alpha: 0,
     beta: 0
   });
+  // 添加策略列表状态
+  const [strategiesList, setStrategiesList] = useState<any[]>([]);
   
   // 规范化日期字符串的函数，确保格式一致
   const normalizeDate = (dateStr: string | any): string => {
@@ -112,9 +130,14 @@ const Backtest: React.FC = () => {
       // 检查是否为"用户上传"类型的数据源，这类数据源需要特殊处理
       const isUserUploadedData = dataSourceName === '用户上传' || dataSourceName.toLowerCase() === 'user_upload';
       
+      // 添加更详细的日志，帮助调试
+      console.log('当前选择的策略ID:', selectedStrategy);
+      console.log('当前选择的策略名称:', selectedStrategyName);
+      console.log('策略列表:', strategiesList);
+      
       // 获取表单值
       const formValues = {
-        strategy_id: selectedStrategy, // 使用选定的策略
+        strategy_id: selectedStrategy, // 使用选定的策略ID
         symbol: selectedStock.symbol, // 使用选定的股票符号
         start_date: dateRange[0].format('YYYY-MM-DD'), // 开始日期
         end_date: dateRange[1].format('YYYY-MM-DD'), // 结束日期
@@ -1364,10 +1387,65 @@ const Backtest: React.FC = () => {
     };
   };
 
+  // 加载策略列表
+  const fetchStrategies = async () => {
+    try {
+      const strategies = await getStrategies();
+      console.log('从后端获取的策略列表:', strategies);
+      if (strategies && strategies.length > 0) {
+        setStrategiesList(strategies);
+        // 如果当前选择的策略不在列表中，则选择第一个策略
+        if (!strategies.some(s => s.id?.toString() === selectedStrategy || s.template === selectedStrategy)) {
+          setSelectedStrategy(strategies[0].id?.toString() || strategies[0].template || 'ma_crossover');
+          setSelectedStrategyName(strategies[0].name || '移动平均线交叉策略');
+        } else {
+          // 找到当前选择的策略并更新名称
+          const currentStrategy = strategies.find(s => s.id?.toString() === selectedStrategy || s.template === selectedStrategy);
+          if (currentStrategy) {
+            setSelectedStrategyName(currentStrategy.name);
+          }
+        }
+      } else {
+        // 如果没有策略，则使用默认策略列表
+        const defaultStrategies = [
+          { id: 'ma_crossover', name: '移动平均线交叉策略', template: 'ma_crossover' },
+          { id: 'rsi', name: 'RSI策略', template: 'rsi' },
+          { id: 'macd', name: 'MACD策略', template: 'macd' },
+          { id: 'bollinger_bands', name: '布林带策略', template: 'bollinger_bands' }
+        ];
+        setStrategiesList(defaultStrategies);
+        
+        // 更新当前选中策略的名称
+        const currentStrategy = defaultStrategies.find(s => s.id === selectedStrategy || s.template === selectedStrategy);
+        if (currentStrategy) {
+          setSelectedStrategyName(currentStrategy.name);
+        }
+      }
+    } catch (error) {
+      console.error('获取策略列表失败:', error);
+      message.error('获取策略列表失败，使用默认策略');
+      // 设置默认策略列表
+      const defaultStrategies = [
+        { id: 'ma_crossover', name: '移动平均线交叉策略', template: 'ma_crossover' },
+        { id: 'rsi', name: 'RSI策略', template: 'rsi' },
+        { id: 'macd', name: 'MACD策略', template: 'macd' },
+        { id: 'bollinger_bands', name: '布林带策略', template: 'bollinger_bands' }
+      ];
+      setStrategiesList(defaultStrategies);
+      
+      // 更新当前选中策略的名称
+      const currentStrategy = defaultStrategies.find(s => s.id === selectedStrategy || s.template === selectedStrategy);
+      if (currentStrategy) {
+        setSelectedStrategyName(currentStrategy.name);
+      }
+    }
+  };
+
   // 加载数据
   useEffect(() => {
     fetchStocks();
     fetchDataSources();
+    fetchStrategies(); // 加载策略列表
   }, []);
   
   // 获取股票列表
@@ -1409,14 +1487,23 @@ const Backtest: React.FC = () => {
               <Col span={8}>
                 <Form.Item label="策略选择" required>
                   <Select
-                    value={selectedStrategy}
-                    onChange={value => setSelectedStrategy(value)}
+                    value={selectedStrategyName}
+                    onChange={(value, option: any) => {
+                      // 设置策略ID
+                      setSelectedStrategy(option.key);
+                      // 设置策略显示名称
+                      setSelectedStrategyName(value);
+                    }}
                     placeholder="选择策略"
                   >
-                    <Option value="ma_crossover">移动平均线交叉策略</Option>
-                    <Option value="rsi">RSI策略</Option>
-                    <Option value="macd">MACD策略</Option>
-                    <Option value="bollinger_bands">布林带策略</Option>
+                    {strategiesList.map(strategy => (
+                      <Option 
+                        key={strategy.id || strategy.template} 
+                        value={strategy.name}
+                      >
+                        {strategy.name}
+                      </Option>
+                    ))}
                   </Select>
                 </Form.Item>
               </Col>
