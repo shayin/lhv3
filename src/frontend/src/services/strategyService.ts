@@ -124,4 +124,26 @@ export const testStrategy = async (code: string, data?: any[], parameters?: any)
     message.error(`测试策略错误: ${error.message}`);
     return { error: error.message };
   }
+};
+
+// 通过ID测试策略
+export const testStrategyById = async (strategyId: string | number, data?: any[], parameters?: any): Promise<any> => {
+  try {
+    const payload = {
+      strategy_id: strategyId,
+      data: data || [],
+      parameters: parameters || {}
+    };
+    
+    const response = await axios.post(`${API_URL}/strategies/test`, payload);
+    
+    if (response.data && response.data.status === 'success') {
+      return response.data.data;
+    }
+    
+    throw new Error(response.data?.message || '测试策略失败');
+  } catch (error: any) {
+    message.error(`测试策略错误: ${error.message}`);
+    return { error: error.message };
+  }
 }; 
