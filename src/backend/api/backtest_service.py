@@ -5,13 +5,15 @@ from typing import Dict, Any, List, Optional, Union
 from sqlalchemy.orm import Session
 
 from ..models.market_data import Stock, DailyPrice
+from ..models.data_models import Stock as StockModel, StockData
 from ..data.fetcher import DataFetcher
 from ..data.processor import DataProcessor
 from ..backtest.engine import BacktestEngine
-from ..strategy.templates.ma_crossover import MovingAverageCrossover
-from ..strategy.templates.bollinger_bands import BollingerBandsStrategy
-from ..strategy.templates.macd import MACDStrategy
-from ..strategy.templates.rsi import RSIStrategy
+from ..strategy.templates.ma_crossover_strategy import MACrossoverStrategy as MovingAverageCrossover
+# 暂时注释掉不存在的导入，等文件创建后再启用
+# from ..strategy.templates.bollinger_bands import BollingerBandsStrategy
+# from ..strategy.templates.macd import MACDStrategy
+# from ..strategy.templates.rsi import RSIStrategy
 
 logger = logging.getLogger(__name__)
 
@@ -90,41 +92,41 @@ class BacktestService:
             
         logger.debug(f"开始从数据库查询数据: symbol={symbol}, 日期范围={start_date}至{end_date}")
         
-        # 查询股票ID
-        stock = self.db.query(Stock).filter(Stock.symbol == symbol).first()
+        # 查询股票ID - 使用 StockModel 代替 Stock
+        stock = self.db.query(StockModel).filter(StockModel.symbol == symbol).first()
         if not stock:
             logger.warning(f"数据库中未找到股票: {symbol}")
             return pd.DataFrame()
             
         logger.debug(f"找到股票: {stock.name} (ID: {stock.id})")
         
-        # 查询股票价格数据
+        # 查询股票价格数据 - 使用 StockData 代替 DailyPrice
         start_date_obj = datetime.strptime(start_date, "%Y-%m-%d").date()
         end_date_obj = datetime.strptime(end_date, "%Y-%m-%d").date()
         
-        query = self.db.query(DailyPrice).filter(
-            DailyPrice.stock_id == stock.id,
-            DailyPrice.date >= start_date_obj,
-            DailyPrice.date <= end_date_obj
-        ).order_by(DailyPrice.date)
+        query = self.db.query(StockData).filter(
+            StockData.stock_id == stock.id,
+            StockData.date >= start_date_obj,
+            StockData.date <= end_date_obj
+        ).order_by(StockData.date)
         
-        daily_prices = query.all()
-        logger.debug(f"查询到价格数据记录数: {len(daily_prices)}")
+        stock_data = query.all()
+        logger.debug(f"查询到价格数据记录数: {len(stock_data)}")
         
-        if not daily_prices:
+        if not stock_data:
             logger.warning(f"数据库中未找到{symbol}在{start_date}至{end_date}之间的价格数据")
             return pd.DataFrame()
             
-        # 将查询结果转换为DataFrame
+        # 将查询结果转换为DataFrame，注意字段名称可能有所不同
         data = pd.DataFrame([{
-            'date': price.date,
-            'open': price.open,
-            'high': price.high,
-            'low': price.low,
-            'close': price.close,
-            'volume': price.volume,
-            'adjusted_close': price.adjusted_close
-        } for price in daily_prices])
+            'date': data_point.date,
+            'open': data_point.open,
+            'high': data_point.high,
+            'low': data_point.low,
+            'close': data_point.close,
+            'volume': data_point.volume,
+            'adjusted_close': data_point.adj_close  # StockData 使用 adj_close 而不是 adjusted_close
+        } for data_point in stock_data])
         
         # 处理数据并添加特征
         if not data.empty and features:
@@ -280,15 +282,16 @@ class BacktestService:
             if strategy_id == "ma_crossover":
                 logger.info(f"创建策略: 移动平均线交叉策略, 参数: {parameters}")
                 return MovingAverageCrossover(parameters=parameters)
-            elif strategy_id == "bollinger_bands":
-                logger.info(f"创建策略: 布林带策略, 参数: {parameters}")
-                return BollingerBandsStrategy(parameters=parameters)
-            elif strategy_id == "macd":
-                logger.info(f"创建策略: MACD策略, 参数: {parameters}")
-                return MACDStrategy(parameters=parameters)
-            elif strategy_id == "rsi":
-                logger.info(f"创建策略: RSI策略, 参数: {parameters}")
-                return RSIStrategy(parameters=parameters)
+            # 以下策略暂时注释掉，等实现后再启用
+            # elif strategy_id == "bollinger_bands":
+            #     logger.info(f"创建策略: 布林带策略, 参数: {parameters}")
+            #     return BollingerBandsStrategy(parameters=parameters)
+            # elif strategy_id == "macd":
+            #     logger.info(f"创建策略: MACD策略, 参数: {parameters}")
+            #     return MACDStrategy(parameters=parameters)
+            # elif strategy_id == "rsi":
+            #     logger.info(f"创建策略: RSI策略, 参数: {parameters}")
+            #     return RSIStrategy(parameters=parameters)
             else:
                 logger.error(f"未知的策略ID: {strategy_id}")
                 return None
@@ -315,11 +318,24 @@ class BacktestService:
                     except:
                         logger.warning(f"解析策略默认参数失败")
                 
+                # 导入必要的模块，确保策略代码中的相对导入能够正常工作
+                import src.backend.strategy.templates.strategy_template
+                import src.backend.strategy.templates.ma_crossover_strategy
+                
+                # 创建导入上下文
+                globals_dict = {
+                    '__name__': '__main__',
+                    '__file__': '__tmp_strategy__',
+                    'StrategyTemplate': src.backend.strategy.templates.strategy_template.StrategyTemplate
+                }
+                
                 # 从代码加载策略
-                strategy_instance = load_strategy_from_code(db_strategy.code, parameters)
+                strategy_instance = load_strategy_from_code(db_strategy.code, parameters, globals_dict)
                 return strategy_instance
             except Exception as e:
                 logger.error(f"加载数据库策略失败: {e}")
+                import traceback
+                logger.error(traceback.format_exc())
                 return None
         
         logger.error(f"无法创建策略实例: {strategy_id}")

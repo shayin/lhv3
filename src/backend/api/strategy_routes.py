@@ -461,13 +461,14 @@ async def test_strategy(request: Request, db: Session = Depends(get_db)):
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"测试策略失败: {str(e)}")
 
-def load_strategy_from_code(code: str, parameters: Dict[str, Any] = None):
+def load_strategy_from_code(code: str, parameters: Dict[str, Any] = None, globals_dict: Dict[str, Any] = None):
     """
     从代码字符串加载策略类并实例化
     
     Args:
         code: 策略代码字符串
         parameters: 策略参数
+        globals_dict: 用于执行代码的全局命名空间字典
         
     Returns:
         策略实例
@@ -481,12 +482,32 @@ def load_strategy_from_code(code: str, parameters: Dict[str, Any] = None):
         module = importlib.util.module_from_spec(spec)
         sys.modules[temp_module_name] = module
         
+        # 准备执行环境
+        if globals_dict is None:
+            globals_dict = module.__dict__
+        else:
+            # 合并提供的globals_dict和模块的__dict__
+            for key, value in globals_dict.items():
+                module.__dict__[key] = value
+        
         # 执行代码
         exec(code, module.__dict__)
         
         # 查找策略类
         strategy_class = None
-        from ..strategy.templates.strategy_template import StrategyTemplate
+        
+        # 如果没有在globals_dict中提供StrategyTemplate，则导入
+        if 'StrategyTemplate' not in module.__dict__:
+            try:
+                from ..strategy.templates.strategy_template import StrategyTemplate
+                module.__dict__['StrategyTemplate'] = StrategyTemplate
+            except ImportError:
+                # 备用导入方式
+                import src.backend.strategy.templates.strategy_template
+                module.__dict__['StrategyTemplate'] = src.backend.strategy.templates.strategy_template.StrategyTemplate
+        
+        # 获取StrategyTemplate类的引用
+        StrategyTemplate = module.__dict__['StrategyTemplate']
         
         for name, obj in module.__dict__.items():
             if (isinstance(obj, type) and 
@@ -509,4 +530,74 @@ def load_strategy_from_code(code: str, parameters: Dict[str, Any] = None):
     finally:
         # 清理临时模块
         if temp_module_name in sys.modules:
-            del sys.modules[temp_module_name] 
+            del sys.modules[temp_module_name]
+
+@router.post("/backtest")
+async def backtest_strategy(request: Request, db: Session = Depends(get_db)):
+    """对策略进行历史数据回测"""
+    try:
+        data = await request.json()
+        
+        # 获取请求参数
+        strategy_id = data.get("strategy_id")
+        symbol = data.get("symbol")
+        start_date = data.get("start_date")
+        end_date = data.get("end_date", datetime.now().strftime("%Y-%m-%d"))
+        initial_capital = float(data.get("initial_capital", 100000))
+        commission_rate = float(data.get("commission_rate", 0.0015))
+        slippage_rate = float(data.get("slippage_rate", 0.001))
+        parameters = data.get("parameters", {})
+        data_source = data.get("data_source", "database")  # 默认从数据库获取
+        features = data.get("features", [])
+        
+        logger.info("=" * 80)
+        logger.info(f"开始策略回测 - 股票: {symbol}, 策略: {strategy_id}")
+        logger.info(f"回测参数: 日期范围={start_date}至{end_date}, 初始资金={initial_capital}")
+        logger.info(f"交易成本: 手续费率={commission_rate}, 滑点率={slippage_rate}")
+        logger.info(f"策略参数: {parameters}")
+        logger.info(f"特征列表: {features}")
+        logger.info("-" * 80)
+        
+        # 参数检查
+        if not strategy_id:
+            raise ValueError("未提供策略ID")
+        if not symbol:
+            raise ValueError("未提供股票代码")
+        if not start_date:
+            raise ValueError("未提供开始日期")
+        
+        # 初始化回测服务
+        from ..api.backtest_service import BacktestService
+        backtest_service = BacktestService(db)
+        
+        # 运行回测
+        result = backtest_service.run_backtest(
+            strategy_id=strategy_id,
+            symbol=symbol,
+            start_date=start_date,
+            end_date=end_date,
+            initial_capital=initial_capital,
+            commission_rate=commission_rate,
+            slippage_rate=slippage_rate,
+            parameters=parameters,
+            data_source=data_source,
+            features=features
+        )
+        
+        return result
+    
+    except ValueError as ve:
+        logger.error(f"参数错误: {str(ve)}")
+        return {
+            "status": "error",
+            "message": str(ve),
+            "data": None
+        }
+    except Exception as e:
+        logger.error(f"回测策略失败: {str(e)}")
+        traceback.print_exc()
+        return {
+            "status": "error",
+            "message": f"回测策略失败: {str(e)}",
+            "data": None
+        } 
