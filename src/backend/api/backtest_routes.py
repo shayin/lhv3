@@ -5,7 +5,7 @@ import logging
 import json
 from datetime import datetime
 
-from ..database import get_db
+from ..models.base import get_db
 from .backtest_service import BacktestService
 
 router = APIRouter(prefix="/api/backtest", tags=["backtest"])
