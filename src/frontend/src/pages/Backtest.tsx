@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Card, Form, Button, DatePicker, Select, InputNumber, Row, Col, Divider, Typography, Tabs, Table, Statistic, Spin, message, Alert, Space, Tooltip, Modal, Tag } from 'antd';
 import { LineChartOutlined, PlayCircleOutlined, DownloadOutlined, SaveOutlined, InfoCircleOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
@@ -18,7 +18,7 @@ import {
   ToolboxComponent, LegendComponent, MarkPointComponent, MarkLineComponent
 } from 'echarts/components';
 import { CanvasRenderer } from 'echarts/renderers';
-import { getStrategies } from '../services/strategyService';
+import { getStrategies, backtestStrategy } from '../services/strategyService';
 
 // 注册 ECharts 必要的组件
 echarts.use([
@@ -62,7 +62,7 @@ const Backtest: React.FC = () => {
   const [slippage, setSlippage] = useState(0.1);
   const [stockList, setStockList] = useState<Stock[]>([]);
   const [loading, setLoading] = useState(false);
-  const [selectedStrategy, setSelectedStrategy] = useState('ma_crossover');
+  const [selectedStrategy, setSelectedStrategy] = useState<number>(1); // 默认使用ID为1的策略
   const [selectedStrategyName, setSelectedStrategyName] = useState('MA交叉策略');
   const [selectedStock, setSelectedStock] = useState<Stock | null>(null);
   const [dateRange, setDateRange] = useState<[Dayjs, Dayjs]>([
@@ -86,6 +86,10 @@ const Backtest: React.FC = () => {
   });
   // 添加策略列表状态
   const [strategiesList, setStrategiesList] = useState<any[]>([]);
+  const [backtestResults, setBacktestResults] = useState<any>(null);
+  const [tradesData, setTradesData] = useState<any[]>([]);
+  const [equityData, setEquityData] = useState<any[]>([]);
+  const resultsRef = useRef<HTMLDivElement>(null);
   
   // 规范化日期字符串的函数，确保格式一致
   const normalizeDate = (dateStr: string | any): string => {
@@ -112,267 +116,107 @@ const Backtest: React.FC = () => {
     return dateStr.substring(0, 10);
   };
   
+  // 运行回测
   const handleRunBacktest = async () => {
-    if (!selectedStock) {
-      message.error('请选择交易品种');
+    if (!selectedStrategy || !selectedStock || !dateRange[0] || !dateRange[1]) {
+      message.error('请选择策略、交易品种和回测周期');
       return;
     }
-    
-    setRunning(true);
-    setHasResults(false); // 重置结果状态
+
+    setLoading(true);
+    setBacktestResults(null);
     
     try {
-      // 从选定的股票中获取数据源
-      const stockDataSource = dataSources.find(ds => ds.id === selectedStock.source_id);
-      // 默认使用 'yahoo' 如果没有找到匹配的数据源
-      const dataSourceName = stockDataSource?.name || 'yahoo';
+      const startDate = dateRange[0].format('YYYY-MM-DD');
+      const endDate = dateRange[1].format('YYYY-MM-DD');
       
-      // 检查是否为"用户上传"类型的数据源，这类数据源需要特殊处理
-      const isUserUploadedData = dataSourceName === '用户上传' || dataSourceName.toLowerCase() === 'user_upload';
+      // 使用新的backtestStrategy方法进行回测，确保传入数字类型的策略ID
+      const result = await backtestStrategy(
+        selectedStrategy, // 已经是number类型
+        selectedStock.symbol,
+        startDate,
+        endDate,
+        initialCapital,
+        {}, // 默认参数
+        commissionRate,
+        slippage,
+        'database', // 使用数据库作为数据源
+        [] // 默认特征列表
+      );
       
-      // 添加更详细的日志，帮助调试
-      console.log('当前选择的策略ID:', selectedStrategy);
-      console.log('当前选择的策略名称:', selectedStrategyName);
-      console.log('策略列表:', strategiesList);
-      
-      // 查找完整的策略对象
-      const strategyObj = strategiesList.find(s => s.id?.toString() === selectedStrategy || s.template === selectedStrategy);
-      console.log('选中的策略对象:', strategyObj);
-      
-      if (!strategyObj) {
-        message.error('无法找到所选策略，请重新选择');
-        setRunning(false);
+      if (result.error) {
+        message.error(`回测失败: ${result.error}`);
         return;
       }
       
-      // 获取表单值
-      const formValues = {
-        strategy_id: strategyObj.id, // 使用数据库中的策略ID
-        symbol: selectedStock.symbol, // 使用选定的股票符号
-        start_date: dateRange[0].format('YYYY-MM-DD'), // 开始日期
-        end_date: dateRange[1].format('YYYY-MM-DD'), // 结束日期
-        initial_capital: initialCapital,
-        parameters: {
-          short_window: 5, // 短期均线周期
-          long_window: 10, // 长期均线周期
-          commission_rate: commissionRate / 100, // 转换为小数
-          slippage_rate: slippage / 100 // 转换为小数
-        },
-        data_source: isUserUploadedData ? 'local' : dataSourceName.toLowerCase() // 对于用户上传的数据，使用'local'作为数据源
-      };
+      console.log('回测结果:', result);
       
-      console.log('回测参数:', formValues);
+      // 处理回测结果
+      setBacktestResults(result);
       
-      // 获取K线数据
-      const klineUrl = `/api/data/fetch?symbol=${selectedStock.symbol}&start_date=${formValues.start_date}&end_date=${formValues.end_date}&data_source=${formValues.data_source}`;
-      console.log('获取K线数据URL:', klineUrl);
+      // 更新图表数据
+      if (result.trades && result.trades.length > 0) {
+        // 设置交易列表数据
+        const tradesData = result.trades.map((trade: any, index: number) => ({
+          key: index.toString(),
+          date: normalizeDate(trade.exit_date || trade.entry_date),
+          symbol: selectedStock.symbol,
+          direction: trade.direction === 'buy' ? '买入' : '卖出',
+          entryPrice: trade.entry_price,
+          exitPrice: trade.exit_price,
+          shares: trade.quantity,
+          value: trade.value,
+          profitLoss: trade.profit_loss,
+          returnPct: trade.return_pct,
+          duration: trade.duration,
+          beforeCash: trade.before_cash,
+          afterCash: trade.after_cash,
+          beforeEquity: trade.before_equity,
+          afterEquity: trade.after_equity,
+          trigger_reason: trade.trigger_reason
+        }));
+        setTradesData(tradesData);
+      }
       
-      try {
-        const klineResponse = await axios.get(klineUrl);
+      // 更新股价和资产曲线数据
+      if (result.equity_curve && result.equity_curve.length > 0) {
+        const klineData = result.equity_curve.map((item: any) => ({
+          date: normalizeDate(item.date),
+          open: item.open,
+          close: item.close,
+          high: item.high,
+          low: item.low,
+          volume: item.volume,
+          equity: item.equity
+        }));
+        setKlineData(klineData);
         
-        if (klineResponse.data && klineResponse.data.status === 'success') {
-          const klineItems = klineResponse.data.data;
-          // 如果没有K线数据，则不能进行回测
-          if (!klineItems || klineItems.length === 0) {
-            message.error('获取K线数据失败：数据为空');
-            setRunning(false);
-            return;
-          }
-          
-          // 转换为图表需要的格式 [日期, 开盘价, 收盘价, 最低价, 最高价, 交易量]
-          const formattedKlineData = klineItems.map((item: any) => [
-            item.date, // 保留原始日期格式
-            item.open,
-            item.close,
-            item.low,
-            item.high,
-            item.volume || 0
-          ]);
-          
-          // 输出K线数据示例，用于调试
-          console.log('K线数据样本:', formattedKlineData.slice(0, 3));
-          
-          // 更新K线数据
-          setKlineData(formattedKlineData);
-          
-          // 调用后端API执行回测
-          const response = await axios.post('/api/strategies/test', formValues);
-          
-          if (response.data && response.data.status === 'success') {
-            // 处理回测结果，更新界面
-            console.log('回测成功:', response.data);
-            
-            // 更新回测结果数据
-            const result = response.data.data;
-            if (result) {
-              // 更新图表数据和统计数据
-              message.success('回测执行成功！');
-              
-              // 更新性能指标
-              setPerformanceData({
-                totalReturn: result.total_return || 0,
-                annualReturn: result.annual_return || 0,
-                sharpeRatio: result.sharpe_ratio || 0,
-                maxDrawdown: result.max_drawdown || 0,
-                winRate: result.win_rate || 0,
-                profitFactor: result.profit_factor || 0,
-                alpha: result.alpha || 0,
-                beta: result.beta || 0
-              });
-              
-              // 更新权益曲线
-              if (result.equity_curve) {
-                console.log('原始权益曲线数据:', JSON.stringify(result.equity_curve).substring(0, 200) + '...');
-                
-                // 检查数据结构，确保能处理不同格式
-                let equityCurve = [];
-                
-                // 如果是数组格式
-                if (Array.isArray(result.equity_curve)) {
-                  equityCurve = result.equity_curve.map((item: any) => ({
-                    date: item.date,
-                    equity: parseFloat(item.equity) // 确保是数字
-                  }));
-                  console.log(`处理权益曲线数组，共${equityCurve.length}条数据`);
-                } 
-                // 如果是包含date和equity数组的对象
-                else if (result.equity_curve.date && result.equity_curve.equity && 
-                         Array.isArray(result.equity_curve.date) && 
-                         Array.isArray(result.equity_curve.equity)) {
-                  const dates = result.equity_curve.date;
-                  const equities = result.equity_curve.equity;
-                  const length = Math.min(dates.length, equities.length);
-                  
-                  for (let i = 0; i < length; i++) {
-                    equityCurve.push({
-                      date: dates[i],
-                      equity: parseFloat(equities[i]) // 确保是数字
-                    });
-                  }
-                  console.log(`处理权益曲线对象，共${equityCurve.length}条数据`);
-                }
-                
-                // 数据样本展示
-                if (equityCurve.length > 0) {
-                  console.log('处理后的权益曲线数据样本:',
-                    equityCurve.length <= 5 ? equityCurve : 
-                    [equityCurve[0], '...', equityCurve[equityCurve.length-1]]);
-                }
-                
-                setEquityCurveData(equityCurve);
-              } else {
-                console.log('未找到权益曲线数据');
-                setEquityCurveData([]);
-              }
-              
-              // 更新回撤数据
-              if (result.drawdowns && result.drawdowns.length > 0) {
-                const drawdowns = result.drawdowns.map((item: any) => ({
-                  date: item.date,
-                  drawdown: item.drawdown * 100 // 转换为百分比
-                }));
-                setDrawdownData(drawdowns);
-              } else {
-                setDrawdownData([]);
-              }
-              
-              // 更新交易记录
-              if (result.trades && result.trades.length > 0) {
-                console.log('原始交易记录:', JSON.stringify(result.trades));
-                
-                // 处理交易记录
-                const processedTrades: TradeRecord[] = result.trades.map((trade: any, index: number) => {
-                  // 格式化交易数据
-                  const isBuy = trade.action === 'BUY';
-                  const price = parseFloat(trade.price) || 0;
-                  const shares = parseInt(trade.shares) || 0;
-                  const value = parseFloat(trade.value) || (price * shares);
-                  const profit = isBuy ? 0 : (parseFloat(trade.profit) || 0);
-                  
-                  // 使用后端返回的收益率数据
-                  // 卖出交易中，profit_percent 是以买入价为基准的百分比收益率
-                  const returnPct = isBuy ? 0 : (
-                    // 优先使用后端返回的收益率百分比
-                    trade.profit_percent !== undefined ? parseFloat(trade.profit_percent) : 
-                    // 如果没有，但有入场价，则计算
-                    (trade.entry_price && parseFloat(trade.entry_price) > 0 ? 
-                      (profit / (parseFloat(trade.entry_price) * shares) * 100) : 
-                      // 最后尝试使用return_pct字段
-                      (trade.return_pct !== undefined ? parseFloat(trade.return_pct) : 0)
-                    )
-                  );
-                  
-                  // 使用后端返回的持仓天数
-                  const holdingDays = isBuy ? 0 : (parseInt(trade.holding_days) || 0);
-                  
-                  // 获取期初期末资金数据
-                  const beforeCash = parseFloat(trade.before_cash) || 0;
-                  const afterCash = parseFloat(trade.after_cash) || 0;
-                  const beforeEquity = parseFloat(trade.before_equity) || 0;
-                  const afterEquity = parseFloat(trade.after_equity) || 0;
-                  
-                  return {
-                    key: `${trade.date}-${trade.action}-${index}`,
-                    date: trade.date,
-                    symbol: selectedStock.symbol,
-                    direction: isBuy ? '买入' : '卖出',
-                    entryPrice: isBuy ? price : parseFloat(trade.entry_price || '0'),
-                    exitPrice: isBuy ? undefined : price,
-                    shares: shares,
-                    value: value,
-                    profitLoss: profit,
-                    returnPct: returnPct,
-                    duration: holdingDays,  // 使用后端计算的持仓天数
-                    beforeCash: beforeCash,  // 交易前现金
-                    afterCash: afterCash,   // 交易后现金
-                    beforeEquity: beforeEquity, // 交易前总资产
-                    afterEquity: afterEquity,   // 交易后总资产
-                    trigger_reason: trade.trigger_reason || '未记录'  // 添加触发原因字段
-                  };
-                });
-                
-                console.log('处理后的交易记录:', processedTrades);
-                setTradeRecords(processedTrades);
-              } else {
-                setTradeRecords([]);
-              }
-              
-              setHasResults(true);
-            }
-          } else {
-            message.error(response.data?.detail || '回测失败');
-          }
-        } else {
-          message.error('获取K线数据失败：' + (klineResponse.data?.detail || '未知错误'));
+        // 更新资产曲线
+        const equityData = result.equity_curve.map((item: any) => ({
+          date: normalizeDate(item.date),
+          equity: item.equity
+        }));
+        setEquityData(equityData);
+        
+        // 更新回撤曲线
+        if (result.drawdowns) {
+          const drawdownsData = result.drawdowns.map((item: any) => ({
+            date: normalizeDate(item.date),
+            drawdown: item.drawdown * 100 // 转为百分比
+          }));
+          setDrawdownData(drawdownsData);
         }
-      } catch (klineError: any) {
-        console.error('获取K线数据失败:', klineError);
-        if (klineError.response) {
-          message.error(`获取K线数据失败: ${klineError.response.data?.detail || JSON.stringify(klineError.response.data) || klineError.message}`);
-        } else if (klineError.request) {
-          message.error('网络错误: 获取K线数据时服务器未响应');
-        } else {
-          message.error(`获取K线数据错误: ${klineError.message}`);
-        }
-        setRunning(false);
-        return;
       }
-    } catch (error: any) {
-      console.error('回测失败:', error);
       
-      // 显示详细错误信息
-      if (error.response) {
-        // 服务器响应了错误
-        message.error(`回测失败: ${error.response.data?.detail || JSON.stringify(error.response.data) || error.message}`);
-      } else if (error.request) {
-        // 请求已发送但未收到响应
-        message.error(`网络错误: 服务器未响应`);
-      } else {
-        // 请求设置时出现问题
-        message.error(`请求错误: ${error.message}`);
-      }
+      // 滚动到结果区域
+      resultsRef.current?.scrollIntoView({ behavior: 'smooth' });
+      
+      message.success('回测完成');
+    } catch (error: any) {
+      console.error('回测执行失败:', error);
+      message.error(`回测失败: ${error.message || '未知错误'}`);
     } finally {
-      setRunning(false);
+      setLoading(false);
     }
   };
   
@@ -1405,12 +1249,12 @@ const Backtest: React.FC = () => {
       if (strategies && strategies.length > 0) {
         setStrategiesList(strategies);
         // 如果当前选择的策略不在列表中，则选择第一个策略
-        if (!strategies.some(s => s.id?.toString() === selectedStrategy)) {
-          setSelectedStrategy(strategies[0].id?.toString() || '');
+        if (!strategies.some(s => s.id === selectedStrategy)) {
+          setSelectedStrategy(strategies[0].id || 1);
           setSelectedStrategyName(strategies[0].name || '移动平均线交叉策略');
         } else {
           // 找到当前选择的策略并更新名称
-          const currentStrategy = strategies.find(s => s.id?.toString() === selectedStrategy);
+          const currentStrategy = strategies.find(s => s.id === selectedStrategy);
           if (currentStrategy) {
             setSelectedStrategyName(currentStrategy.name);
           }
@@ -1473,8 +1317,8 @@ const Backtest: React.FC = () => {
                   <Select
                     value={selectedStrategyName}
                     onChange={(value, option: any) => {
-                      // 设置策略ID
-                      setSelectedStrategy(option.key);
+                      // 设置策略ID为数字类型
+                      setSelectedStrategy(Number(option.key));
                       // 设置策略显示名称
                       setSelectedStrategyName(value);
                     }}
