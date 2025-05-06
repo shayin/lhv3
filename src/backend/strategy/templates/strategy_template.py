@@ -11,7 +11,7 @@ class StrategyTemplate:
     实现所有必要的方法以确保策略在平台上正常运行。
     """
     
-    def __init__(self, name: str = "策略模板", parameters: Dict[str, Any] = None):
+    def __init__(self, name: str = "策略模板", data: pd.DataFrame = None, parameters: Dict[str, Any] = None):
         """
         初始化策略
         
@@ -21,7 +21,7 @@ class StrategyTemplate:
         """
         self.name = name
         self.parameters = parameters or {}
-        self.data = None
+        self.data = data
         
     def set_data(self, data: pd.DataFrame) -> None:
         """
