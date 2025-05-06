@@ -405,7 +405,7 @@ async def test_strategy(request: Request, db: Session = Depends(get_db)):
             try:
                 logger.info("开始加载策略实例...")
                 # 导入与实例化策略
-                strategy_instance = load_strategy_from_code(code, parameters)
+                strategy_instance = load_strategy_from_code(code, test_data, parameters)
                 logger.info(f"策略实例加载成功: {type(strategy_instance).__name__}")
                 
                 # 准备数据
@@ -461,7 +461,7 @@ async def test_strategy(request: Request, db: Session = Depends(get_db)):
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"测试策略失败: {str(e)}")
 
-def load_strategy_from_code(code: str, parameters: Dict[str, Any] = None, globals_dict: Dict[str, Any] = None):
+def load_strategy_from_code(code: str, data: pd.DataFrame = None, parameters: Dict[str, Any] = None, globals_dict: Dict[str, Any] = None):
     """
     从代码字符串加载策略类并实例化
     
@@ -539,7 +539,7 @@ def load_strategy_from_code(code: str, parameters: Dict[str, Any] = None, global
         
         # 实例化策略类
         logger.debug(f"实例化策略类: {strategy_class.__name__}, 参数: {parameters}")
-        strategy_instance = strategy_class(parameters=parameters)
+        strategy_instance = strategy_class(parameters=parameters, data=data)
         return strategy_instance
     
     finally:

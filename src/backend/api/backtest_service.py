@@ -345,7 +345,7 @@ class BacktestService:
                     logger.debug(f"策略代码预览:\n{code_preview}")
                     
                     # 从代码加载策略
-                    strategy_instance = load_strategy_from_code(db_strategy.code, parameters, globals_dict)
+                    strategy_instance = load_strategy_from_code(db_strategy.code, data, parameters, globals_dict)
                     return strategy_instance
                 except ImportError as ie:
                     logger.error(f"导入策略模板模块失败: {str(ie)}")
