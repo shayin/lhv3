@@ -121,7 +121,7 @@ class BacktestEngine:
         # 确保信号数据的索引是datetime类型
         if not pd.api.types.is_datetime64_dtype(signals.index):
             try:
-                signals.index = pd.to_datetime(signals.index)
+                signals.index = pd.to_datetime(signals.date)
                 logger.debug("将信号数据的索引转换为datetime类型")
             except Exception as e:
                 logger.error(f"转换信号索引为datetime失败: {e}")
@@ -130,7 +130,8 @@ class BacktestEngine:
                     signals['date'] = pd.to_datetime(signals['date'])
                     signals = signals.set_index('date')
                     logger.debug("使用date列重设信号索引")
-        
+
+            logger.info(f"新信号内容: \n{signals}")
         # 处理日期范围 - 确保日期类型一致
         # if self.start_date:
         #     start_date = pd.to_datetime(self.start_date)
@@ -388,7 +389,8 @@ class BacktestEngine:
             before_capital = self.capital
             before_equity = self.equity
             
-            logger.debug(f"日期: {date}, 价格: {price}, 信号: {signal}, 当前持仓: {self.position}")
+            if signal != 0:
+                logger.debug(f"日期: {date}, 价格: {price}, 信号: {signal}, 当前持仓: {self.position}")
             
             # 根据信号执行交易
             if signal == 1 and self.position == 0:  # 买入信号且当前无持仓
