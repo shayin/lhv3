@@ -226,7 +226,7 @@ class BacktestService:
         logger.info(f"获取到回测数据，行数: {len(stock_data)}")
         
         # 2. 实例化策略
-        strategy = self._get_strategy_instance(strategy_id, parameters)
+        strategy = self._get_strategy_instance(strategy_id, stock_data, parameters)
         if strategy is None:
             error_msg = f"无法创建策略实例: {strategy_id}"
             logger.error(error_msg)
@@ -266,7 +266,7 @@ class BacktestService:
             }
     
     def _get_strategy_instance(self, 
-                              strategy_id: Union[str, int], 
+                              strategy_id: Union[str, int], data: pd.DataFrame = None, 
                               parameters: Optional[Dict[str, Any]] = None) -> Optional[Any]:
         """
         根据策略ID创建策略实例
