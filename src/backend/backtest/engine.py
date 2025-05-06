@@ -116,6 +116,7 @@ class BacktestEngine:
         logger.info("开始生成交易信号...")
         signals = self.strategy.generate_signals()
         logger.info(f"信号生成完成，交易日总数: {len(signals)}")
+        logger.info(f"信号内容: \n{signals}")
         
         # 确保信号数据的索引是datetime类型
         if not pd.api.types.is_datetime64_dtype(signals.index):
