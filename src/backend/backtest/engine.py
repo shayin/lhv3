@@ -132,17 +132,19 @@ class BacktestEngine:
                     logger.debug("使用date列重设信号索引")
         
         # 处理日期范围 - 确保日期类型一致
-        if self.start_date:
-            start_date = pd.to_datetime(self.start_date)
-            signals = signals[signals.index >= start_date]
-            logger.debug(f"按开始日期过滤: {start_date}")
+        # if self.start_date:
+        #     start_date = pd.to_datetime(self.start_date)
+        #     signals = signals[signals.index >= start_date]
+        #     logger.debug(f"按开始日期过滤: {start_date}")
+        #     logger.debug(f"按开始日期过滤后: {signals}")
         
-        if self.end_date:
-            end_date = pd.to_datetime(self.end_date)
-            signals = signals[signals.index <= end_date]
-            logger.debug(f"按结束日期过滤: {end_date}")
-        
-        logger.info(f"回测日期范围过滤后的交易日总数: {len(signals)}")
+        # if self.end_date:
+        #     end_date = pd.to_datetime(self.end_date)
+        #     signals = signals[signals.index <= end_date]
+        #     logger.debug(f"按结束日期过滤: {end_date}")
+        #     logger.debug(f"按结束日期过滤后: {signals}")
+
+        # logger.info(f"回测日期范围过滤后的交易日总数: {len(signals)}")
         
         # 执行交易
         logger.info("开始执行交易模拟...")
