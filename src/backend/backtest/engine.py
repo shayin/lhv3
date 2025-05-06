@@ -116,6 +116,56 @@ class BacktestEngine:
         logger.info("开始生成交易信号...")
         signals = self.strategy.generate_signals()
         logger.info(f"信号生成完成，交易日总数: {len(signals)}")
+        logger.debug(f"信号数据列: {signals.columns.tolist()}")
+
+        # 打印部分信号数据用于调试
+        if not signals.empty:
+            sample_rows = min(5, len(signals))
+            logger.debug(f"信号数据样本(前{sample_rows}行):\n{signals.head(sample_rows)}")
+
+        # 添加统计信息以便调试
+        buy_signals = (signals['signal'] == 1).sum() if 'signal' in signals.columns else 0
+        sell_signals = (signals['signal'] == -1).sum() if 'signal' in signals.columns else 0
+        logger.info(f"信号统计: 买入信号 {buy_signals}个, 卖出信号 {sell_signals}个")
+
+        # 检查是否出现问题的信号
+        if 'signal' in signals.columns:
+            unique_signals = signals['signal'].unique()
+            logger.debug(f"唯一的信号值: {unique_signals}")
+            signal_counts = signals['signal'].value_counts().to_dict()
+            logger.debug(f"信号值统计: {signal_counts}")
+            
+            # 检查是否有非数值类型的信号
+            try:
+                signals['signal'] = signals['signal'].astype(float)
+                logger.debug("所有信号已转换为浮点数类型")
+            except Exception as e:
+                logger.error(f"信号类型转换失败: {e}")
+                # 尝试识别非数值类型的行
+                non_numeric = signals[pd.to_numeric(signals['signal'], errors='coerce').isna()]
+                if not non_numeric.empty:
+                    logger.error(f"存在非数值类型的信号，样本: \n{non_numeric.head()}")
+
+        if 'signal' not in signals.columns:
+            logger.error("生成的信号数据中没有'signal'列，无法执行交易")
+            signals['signal'] = 0
+        elif buy_signals == 0 and sell_signals == 0:
+            logger.warning("生成的信号数据中没有买入或卖出信号，交易将为空")
+            
+            # 检查是否有非零信号
+            if 'signal' in signals.columns:
+                non_zero_signals = signals[signals['signal'] != 0]
+                if not non_zero_signals.empty:
+                    logger.debug(f"存在非零信号但不是1或-1，样本: \n{non_zero_signals.head()}")
+                    # 尝试修正信号
+                    logger.warning("尝试修正非标准信号值(将>0的设为1，<0的设为-1)")
+                    signals.loc[signals['signal'] > 0, 'signal'] = 1
+                    signals.loc[signals['signal'] < 0, 'signal'] = -1
+                    # 重新统计修正后的信号
+                    buy_signals = (signals['signal'] == 1).sum()
+                    sell_signals = (signals['signal'] == -1).sum()
+                    logger.info(f"信号修正后统计: 买入信号 {buy_signals}个, 卖出信号 {sell_signals}个")
+
         logger.info(f"信号内容: \n{signals}")
         
         # 确保信号数据的索引是datetime类型
@@ -169,6 +219,68 @@ class BacktestEngine:
             "alpha": self.results['performance'].get('alpha', 0.0),
             "beta": self.results['performance'].get('beta', 0.0)
         }
+        
+        # 检查结果中是否有非JSON兼容的值(inf, NaN)，并替换
+        for key, value in result.items():
+            if isinstance(value, float) and (np.isinf(value) or np.isnan(value)):
+                if np.isinf(value) and value > 0:
+                    result[key] = 999.99  # 替换正无穷
+                elif np.isinf(value) and value < 0:
+                    result[key] = -999.99  # 替换负无穷
+                else:
+                    result[key] = 0.0  # 替换NaN
+        
+        # 处理嵌套结构中的非JSON兼容值
+        # 处理equity_curve
+        if "equity_curve" in result and isinstance(result["equity_curve"], list):
+            for i, item in enumerate(result["equity_curve"]):
+                if isinstance(item, dict):
+                    for k, v in item.items():
+                        # 处理日期对象
+                        if k == "date" and not isinstance(v, str):
+                            result["equity_curve"][i][k] = str(v)
+                        # 处理无穷大和NaN
+                        elif isinstance(v, float) and (np.isinf(v) or np.isnan(v)):
+                            if np.isinf(v) and v > 0:
+                                result["equity_curve"][i][k] = 999.99
+                            elif np.isinf(v) and v < 0:
+                                result["equity_curve"][i][k] = -999.99
+                            else:
+                                result["equity_curve"][i][k] = 0.0
+        
+        # 处理drawdowns
+        if "drawdowns" in result and isinstance(result["drawdowns"], list):
+            for i, item in enumerate(result["drawdowns"]):
+                if isinstance(item, dict):
+                    for k, v in item.items():
+                        # 处理日期对象
+                        if k == "date" and not isinstance(v, str):
+                            result["drawdowns"][i][k] = str(v)
+                        # 处理无穷大和NaN
+                        elif isinstance(v, float) and (np.isinf(v) or np.isnan(v)):
+                            if np.isinf(v) and v > 0:
+                                result["drawdowns"][i][k] = 999.99
+                            elif np.isinf(v) and v < 0:
+                                result["drawdowns"][i][k] = -999.99
+                            else:
+                                result["drawdowns"][i][k] = 0.0
+        
+        # 处理trades
+        if "trades" in result and isinstance(result["trades"], list):
+            for i, trade in enumerate(result["trades"]):
+                if isinstance(trade, dict):
+                    for k, v in trade.items():
+                        # 处理日期对象
+                        if k in ["date", "entry_date"] and not isinstance(v, str):
+                            result["trades"][i][k] = str(v)
+                        # 处理无穷大和NaN
+                        elif isinstance(v, float) and (np.isinf(v) or np.isnan(v)):
+                            if np.isinf(v) and v > 0:
+                                result["trades"][i][k] = 999.99
+                            elif np.isinf(v) and v < 0:
+                                result["trades"][i][k] = -999.99
+                            else:
+                                result["trades"][i][k] = 0.0
         
         logger.info(f"回测完成: 总收益率={result['total_return']:.2%}, 最大回撤={result['max_drawdown']:.2%}, 夏普比率={result['sharpe_ratio']:.2f}")
         logger.info(f"交易统计: 总交易次数={len(self.results['trades'])}, 胜率={result['win_rate']:.2%}")
@@ -350,6 +462,19 @@ class BacktestEngine:
         """
         logger.debug("开始模拟交易过程...")
         
+        # 检查信号数据
+        if 'signal' not in signals.columns:
+            logger.error("信号数据中没有'signal'列，无法执行交易")
+            return
+        
+        # 检查是否有买入或卖出信号
+        buy_signals = (signals['signal'] == 1).sum()
+        sell_signals = (signals['signal'] == -1).sum()
+        logger.debug(f"交易信号统计: 买入信号 {buy_signals}个, 卖出信号 {sell_signals}个")
+        
+        if buy_signals == 0:
+            logger.warning("没有买入信号，可能导致无交易")
+        
         # 初始化权益曲线
         self.results['equity_curve'] = []
         self.results['trades'] = []
@@ -381,8 +506,14 @@ class BacktestEngine:
         
         # 遍历每个交易日
         for date, row in signals.iterrows():
-            price = row["close"]
-            signal = row["signal"] if "signal" in row else 0
+            price = float(row["close"])
+            # 确保signal是数值类型
+            try:
+                signal = float(row["signal"]) if "signal" in row else 0
+            except (TypeError, ValueError):
+                logger.warning(f"日期 {date} 的信号类型错误，设为默认值0")
+                signal = 0
+            
             trigger_reason = row.get("trigger_reason", "未记录")
             
             # 记录交易前状态
@@ -394,15 +525,23 @@ class BacktestEngine:
             
             # 根据信号执行交易
             if signal == 1 and self.position == 0:  # 买入信号且当前无持仓
+                logger.info(f"检测到买入信号: 日期={date}, 价格={price}, 信号值={signal}, 触发原因={trigger_reason}")
+                
                 # 计算可买数量
-                max_shares = int(self.capital * 0.95 / price)  # 保留5%资金作为缓冲
+                # 考虑手续费后的最大可买股数
+                # 计算方法: 资金 / (价格 * (1 + 滑点率) * (1 + 手续费率))
+                execution_price = price * (1 + self.slippage_rate)  # 考虑滑点
+                # 这里修正手续费率计算，将decimal值(0.15)转为百分比(0.0015)
+                actual_commission_rate = self.commission_rate / 100 if self.commission_rate > 0.01 else self.commission_rate
+                max_shares = int(self.capital / (execution_price * (1 + actual_commission_rate)))  # 确保股数为整数
                 shares = max_shares  # 这里可以根据策略调整买入数量
                 
                 # 执行买入
-                execution_price = price * (1 + self.slippage_rate)  # 考虑滑点
                 cost = shares * execution_price
-                commission_fee = cost * self.commission_rate
+                commission_fee = cost * actual_commission_rate
                 total_cost = cost + commission_fee
+                
+                logger.debug(f"买入计算: 最大可买={max_shares}股, 执行价格={execution_price}, 成本={cost}, 手续费率={actual_commission_rate:.6f}, 手续费={commission_fee}, 总成本={total_cost}, 当前资金={self.capital}")
                 
                 if total_cost <= self.capital and shares > 0:
                     self.capital -= total_cost
@@ -430,13 +569,19 @@ class BacktestEngine:
                     self.results['trades'].append(trade)
                     
                     logger.info(f"买入: 日期={date}, 价格={execution_price:.4f}, 数量={shares}, 金额={cost:.2f}, 手续费={commission_fee:.2f}")
-                
+                else:
+                    logger.warning(f"买入失败: 资金不足或股数为0, 当前资金={self.capital}, 需要资金={total_cost}, 股数={shares}")
+            
             elif signal == -1 and self.position > 0:  # 卖出信号且当前有持仓
+                logger.info(f"检测到卖出信号: 日期={date}, 价格={price}, 信号值={signal}, 触发原因={trigger_reason}")
+                
                 # 执行卖出
                 execution_price = price * (1 - self.slippage_rate)  # 考虑滑点
                 shares = self.position
                 revenue = shares * execution_price
-                commission_fee = revenue * self.commission_rate
+                # 修正手续费率计算
+                actual_commission_rate = self.commission_rate / 100 if self.commission_rate > 0.01 else self.commission_rate
+                commission_fee = revenue * actual_commission_rate
                 net_revenue = revenue - commission_fee
                 
                 # 计算收益
@@ -562,6 +707,12 @@ class BacktestEngine:
         
         if total_loss > 0:
             self.results['performance']['profit_factor'] = total_profit / total_loss
+        else:
+            # 如果没有亏损交易，设置盈亏比为一个大的有限数值
+            if total_profit > 0:
+                self.results['performance']['profit_factor'] = 999.99  # 使用一个有限的大数值代替无穷大
+            else:
+                self.results['performance']['profit_factor'] = 0.0  # 如果既没有盈利也没有亏损
         
         # 计算夏普比率
         if len(self.results['equity_curve']) > 1:
