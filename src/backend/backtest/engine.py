@@ -491,13 +491,21 @@ class BacktestEngine:
         # 添加起始点到权益曲线
         if not signals.empty:
             first_date = signals.index[0]
+            # 取出第一个交易日的收盘价作为默认值
+            first_close = float(signals.iloc[0].get("close", 0))
             self.results['equity_curve'].append({
                 "date": first_date,
                 "equity": self.equity,
                 "capital": self.capital,
                 "position": self.position,
                 "position_value": self.position_value,
-                "drawdown": current_drawdown
+                "drawdown": current_drawdown,
+                # 添加当日K线价格数据，如果没有则使用收盘价作为默认值
+                "open": signals.iloc[0].get("open", first_close),
+                "high": signals.iloc[0].get("high", first_close),
+                "low": signals.iloc[0].get("low", first_close),
+                "close": first_close,
+                "volume": signals.iloc[0].get("volume", 0)
             })
         
         previous_trade_date = None  # 上一次交易日，用于计算持仓天数
@@ -648,7 +656,13 @@ class BacktestEngine:
                 "capital": self.capital,
                 "position": self.position,
                 "position_value": self.position_value,
-                "drawdown": current_drawdown
+                "drawdown": current_drawdown,
+                # 添加当日K线价格数据
+                "open": row.get("open", price),  # 如果没有开盘价，使用价格(收盘价)作为默认值
+                "high": row.get("high", price),
+                "low": row.get("low", price),
+                "close": price,  # 这里保持不变，因为price就是收盘价
+                "volume": row.get("volume", 0)
             })
             
             # 添加回撤记录

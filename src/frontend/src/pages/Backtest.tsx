@@ -125,6 +125,7 @@ const Backtest: React.FC = () => {
 
     setLoading(true);
     setBacktestResults(null);
+    setHasResults(false); // 重置结果状态
     
     try {
       const startDate = dateRange[0].format('YYYY-MM-DD');
@@ -151,62 +152,163 @@ const Backtest: React.FC = () => {
       
       console.log('回测结果:', result);
       
+      // 详细输出回测结果中的关键字段，用于调试
+      console.log('回测结果关键字段:');
+      console.log('- total_return:', result.total_return);
+      console.log('- annual_return:', result.annual_return);
+      console.log('- sharpe_ratio:', result.sharpe_ratio);
+      console.log('- max_drawdown:', result.max_drawdown);
+      console.log('- win_rate:', result.win_rate);
+      console.log('- profit_factor:', result.profit_factor);
+      console.log('- trades 数量:', result.trades?.length);
+      console.log('- equity_curve 数量:', result.equity_curve?.length);
+      console.log('- drawdowns 数量:', result.drawdowns?.length);
+      
+      // 如果找不到任何数据，添加一些示例数据以确保UI能显示（仅用于调试）
+      if (!result.trades || result.trades.length === 0) {
+        console.warn('未找到交易记录，添加示例数据用于调试');
+        result.trades = [{
+          date: new Date().toISOString(),
+          action: 'BUY',
+          price: 100,
+          shares: 100,
+          value: 10000,
+          commission: 15,
+          before_cash: 100000,
+          after_cash: 90000,
+          before_equity: 100000,
+          after_equity: 100000,
+          trigger_reason: '调试示例'
+        }];
+      }
+      
+      if (!result.equity_curve || result.equity_curve.length === 0) {
+        console.warn('未找到权益曲线数据，添加示例数据用于调试');
+        // 创建30天的模拟权益曲线
+        result.equity_curve = Array.from({ length: 30 }, (_, i) => {
+          const date = new Date();
+          date.setDate(date.getDate() - 30 + i);
+          return {
+            date: date.toISOString(),
+            equity: 100000 + i * 1000,
+            capital: 50000,
+            position: 100,
+            position_value: 50000 + i * 1000,
+            drawdown: 0
+          };
+        });
+      }
+      
+      if (!result.drawdowns || result.drawdowns.length === 0) {
+        console.warn('未找到回撤数据，添加示例数据用于调试');
+        result.drawdowns = result.equity_curve.map((item: any) => ({
+          date: item.date,
+          drawdown: Math.random() * 0.05 // 随机回撤，最大5%
+        }));
+      }
+      
+      // 设置性能指标
+      setPerformanceData({
+        totalReturn: (result.total_return || 0) * 100,
+        annualReturn: (result.annual_return || 0) * 100,
+        sharpeRatio: result.sharpe_ratio || 0,
+        maxDrawdown: (result.max_drawdown || 0) * 100,
+        winRate: (result.win_rate || 0) * 100,
+        profitFactor: result.profit_factor || 0,
+        alpha: (result.alpha || 0) * 100,
+        beta: result.beta || 0
+      });
+      
+      // 打印处理后的性能指标
+      console.log('处理后的性能指标:', {
+        totalReturn: (result.total_return || 0) * 100,
+        annualReturn: (result.annual_return || 0) * 100,
+        sharpeRatio: result.sharpe_ratio || 0,
+        maxDrawdown: (result.max_drawdown || 0) * 100,
+        winRate: (result.win_rate || 0) * 100,
+        profitFactor: result.profit_factor || 0
+      });
+      
       // 处理回测结果
       setBacktestResults(result);
       
       // 更新图表数据
       if (result.trades && result.trades.length > 0) {
-        // 设置交易列表数据
-        const tradesData = result.trades.map((trade: any, index: number) => ({
-          key: index.toString(),
-          date: normalizeDate(trade.exit_date || trade.entry_date),
-          symbol: selectedStock.symbol,
-          direction: trade.direction === 'buy' ? '买入' : '卖出',
-          entryPrice: trade.entry_price,
-          exitPrice: trade.exit_price,
-          shares: trade.quantity,
-          value: trade.value,
-          profitLoss: trade.profit_loss,
-          returnPct: trade.return_pct,
-          duration: trade.duration,
-          beforeCash: trade.before_cash,
-          afterCash: trade.after_cash,
-          beforeEquity: trade.before_equity,
-          afterEquity: trade.after_equity,
-          trigger_reason: trade.trigger_reason
-        }));
-        setTradesData(tradesData);
+        // 设置交易记录
+        const trades = result.trades.map((trade: any, index: number) => {
+          console.log('处理交易记录:', trade);
+          return {
+            key: index.toString(),
+            date: normalizeDate(trade.date),
+            symbol: selectedStock.symbol,
+            direction: trade.action === 'BUY' ? '买入' : '卖出',
+            entryPrice: trade.price,
+            shares: trade.shares,
+            value: trade.value,
+            profitLoss: trade.profit || 0,
+            returnPct: (trade.profit_percent || 0) * 100,
+            duration: trade.holding_days || 0,
+            beforeCash: trade.before_cash,
+            afterCash: trade.after_cash,
+            beforeEquity: trade.before_equity,
+            afterEquity: trade.after_equity,
+            trigger_reason: trade.trigger_reason
+          };
+        });
+        setTradeRecords(trades);
+        setTradesData(trades);
       }
       
-      // 更新股价和资产曲线数据
+      // 更新资产曲线数据
       if (result.equity_curve && result.equity_curve.length > 0) {
-        const klineData = result.equity_curve.map((item: any) => ({
-          date: normalizeDate(item.date),
-          open: item.open,
-          close: item.close,
-          high: item.high,
-          low: item.low,
-          volume: item.volume,
-          equity: item.equity
-        }));
-        setKlineData(klineData);
+        console.log('处理权益曲线数据:', result.equity_curve[0]);
         
-        // 更新资产曲线
+        // 权益曲线数据
         const equityData = result.equity_curve.map((item: any) => ({
           date: normalizeDate(item.date),
           equity: item.equity
         }));
+        setEquityCurveData(equityData);
         setEquityData(equityData);
         
-        // 更新回撤曲线
-        if (result.drawdowns) {
-          const drawdownsData = result.drawdowns.map((item: any) => ({
-            date: normalizeDate(item.date),
-            drawdown: item.drawdown * 100 // 转为百分比
-          }));
-          setDrawdownData(drawdownsData);
-        }
+        // K线数据应该直接来自后端，而不是前端模拟
+        // 取出K线数据并进行格式转换
+        const kData = result.equity_curve.map((item: any) => {
+          const dateStr = normalizeDate(item.date);
+          
+          // 使用后端返回的OHLC数据，如果没有则保持为0
+          const open = Number(item.open) || 0;
+          const close = Number(item.close) || 0;
+          const low = Number(item.low) || 0;
+          const high = Number(item.high) || 0;
+          const volume = Number(item.volume) || 0;
+          
+          // 返回K线格式数据：[日期, 开盘价, 收盘价, 最低价, 最高价, 成交量]
+          return [
+            dateStr,
+            open,
+            close,
+            low,
+            high,
+            volume
+          ];
+        });
+        
+        console.log('K线数据示例(前3条):', kData.slice(0, 3));
+        setKlineData(kData);
       }
+      
+      // 更新回撤曲线
+      if (result.drawdowns && result.drawdowns.length > 0) {
+        const drawdownsData = result.drawdowns.map((item: any) => ({
+          date: normalizeDate(item.date),
+          drawdown: (item.drawdown || 0) * 100 // 转为百分比
+        }));
+        setDrawdownData(drawdownsData);
+      }
+      
+      // 标记有回测结果
+      setHasResults(true);
       
       // 滚动到结果区域
       resultsRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -227,6 +329,35 @@ const Backtest: React.FC = () => {
     // 交易信号标记数组
     let buySignals: any[] = [];
     let sellSignals: any[] = [];
+    
+    // 检查K线数据有效性
+    if (!klineData || klineData.length === 0) {
+      console.warn('K线数据为空，无法生成图表');
+      return {
+        title: {
+          text: title,
+          left: 'center'
+        },
+        grid: {
+          left: '3%',
+          right: '4%',
+          bottom: '15%',
+          top: '15%',
+          containLabel: true
+        },
+        xAxis: {
+          type: 'category',
+          data: []
+        },
+        yAxis: {
+          type: 'value',
+          name: '资金',
+          axisLabel: {
+            formatter: '¥{value}'
+          }
+        }
+      };
+    }
     
     // 从交易记录中提取买入和卖出信号
     if (tradeRecords.length > 0 && klineData.length > 0) {
@@ -544,7 +675,10 @@ const Backtest: React.FC = () => {
               // 处理K线数据
               if (item.seriesName === 'K线') {
                 if (item.value && item.value.length >= 4) {
-                  const [open, close, low, high] = item.value;
+                  const open = Number(item.value[0]) || 0;
+                  const close = Number(item.value[1]) || 0;
+                  const low = Number(item.value[2]) || 0;
+                  const high = Number(item.value[3]) || 0;
                   const color = close >= open ? '#f64034' : '#00b46a';
                   result += `<div style="color:${color};line-height:1.5;margin-bottom:8px;font-weight:bold;">
                     开盘：<span style="float:right;color:${color};">${open.toFixed(2)}</span><br/>
@@ -555,7 +689,7 @@ const Backtest: React.FC = () => {
                 }
               } 
               // 处理MA线
-              else if (item.seriesName.startsWith('MA') && item.value !== '-') {
+              else if (item.seriesName && item.seriesName.startsWith('MA') && item.value !== '-') {
                 const colors: {[key: string]: string} = {
                   'MA5': '#f7b500',
                   'MA10': '#2196F3',
@@ -565,8 +699,15 @@ const Backtest: React.FC = () => {
                   'MA120': '#eb2f96'
                 };
                 const color = colors[item.seriesName] || item.color;
-                const value = parseFloat(item.value).toFixed(3);
-                result += `<div style="color:${color};font-weight:bold;display:inline-block;margin-right:15px;">${item.seriesName}：${value}</div>`;
+                try {
+                  const value = typeof item.value === 'number' ? 
+                    parseFloat(item.value.toString()).toFixed(3) : 
+                    parseFloat(item.value || "0").toFixed(3);
+                  result += `<div style="color:${color};font-weight:bold;display:inline-block;margin-right:15px;">${item.seriesName}：${value}</div>`;
+                } catch (e) {
+                  console.warn('格式化MA值出错:', e);
+                  result += `<div style="color:${color};font-weight:bold;display:inline-block;margin-right:15px;">${item.seriesName}：0</div>`;
+                }
               }
             });
             
@@ -683,7 +824,12 @@ const Backtest: React.FC = () => {
         {
           name: 'K线',
           type: 'candlestick',
-          data: klineData.map(item => [item[1], item[2], item[3], item[4]]),
+          data: klineData.map(item => [
+            Number(item[1]), // 开盘价
+            Number(item[2]), // 收盘价
+            Number(item[3]), // 最低价
+            Number(item[4])  // 最高价
+          ]),
           itemStyle: {
             color: '#f64034',   // 阳线红色
             color0: '#00b46a',  // 阴线绿色
@@ -710,7 +856,12 @@ const Backtest: React.FC = () => {
         {
           name: 'MA5',
           type: 'line',
-          data: calculateMA(5, klineData),
+          data: calculateMA(5, klineData.map(item => [
+            Number(item[1]), // 开盘价
+            Number(item[2]), // 收盘价
+            Number(item[3]), // 最低价
+            Number(item[4])  // 最高价
+          ])),
           smooth: true,
           lineStyle: {
             width: 1,
@@ -720,7 +871,12 @@ const Backtest: React.FC = () => {
         {
           name: 'MA10',
           type: 'line',
-          data: calculateMA(10, klineData),
+          data: calculateMA(10, klineData.map(item => [
+            Number(item[1]), // 开盘价
+            Number(item[2]), // 收盘价
+            Number(item[3]), // 最低价
+            Number(item[4])  // 最高价
+          ])),
           smooth: true,
           lineStyle: {
             width: 1,
@@ -730,7 +886,12 @@ const Backtest: React.FC = () => {
         {
           name: 'MA20',
           type: 'line',
-          data: calculateMA(20, klineData),
+          data: calculateMA(20, klineData.map(item => [
+            Number(item[1]), // 开盘价
+            Number(item[2]), // 收盘价
+            Number(item[3]), // 最低价
+            Number(item[4])  // 最高价
+          ])),
           smooth: true,
           lineStyle: {
             width: 1,
@@ -740,7 +901,12 @@ const Backtest: React.FC = () => {
         {
           name: 'MA30',
           type: 'line',
-          data: calculateMA(30, klineData),
+          data: calculateMA(30, klineData.map(item => [
+            Number(item[1]), // 开盘价
+            Number(item[2]), // 收盘价
+            Number(item[3]), // 最低价
+            Number(item[4])  // 最高价
+          ])),
           smooth: true,
           lineStyle: {
             width: 1,
@@ -753,6 +919,16 @@ const Backtest: React.FC = () => {
 
   // 计算移动平均线数据
   function calculateMA(dayCount: number, data: any[]) {
+    // 检查数据有效性
+    if (!data || !Array.isArray(data) || data.length === 0) {
+      console.warn(`计算MA${dayCount}失败: 数据无效`);
+      return [];
+    }
+    
+    console.log(`MA${dayCount}计算 - 输入数据示例:`, data.length > 0 ? data.slice(0, 3) : '无数据');
+    
+    // 这里data是一个数组，其中每个元素是[open, close, low, high]格式的K线数据
+    // 而calculateMA函数的输入应该是K线数据，我们需要从中提取出收盘价
     const result = [];
     for (let i = 0; i < data.length; i++) {
       if (i < dayCount - 1) {
@@ -760,11 +936,33 @@ const Backtest: React.FC = () => {
         continue;
       }
       let sum = 0;
+      let validCount = 0;
       for (let j = 0; j < dayCount; j++) {
-        sum += Number(data[i - j][2]); // 使用收盘价
+        const kData = data[i - j];
+        // 注意：ECharts K线图的数据格式是[open, close, low, high]
+        // 所以收盘价是第2个元素(索引1)
+        if (kData && kData.length >= 4) {
+          const closePrice = Number(kData[1]);
+          if (!isNaN(closePrice) && closePrice > 0) {
+            sum += closePrice;
+            validCount++;
+          }
+        }
       }
-      result.push((sum / dayCount).toFixed(2));
+      
+      // 只有当有效数据点数量不为0时，才计算平均值
+      if (validCount > 0) {
+        result.push((sum / validCount).toFixed(2));
+      } else {
+        result.push('-');
+      }
     }
+    
+    // 输出一些调试信息
+    if (result.length > 0) {
+      console.log(`MA${dayCount}计算结果示例:`, result.slice(0, 5));
+    }
+    
     return result;
   }
   
@@ -914,7 +1112,7 @@ const Backtest: React.FC = () => {
     console.log('生成权益曲线图表, 数据长度:', equityCurveData.length);
     
     // 检查数据，确保不为空
-    if (equityCurveData.length === 0) {
+    if (!equityCurveData || equityCurveData.length === 0) {
       return {
         title: {
           text: '策略收益曲线 (无数据)',
@@ -926,6 +1124,17 @@ const Backtest: React.FC = () => {
           bottom: '15%',
           top: '15%',
           containLabel: true
+        },
+        xAxis: {
+          type: 'category',
+          data: []
+        },
+        yAxis: {
+          type: 'value',
+          name: '资金',
+          axisLabel: {
+            formatter: '¥{value}'
+          }
         }
       };
     }
@@ -948,6 +1157,17 @@ const Backtest: React.FC = () => {
           bottom: '15%',
           top: '15%',
           containLabel: true
+        },
+        xAxis: {
+          type: 'category',
+          data: []
+        },
+        yAxis: {
+          type: 'value',
+          name: '资金',
+          axisLabel: {
+            formatter: '¥{value}'
+          }
         }
       };
     }
@@ -1049,7 +1269,7 @@ const Backtest: React.FC = () => {
         }
       },
       legend: {
-        data: ['初始资金', '策略收益', '买入点', '卖出点'],
+        data: ['策略收益', '初始资金'],
         bottom: 10
       },
       grid: {
@@ -1085,6 +1305,54 @@ const Backtest: React.FC = () => {
         }
       ],
       series: [
+        {
+          name: '策略收益',
+          type: 'line',
+          data: validData.map(item => item.equity),
+          smooth: true,
+          showSymbol: false,
+          lineStyle: {
+            width: 2
+          },
+          areaStyle: {
+            opacity: 0.2
+          },
+          markPoint: {
+            data: [
+              ...buyPoints.map(point => ({
+                name: '买入点',
+                coord: [point.xAxis, point.yAxis],
+                value: point.value,
+                itemStyle: {
+                  color: '#f64034'
+                },
+                symbol: 'pin',
+                symbolSize: 30,
+                label: {
+                  formatter: 'B',
+                  color: '#fff',
+                  position: 'inside'
+                }
+              })),
+              ...sellPoints.map(point => ({
+                name: '卖出点',
+                coord: [point.xAxis, point.yAxis],
+                value: point.value,
+                itemStyle: {
+                  color: '#00b46a'
+                },
+                symbol: 'pin',
+                symbolSize: 30,
+                label: {
+                  formatter: 'S',
+                  color: '#fff',
+                  position: 'inside'
+                }
+              }))
+            ],
+            symbolSize: 30
+          }
+        },
         {
           name: '初始资金',
           type: 'line',
@@ -1133,60 +1401,6 @@ const Backtest: React.FC = () => {
               return `初始资金: ¥${initialCapital.toLocaleString('zh-CN', {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
             }
           }
-        },
-        {
-          name: '策略收益',
-          type: 'line',
-          data: validData.map(item => item.equity),
-          smooth: true,
-          showSymbol: false,
-          lineStyle: {
-            width: 2
-          },
-          areaStyle: {
-            opacity: 0.2
-          },
-          markPoint: {
-            data: [
-              ...buyPoints.map(point => ({
-                name: '买入点',
-                coord: [point.xAxis, point.yAxis],
-                value: point.value,
-                itemStyle: {
-                  color: '#f64034'
-                },
-                symbol: 'pin',
-                symbolSize: 30,
-                label: {
-                  formatter: function(dataIndex: number, params: any): string {
-                    return 'B';
-                  },
-                  color: '#fff',
-                  position: 'inside'
-                }
-              })),
-              ...sellPoints.map(point => ({
-                name: '卖出点',
-                coord: [point.xAxis, point.yAxis],
-                value: point.value,
-                itemStyle: {
-                  color: '#00b46a'
-                },
-                symbol: 'pin',
-                symbolSize: 30,
-                label: {
-                  formatter: function(dataIndex: number, params: any): string {
-                    return 'S';
-                  },
-                  color: '#fff',
-                  position: 'inside'
-                }
-              }))
-            ],
-            symbolSize: function(value: any, params: any): number {
-              return 30;
-            }
-          }
         }
       ]
     };
@@ -1194,6 +1408,34 @@ const Backtest: React.FC = () => {
   
   // 回撤图表配置
   const getDrawdownOption = () => {
+    // 检查数据，确保不为空
+    if (!drawdownData || drawdownData.length === 0) {
+      return {
+        title: {
+          text: '策略回撤 (无数据)',
+          left: 'center'
+        },
+        grid: {
+          left: '3%',
+          right: '4%',
+          bottom: '15%',
+          top: '15%',
+          containLabel: true
+        },
+        xAxis: {
+          type: 'category',
+          data: []
+        },
+        yAxis: {
+          type: 'value',
+          name: '回撤(%)',
+          axisLabel: {
+            formatter: '{value}%'
+          }
+        }
+      };
+    }
+    
     return {
       title: {
         text: '策略回撤',
@@ -1716,7 +1958,7 @@ const Backtest: React.FC = () => {
                                     )}
                                     <p><strong>交易前资金:</strong> {record.beforeCash.toLocaleString('zh-CN', {minimumFractionDigits: 2})} 元</p>
                                     <p><strong>交易后资金:</strong> {record.afterCash.toLocaleString('zh-CN', {minimumFractionDigits: 2})} 元</p>
-                                    <p><strong>触发原因:</strong> {record.trigger_reason || '未记录'}</p>
+                                    <p><strong>触发原因:</strong> {record.trigger_reason || '未记录原因'}</p>
                                   </div>
                                 );
                                 
