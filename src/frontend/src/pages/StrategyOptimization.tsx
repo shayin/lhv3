@@ -7,7 +7,6 @@ import { fetchStockList, Stock } from '../services/apiService';
 
 const { Title, Paragraph } = Typography;
 const { Option } = Select;
-const { TabPane } = Tabs;
 
 interface OptimizationResult {
   key: string;
@@ -311,6 +310,62 @@ const StrategyOptimization: React.FC = () => {
     }
   };
 
+  // 创建Tabs的items配置
+  const getResultTabItems = () => {
+    return [
+      {
+        key: "1",
+        label: (
+          <span>
+            <LineChartOutlined />
+            Optimization Results
+          </span>
+        ),
+        children: (
+          <>
+            <Table
+              dataSource={optimizationResults}
+              columns={columns}
+              pagination={false}
+              scroll={{ x: true }}
+            />
+            
+            <div style={{ marginTop: 16, marginBottom: 16 }}>
+              <Tag color="blue">Best Parameter Combination: Short MA=20, Long MA=60</Tag>
+              <Tag color="green">Best Sharpe Ratio: 2.03</Tag>
+              <Tag color="red">Max Annual Return: 21.2%</Tag>
+            </div>
+            
+            <div style={{ textAlign: 'right', marginTop: 16 }}>
+              <Button icon={<SaveOutlined />} type="primary">
+                Apply Best Parameters
+              </Button>
+            </div>
+          </>
+        )
+      },
+      {
+        key: "2",
+        label: (
+          <span>
+            <SyncOutlined />
+            Parameter Analysis
+          </span>
+        ),
+        children: (
+          <Row gutter={16}>
+            <Col span={12} style={{ height: 500 }}>
+              <ReactECharts option={heatmapOption} style={{ height: '100%' }} />
+            </Col>
+            <Col span={12} style={{ height: 500 }}>
+              <ReactECharts option={scatter3DOption} style={{ height: '100%' }} />
+            </Col>
+          </Row>
+        )
+      }
+    ];
+  };
+
   return (
     <div>
       <Title level={2}>Strategy Optimization</Title>
@@ -490,55 +545,7 @@ const StrategyOptimization: React.FC = () => {
         <>
           <Divider />
           <Card>
-            <Tabs defaultActiveKey="1">
-              <TabPane
-                tab={
-                  <span>
-                    <LineChartOutlined />
-                    Optimization Results
-                  </span>
-                } 
-                key="1"
-              >
-                <Table
-                  dataSource={optimizationResults}
-                  columns={columns}
-                  pagination={false}
-                  scroll={{ x: true }}
-                />
-                
-                <div style={{ marginTop: 16, marginBottom: 16 }}>
-                  <Tag color="blue">Best Parameter Combination: Short MA=20, Long MA=60</Tag>
-                  <Tag color="green">Best Sharpe Ratio: 2.03</Tag>
-                  <Tag color="red">Max Annual Return: 21.2%</Tag>
-                </div>
-                
-                <div style={{ textAlign: 'right', marginTop: 16 }}>
-                  <Button icon={<SaveOutlined />} type="primary">
-                    Apply Best Parameters
-                  </Button>
-                </div>
-              </TabPane>
-              
-              <TabPane
-                tab={
-                  <span>
-                    <SyncOutlined />
-                    Parameter Analysis
-                  </span>
-                } 
-                key="2"
-              >
-                <Row gutter={16}>
-                  <Col span={12} style={{ height: 500 }}>
-                    <ReactECharts option={heatmapOption} style={{ height: '100%' }} />
-                  </Col>
-                  <Col span={12} style={{ height: 500 }}>
-                    <ReactECharts option={scatter3DOption} style={{ height: '100%' }} />
-                  </Col>
-                </Row>
-              </TabPane>
-            </Tabs>
+            <Tabs defaultActiveKey="1" items={getResultTabItems()} />
           </Card>
         </>
       )}

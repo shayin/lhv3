@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { Card, Form, Button, DatePicker, Select, InputNumber, Row, Col, Divider, Typography, Tabs, Table, Statistic, Spin, message, Alert, Space, Tooltip, Modal, Tag } from 'antd';
+import { Card, Form, Button, DatePicker, Select, InputNumber, Row, Col, Divider, Typography, Tabs, Table, Statistic, Spin, message as antdMessage, Alert, Space, Tooltip, Modal, Tag, App, message } from 'antd';
 import { LineChartOutlined, PlayCircleOutlined, DownloadOutlined, SaveOutlined, InfoCircleOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import ReactECharts from 'echarts-for-react';
@@ -32,7 +32,6 @@ moment.locale('zh-cn'); // 设置为中文
 const { RangePicker } = DatePicker;
 const { Title, Paragraph } = Typography;
 const { Option } = Select;
-const { TabPane } = Tabs;
 
 interface TradeRecord {
   key: string;
@@ -117,9 +116,9 @@ const Backtest: React.FC = () => {
   };
   
   // 运行回测
-  const handleRunBacktest = async () => {
+  const handleRunBacktest = useCallback(async () => {
     if (!selectedStrategy || !selectedStock || !dateRange[0] || !dateRange[1]) {
-      message.error('请选择策略、交易品种和回测周期');
+      antdMessage.error('请选择策略、交易品种和回测周期');
       return;
     }
 
@@ -146,7 +145,7 @@ const Backtest: React.FC = () => {
       );
       
       if (result.error) {
-        message.error(`回测失败: ${result.error}`);
+        antdMessage.error(`回测失败: ${result.error}`);
         return;
       }
       
@@ -315,14 +314,36 @@ const Backtest: React.FC = () => {
       // 滚动到结果区域
       resultsRef.current?.scrollIntoView({ behavior: 'smooth' });
       
-      message.success('回测完成');
+      // 使用函数组件包装，确保消息API调用在组件上下文中执行
+      const showSuccessMessage = () => {
+        message.success('回测完成');
+      };
+      showSuccessMessage();
     } catch (error: any) {
       console.error('回测执行失败:', error);
-      message.error(`回测失败: ${error.message || '未知错误'}`);
+      antdMessage.error(`回测失败: ${error.message || '未知错误'}`);
     } finally {
       setLoading(false);
     }
-  };
+  }, [
+    selectedStrategy, 
+    selectedStock, 
+    dateRange, 
+    initialCapital, 
+    commissionRate, 
+    slippage, 
+    normalizeDate, 
+    setTradeRecords, 
+    setTradesData, 
+    setKlineData, 
+    setEquityCurveData, 
+    setEquityData, 
+    setDrawdownData, 
+    setHasResults, 
+    setBacktestResults, 
+    setPerformanceData, 
+    setLoading
+  ]);
   
   // K线图配置
   const getKlineOption = () => {
@@ -1505,11 +1526,11 @@ const Backtest: React.FC = () => {
         }
       } else {
         // 如果没有策略，则使用默认策略列表
-        message.error('未找到策略列表，请先创建策略');
+        antdMessage.error('未找到策略列表，请先创建策略');
       }
     } catch (error) {
       console.error('获取策略列表失败:', error);
-      message.error('获取策略列表失败，请检查网络连接');
+      antdMessage.error('获取策略列表失败，请检查网络连接');
     }
   };
 
@@ -1545,6 +1566,226 @@ const Backtest: React.FC = () => {
     } catch (error) {
       console.error('获取数据源列表失败:', error);
     }
+  };
+
+  // 替换 Tabs 组件的实现
+  const renderTabsItems = () => {
+    return [
+      {
+        key: "1",
+        label: (
+          <span>
+            <LineChartOutlined />
+            绩效分析
+          </span>
+        ),
+        children: (
+          <Row gutter={16}>
+            <Col span={24} style={{ marginBottom: 16 }}>
+              <ReactECharts option={getEquityCurveOption()} style={{ height: 500 }} />
+            </Col>
+          </Row>
+        )
+      },
+      {
+        key: "3",
+        label: (
+          <span>
+            <LineChartOutlined />
+            K线与交易信号
+          </span>
+        ),
+        children: (
+          <Row gutter={16}>
+            <Col span={24}>
+              <Card 
+                title={selectedStock ? `${selectedStock.name} (${selectedStock.symbol})交易图表` : '交易图表'} 
+                extra={
+                  <Space>
+                    <Button 
+                      type="primary" 
+                      size="small"
+                      onClick={() => {
+                        const chartElement = document.querySelector('.kline-chart');
+                        if (chartElement) {
+                          const chartInstance = (chartElement as any).__echarts__;
+                          if (chartInstance) {
+                            // 重置缩放
+                            chartInstance.dispatchAction({
+                              type: 'dataZoom',
+                              start: 0,
+                              end: 100
+                            });
+                          }
+                        }
+                      }}
+                    >
+                      重置缩放
+                    </Button>
+                    <Button 
+                      size="small" 
+                      onClick={() => {
+                        // 获取所有交易记录的日期，找到K线数据中相应的索引
+                        if (tradeRecords.length > 0 && klineData.length > 0) {
+                          // 创建日期映射
+                          const dateIndexMap = new Map();
+                          klineData.forEach((item, index) => {
+                            const dateStr = normalizeDate(item[0]);
+                            dateIndexMap.set(dateStr, index);
+                          });
+                          
+                          // 收集所有交易记录的索引
+                          const tradeDateIndices: number[] = [];
+                          tradeRecords.forEach(record => {
+                            const dateStr = normalizeDate(record.date);
+                            const index = dateIndexMap.get(dateStr);
+                            if (index !== undefined) {
+                              tradeDateIndices.push(index);
+                            }
+                          });
+                          
+                          console.log('找到的交易日期索引:', tradeDateIndices);
+                          
+                          if (tradeDateIndices.length > 0) {
+                            // 找到最小和最大索引
+                            const minIndex = Math.max(0, Math.min(...tradeDateIndices) - 10);
+                            const maxIndex = Math.min(klineData.length - 1, Math.max(...tradeDateIndices) + 10);
+                            
+                            // 计算百分比位置
+                            const start = (minIndex / klineData.length) * 100;
+                            const end = (maxIndex / klineData.length) * 100;
+                            
+                            console.log(`设置缩放范围: ${start.toFixed(2)}% - ${end.toFixed(2)}%`);
+                            
+                            // 获取图表实例并设置缩放
+                            const chartElement = document.querySelector('.kline-chart');
+                            if (chartElement) {
+                              const chartInstance = (chartElement as any).__echarts__;
+                              if (chartInstance) {
+                                chartInstance.dispatchAction({
+                                  type: 'dataZoom',
+                                  start: start,
+                                  end: end
+                                });
+                                
+                                // 使用函数组件包装，确保消息API调用在组件上下文中执行
+                                const showFocusSuccessMessage = (count: number) => {
+                                  message.success(`已聚焦到交易区域，共显示 ${count} 个交易点`);
+                                };
+                                showFocusSuccessMessage(tradeDateIndices.length);
+                              }
+                            }
+                          } else {
+                            // 使用函数组件包装，确保消息API调用在组件上下文中执行
+                            const showNoSignalMessage = () => {
+                              message.info('未找到交易信号对应的K线数据点');
+                            };
+                            showNoSignalMessage();
+                          }
+                        } else {
+                          // 使用函数组件包装，确保消息API调用在组件上下文中执行
+                          const showNoDataMessage = () => {
+                            message.info('没有交易记录或K线数据');
+                          };
+                          showNoDataMessage();
+                        }
+                      }}
+                    >
+                      聚焦交易
+                    </Button>
+                    <Tooltip title="只显示有交易的区域">
+                      <InfoCircleOutlined />
+                    </Tooltip>
+                  </Space>
+                }
+              >
+                <ReactECharts 
+                  className="kline-chart"
+                  option={getKlineOption()} 
+                  style={{ height: 600 }} 
+                  notMerge={true}
+                  opts={{ renderer: 'canvas' }}
+                  onEvents={{
+                    click: (params: any) => {
+                      // 点击交易标记时，弹出详细信息
+                      if (params.componentType === 'markPoint') {
+                        const pointName = params.name; // '买入' 或 '卖出'
+                        const isBuy = pointName === '买入';
+                        const xIndex = params.data.coord[0]; // X轴索引
+                        
+                        // 获取该索引对应的K线日期
+                        const klineDate = klineData[xIndex][0];
+                        
+                        // 查找与该日期对应的交易记录
+                        const directionType = isBuy ? '买入' : '卖出';
+                        const matchedRecord = tradeRecords.find(record => 
+                          record.direction === directionType && 
+                          normalizeDate(record.date) === normalizeDate(klineDate)
+                        );
+                        
+                        console.log(`点击了${directionType}标记，日期: ${klineDate}`, matchedRecord);
+                        
+                        if (matchedRecord) {
+                          const record = matchedRecord;
+                          const title = isBuy ? '买入详情' : '卖出详情';
+                          const content = (
+                            <div>
+                              <p><strong>日期:</strong> {record.date}</p>
+                              <p><strong>价格:</strong> {isBuy ? record.entryPrice : record.exitPrice}</p>
+                              <p><strong>数量:</strong> {record.shares.toLocaleString()} 股</p>
+                              <p><strong>金额:</strong> {record.value.toLocaleString('zh-CN', {minimumFractionDigits: 2})} 元</p>
+                              {!isBuy && (
+                                <>
+                                  <p><strong>盈亏:</strong> {record.profitLoss >= 0 ? '+' : ''}{record.profitLoss.toLocaleString('zh-CN', {minimumFractionDigits: 2})} 元</p>
+                                  <p><strong>收益率:</strong> {record.returnPct >= 0 ? '+' : ''}{record.returnPct.toFixed(2)}%</p>
+                                  <p><strong>持仓天数:</strong> {record.duration} 天</p>
+                                </>
+                              )}
+                              <p><strong>交易前资金:</strong> {record.beforeCash.toLocaleString('zh-CN', {minimumFractionDigits: 2})} 元</p>
+                              <p><strong>交易后资金:</strong> {record.afterCash.toLocaleString('zh-CN', {minimumFractionDigits: 2})} 元</p>
+                              <p><strong>触发原因:</strong> {record.trigger_reason || '未记录原因'}</p>
+                            </div>
+                          );
+                          
+                          Modal.info({
+                            title,
+                            content,
+                            width: 400
+                          });
+                        } else {
+                          // 使用函数组件包装，确保消息API调用在组件上下文中执行
+                          const showNoMatchMessage = (type: string, date: string) => {
+                            message.info(`未找到匹配的${type}交易记录，日期: ${date}`);
+                          };
+                          showNoMatchMessage(directionType, klineDate);
+                        }
+                      }
+                    }
+                  }}
+                />
+              </Card>
+            </Col>
+          </Row>
+        )
+      },
+      {
+        key: "2",
+        label: (
+          <span>
+            <InfoCircleOutlined />
+            交易明细
+          </span>
+        ),
+        children: (
+          <Table
+            dataSource={tradeRecords}
+            columns={columns}
+            pagination={{ pageSize: 10 }}
+            scroll={{ x: true }}
+          />
+        )
+      }
+    ];
   };
 
   return (
@@ -1799,205 +2040,7 @@ const Backtest: React.FC = () => {
             
             <Divider />
             
-            <Tabs defaultActiveKey="1">
-              <TabPane
-                tab={
-                  <span>
-                    <LineChartOutlined />
-                    绩效分析
-                  </span>
-                } 
-                key="1"
-              >
-                <Row gutter={16}>
-                  <Col span={24} style={{ marginBottom: 16 }}>
-                    <ReactECharts option={getEquityCurveOption()} style={{ height: 500 }} />
-                  </Col>
-                </Row>
-              </TabPane>
-              
-              <TabPane
-                tab={
-                  <span>
-                    <LineChartOutlined />
-                    K线与交易信号
-                  </span>
-                } 
-                key="3"
-              >
-                <Row gutter={16}>
-                  <Col span={24}>
-                    <Card 
-                      title={selectedStock ? `${selectedStock.name} (${selectedStock.symbol})交易图表` : '交易图表'} 
-                      extra={
-                        <Space>
-                          <Button 
-                            type="primary" 
-                            size="small"
-                            onClick={() => {
-                              const chartElement = document.querySelector('.kline-chart');
-                              if (chartElement) {
-                                const chartInstance = (chartElement as any).__echarts__;
-                                if (chartInstance) {
-                                  // 重置缩放
-                                  chartInstance.dispatchAction({
-                                    type: 'dataZoom',
-                                    start: 0,
-                                    end: 100
-                                  });
-                                }
-                              }
-                            }}
-                          >
-                            重置缩放
-                          </Button>
-                          <Button 
-                            size="small" 
-                            onClick={() => {
-                              // 获取所有交易记录的日期，找到K线数据中相应的索引
-                              if (tradeRecords.length > 0 && klineData.length > 0) {
-                                // 创建日期映射
-                                const dateIndexMap = new Map();
-                                klineData.forEach((item, index) => {
-                                  const dateStr = normalizeDate(item[0]);
-                                  dateIndexMap.set(dateStr, index);
-                                });
-                                
-                                // 收集所有交易记录的索引
-                                const tradeDateIndices: number[] = [];
-                                tradeRecords.forEach(record => {
-                                  const dateStr = normalizeDate(record.date);
-                                  const index = dateIndexMap.get(dateStr);
-                                  if (index !== undefined) {
-                                    tradeDateIndices.push(index);
-                                  }
-                                });
-                                
-                                console.log('找到的交易日期索引:', tradeDateIndices);
-                                
-                                if (tradeDateIndices.length > 0) {
-                                  // 找到最小和最大索引
-                                  const minIndex = Math.max(0, Math.min(...tradeDateIndices) - 10);
-                                  const maxIndex = Math.min(klineData.length - 1, Math.max(...tradeDateIndices) + 10);
-                                  
-                                  // 计算百分比位置
-                                  const start = (minIndex / klineData.length) * 100;
-                                  const end = (maxIndex / klineData.length) * 100;
-                                  
-                                  console.log(`设置缩放范围: ${start.toFixed(2)}% - ${end.toFixed(2)}%`);
-                                  
-                                  // 获取图表实例并设置缩放
-                                  const chartElement = document.querySelector('.kline-chart');
-                                  if (chartElement) {
-                                    const chartInstance = (chartElement as any).__echarts__;
-                                    if (chartInstance) {
-                                      chartInstance.dispatchAction({
-                                        type: 'dataZoom',
-                                        start: start,
-                                        end: end
-                                      });
-                                      
-                                      message.success(`已聚焦到交易区域，共显示 ${tradeDateIndices.length} 个交易点`);
-                                    }
-                                  }
-                                } else {
-                                  message.info('未找到交易信号对应的K线数据点');
-                                }
-                              } else {
-                                message.info('没有交易记录或K线数据');
-                              }
-                            }}
-                          >
-                            聚焦交易
-                          </Button>
-                          <Tooltip title="只显示有交易的区域">
-                            <InfoCircleOutlined />
-                          </Tooltip>
-                        </Space>
-                      }
-                    >
-                      <ReactECharts 
-                        className="kline-chart"
-                        option={getKlineOption()} 
-                        style={{ height: 600 }} 
-                        notMerge={true}
-                        opts={{ renderer: 'canvas' }}
-                        onEvents={{
-                          click: (params: any) => {
-                            // 点击交易标记时，弹出详细信息
-                            if (params.componentType === 'markPoint') {
-                              const pointName = params.name; // '买入' 或 '卖出'
-                              const isBuy = pointName === '买入';
-                              const xIndex = params.data.coord[0]; // X轴索引
-                              
-                              // 获取该索引对应的K线日期
-                              const klineDate = klineData[xIndex][0];
-                              
-                              // 查找与该日期对应的交易记录
-                              const directionType = isBuy ? '买入' : '卖出';
-                              const matchedRecord = tradeRecords.find(record => 
-                                record.direction === directionType && 
-                                normalizeDate(record.date) === normalizeDate(klineDate)
-                              );
-                              
-                              console.log(`点击了${directionType}标记，日期: ${klineDate}`, matchedRecord);
-                              
-                              if (matchedRecord) {
-                                const record = matchedRecord;
-                                const title = isBuy ? '买入详情' : '卖出详情';
-                                const content = (
-                                  <div>
-                                    <p><strong>日期:</strong> {record.date}</p>
-                                    <p><strong>价格:</strong> {isBuy ? record.entryPrice : record.exitPrice}</p>
-                                    <p><strong>数量:</strong> {record.shares.toLocaleString()} 股</p>
-                                    <p><strong>金额:</strong> {record.value.toLocaleString('zh-CN', {minimumFractionDigits: 2})} 元</p>
-                                    {!isBuy && (
-                                      <>
-                                        <p><strong>盈亏:</strong> {record.profitLoss >= 0 ? '+' : ''}{record.profitLoss.toLocaleString('zh-CN', {minimumFractionDigits: 2})} 元</p>
-                                        <p><strong>收益率:</strong> {record.returnPct >= 0 ? '+' : ''}{record.returnPct.toFixed(2)}%</p>
-                                        <p><strong>持仓天数:</strong> {record.duration} 天</p>
-                                      </>
-                                    )}
-                                    <p><strong>交易前资金:</strong> {record.beforeCash.toLocaleString('zh-CN', {minimumFractionDigits: 2})} 元</p>
-                                    <p><strong>交易后资金:</strong> {record.afterCash.toLocaleString('zh-CN', {minimumFractionDigits: 2})} 元</p>
-                                    <p><strong>触发原因:</strong> {record.trigger_reason || '未记录原因'}</p>
-                                  </div>
-                                );
-                                
-                                Modal.info({
-                                  title,
-                                  content,
-                                  width: 400
-                                });
-                              } else {
-                                message.info(`未找到匹配的${directionType}交易记录，日期: ${klineDate}`);
-                              }
-                            }
-                          }
-                        }}
-                      />
-                    </Card>
-                  </Col>
-                </Row>
-              </TabPane>
-              
-              <TabPane 
-                tab={
-                  <span>
-                    <InfoCircleOutlined />
-                    交易明细
-                  </span>
-                } 
-                key="2"
-              >
-                <Table
-                  dataSource={tradeRecords}
-                  columns={columns}
-                  pagination={{ pageSize: 10 }}
-                  scroll={{ x: true }}
-                />
-              </TabPane>
-            </Tabs>
+            <Tabs defaultActiveKey="1" items={renderTabsItems()} />
             
             <div style={{ textAlign: 'right', marginTop: 16 }}>
               <Button icon={<DownloadOutlined />} style={{ marginRight: 8 }}>
