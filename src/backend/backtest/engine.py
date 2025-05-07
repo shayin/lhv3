@@ -538,7 +538,9 @@ class BacktestEngine:
                 # 计算可买数量
                 # 考虑手续费后的最大可买股数
                 # 计算方法: 资金 / (价格 * (1 + 滑点率) * (1 + 手续费率))
-                execution_price = price * (1 + self.slippage_rate)  # 考虑滑点
+                # 修正滑点率计算，将decimal值(0.1)转为百分比(0.001)
+                actual_slippage_rate = self.slippage_rate / 100 if self.slippage_rate > 0.01 else self.slippage_rate
+                execution_price = price * (1 + actual_slippage_rate)  # 考虑滑点
                 # 这里修正手续费率计算，将decimal值(0.15)转为百分比(0.0015)
                 actual_commission_rate = self.commission_rate / 100 if self.commission_rate > 0.01 else self.commission_rate
                 max_shares = int(self.capital / (execution_price * (1 + actual_commission_rate)))  # 确保股数为整数
@@ -584,7 +586,9 @@ class BacktestEngine:
                 logger.info(f"检测到卖出信号: 日期={date}, 价格={price}, 信号值={signal}, 触发原因={trigger_reason}")
                 
                 # 执行卖出
-                execution_price = price * (1 - self.slippage_rate)  # 考虑滑点
+                # 修正滑点率计算，将decimal值(0.1)转为百分比(0.001)
+                actual_slippage_rate = self.slippage_rate / 100 if self.slippage_rate > 0.01 else self.slippage_rate
+                execution_price = price * (1 - actual_slippage_rate)  # 考虑滑点
                 shares = self.position
                 revenue = shares * execution_price
                 # 修正手续费率计算
