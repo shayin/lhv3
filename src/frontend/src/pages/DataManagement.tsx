@@ -741,9 +741,9 @@ const DataManagement: React.FC = () => {
                       type: 'candlestick',
                       data: chartData.map(item => [
                         item.open,  // 开盘价
-                        item.high,  // 最高价
+                        item.close,  // 收盘价
                         item.low,   // 最低价
-                        item.close  // 收盘价
+                        item.high,  // 最高价
                       ]),
                       itemStyle: {
                         color: '#ef232a',
