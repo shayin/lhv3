@@ -242,7 +242,9 @@ const Backtest: React.FC = () => {
             date: normalizeDate(trade.date),
             symbol: selectedStock.symbol,
             direction: trade.action === 'BUY' ? '买入' : '卖出',
-            entryPrice: trade.price,
+            // 根据交易类型设置不同的价格字段
+            entryPrice: trade.action === 'BUY' ? trade.price : undefined,
+            exitPrice: trade.action === 'SELL' ? trade.price : undefined,
             shares: trade.shares,
             value: trade.value,
             profitLoss: trade.profit || 0,
@@ -675,10 +677,10 @@ const Backtest: React.FC = () => {
               // 处理K线数据
               if (item.seriesName === 'K线') {
                 if (item.value && item.value.length >= 4) {
-                  const open = Number(item.value[0]) || 0;
-                  const close = Number(item.value[1]) || 0;
-                  const low = Number(item.value[2]) || 0;
-                  const high = Number(item.value[3]) || 0;
+                  const open = Number(item.value[1]) || 0;
+                  const close = Number(item.value[2]) || 0;
+                  const low = Number(item.value[3]) || 0;
+                  const high = Number(item.value[4]) || 0;
                   const color = close >= open ? '#f64034' : '#00b46a';
                   result += `<div style="color:${color};line-height:1.5;margin-bottom:8px;font-weight:bold;">
                     开盘：<span style="float:right;color:${color};">${open.toFixed(2)}</span><br/>

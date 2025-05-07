@@ -500,10 +500,10 @@ class BacktestEngine:
                 "position": self.position,
                 "position_value": self.position_value,
                 "drawdown": current_drawdown,
-                # 添加当日K线价格数据，如果没有则使用收盘价作为默认值
-                "open": signals.iloc[0].get("open", first_close),
-                "high": signals.iloc[0].get("high", first_close),
-                "low": signals.iloc[0].get("low", first_close),
+                # 添加当日K线价格数据
+                "open": signals.iloc[0].get("open", first_close) if signals.iloc[0].get("open") and float(signals.iloc[0].get("open", 0)) > 0 else first_close,
+                "high": signals.iloc[0].get("high", first_close) if signals.iloc[0].get("high") and float(signals.iloc[0].get("high", 0)) > 0 else first_close,
+                "low": signals.iloc[0].get("low", first_close) if signals.iloc[0].get("low") and float(signals.iloc[0].get("low", 0)) > 0 else first_close,
                 "close": first_close,
                 "volume": signals.iloc[0].get("volume", 0)
             })
@@ -658,9 +658,9 @@ class BacktestEngine:
                 "position_value": self.position_value,
                 "drawdown": current_drawdown,
                 # 添加当日K线价格数据
-                "open": row.get("open", price),  # 如果没有开盘价，使用价格(收盘价)作为默认值
-                "high": row.get("high", price),
-                "low": row.get("low", price),
+                "open": row.get("open", price) if row.get("open") and float(row.get("open", 0)) > 0 else price,
+                "high": row.get("high", price) if row.get("high") and float(row.get("high", 0)) > 0 else price,
+                "low": row.get("low", price) if row.get("low") and float(row.get("low", 0)) > 0 else price,
                 "close": price,  # 这里保持不变，因为price就是收盘价
                 "volume": row.get("volume", 0)
             })
