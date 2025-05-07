@@ -1248,7 +1248,11 @@ const Backtest: React.FC = () => {
     return {
       title: {
         text: '策略收益曲线',
-        left: 'center'
+        left: 'center',
+        textStyle: {
+          fontSize: 16,
+          fontWeight: 'bold'
+        }
       },
       tooltip: {
         trigger: 'axis',
@@ -1293,7 +1297,15 @@ const Backtest: React.FC = () => {
       },
       legend: {
         data: ['策略收益', '初始资金'],
-        bottom: 10
+        bottom: 10,
+        itemWidth: 25,
+        itemHeight: 14,
+        itemGap: 30,
+        textStyle: {
+          fontSize: 14
+        },
+        icon: 'roundRect',
+        selectedMode: false  // 禁止图例切换显示/隐藏
       },
       grid: {
         left: '3%',
@@ -1335,10 +1347,15 @@ const Backtest: React.FC = () => {
           smooth: true,
           showSymbol: false,
           lineStyle: {
-            width: 2
+            width: 2,
+            color: '#3b7ddd'  // 柔和蓝色
           },
           areaStyle: {
-            opacity: 0.2
+            color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
+              { offset: 0, color: 'rgba(59, 125, 221, 0.25)' },  // 顶部淡蓝色
+              { offset: 1, color: 'rgba(59, 125, 221, 0.03)' }  // 底部更淡
+            ]),
+            opacity: 1
           },
           markPoint: {
             data: [
@@ -1350,7 +1367,7 @@ const Backtest: React.FC = () => {
                   color: '#f64034'
                 },
                 symbol: 'pin',
-                symbolSize: 30,
+                symbolSize: 24,
                 label: {
                   formatter: 'B',
                   color: '#fff',
@@ -1365,7 +1382,7 @@ const Backtest: React.FC = () => {
                   color: '#00b46a'
                 },
                 symbol: 'pin',
-                symbolSize: 30,
+                symbolSize: 24,
                 label: {
                   formatter: 'S',
                   color: '#fff',
@@ -1373,35 +1390,23 @@ const Backtest: React.FC = () => {
                 }
               }))
             ],
-            symbolSize: 30
+            symbolSize: 24
           }
         },
         {
           name: '初始资金',
           type: 'line',
-          data: validData.map(() => initialCapital), 
+          data: validData.map(() => initialCapital), // 保证长度一致
           symbol: 'none',
           lineStyle: {
             width: 2,
-            type: 'dashed',
-            color: '#5470c6'  // 更醒目的蓝色
-          },
-          markArea: {
-            silent: true,
-            itemStyle: {
-              opacity: 0.1,
-              color: '#5470c6'
-            },
-            data: [[{
-              yAxis: 0
-            }, {
-              yAxis: initialCapital
-            }]]
+            type: 'solid',
+            color: '#888'  // 柔和灰色
           },
           markLine: {
             silent: true,
             lineStyle: {
-              color: '#5470c6',
+              color: '#888',
               width: 2,
               type: 'solid'
             },
@@ -1410,12 +1415,15 @@ const Backtest: React.FC = () => {
               label: {
                 formatter: '初始资金: ¥' + initialCapital.toLocaleString(),
                 position: 'start',
-                distance: [0, -20], // 水平和垂直偏移
-                color: '#5470c6',
+                distance: [0, -20],
+                color: '#888',
                 fontSize: 12,
                 fontWeight: 'bold',
-                backgroundColor: 'rgba(255,255,255,0.8)',
-                padding: [4, 8]
+                backgroundColor: 'rgba(255,255,255,0.9)',
+                padding: [4, 8],
+                borderColor: '#888',
+                borderWidth: 1,
+                borderRadius: 4
               }
             }]
           },
