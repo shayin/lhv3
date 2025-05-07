@@ -17,7 +17,6 @@ import {
 import { useLocation, useNavigate } from 'react-router-dom';
 
 const { Title, Paragraph } = Typography;
-const { TabPane } = Tabs;
 const { Panel } = Collapse;
 const { Option } = Select;
 const { confirm } = Modal;
@@ -670,6 +669,83 @@ def handle_data(context, data):
     message.success('已重置为' + templateType + '模板');
   };
 
+  // 添加一个函数来创建策略库标签页的配置
+  const getStrategyLibraryTabs = () => {
+    return [
+      {
+        key: 'mine',
+        label: '我的策略',
+        children: (
+          <List
+            itemLayout="horizontal"
+            dataSource={strategyList}
+            loading={loadingStrategies}
+            renderItem={item => (
+              <List.Item
+                className="strategy-list-item"
+                actions={[
+                  <Button 
+                    key="edit" 
+                    type="link" 
+                    size="small"
+                    onClick={() => handleStrategyClick(item)}
+                  >
+                    编辑
+                  </Button>,
+                  <Button 
+                    key="delete" 
+                    type="link" 
+                    danger 
+                    size="small"
+                    onClick={() => showDeleteConfirm(item)}
+                  >
+                    删除
+                  </Button>
+                ]}
+              >
+                <div className="strategy-list-content">
+                  <div className="strategy-name">{item.name}</div>
+                  <div className="strategy-desc">{item.description}</div>
+                </div>
+              </List.Item>
+            )}
+          />
+        )
+      },
+      {
+        key: 'templates',
+        label: '策略模板',
+        children: (
+          <List
+            itemLayout="horizontal"
+            dataSource={templateList}
+            loading={templatesLoading}
+            renderItem={item => (
+              <List.Item
+                className="strategy-list-item"
+                actions={[
+                  <Button 
+                    key="use" 
+                    type="link" 
+                    size="small"
+                    onClick={() => handleSelectTemplate(item.id)}
+                  >
+                    使用
+                  </Button>
+                ]}
+              >
+                <div className="strategy-list-content">
+                  <div className="strategy-name">{item.name}</div>
+                  <div className="strategy-desc">{item.description}</div>
+                </div>
+              </List.Item>
+            )}
+          />
+        )
+      }
+    ];
+  };
+
   return (
     <div className="strategy-builder">
       <div className="page-header" style={{ marginBottom: '20px' }}>
@@ -771,71 +847,7 @@ def handle_data(context, data):
             className="strategy-library-card"
             style={{ marginBottom: '16px', height: '300px' }}
           >
-            <Tabs defaultActiveKey="mine">
-              <TabPane tab="我的策略" key="mine">
-                <List
-                  itemLayout="horizontal"
-                  dataSource={strategyList}
-                  loading={loadingStrategies}
-                  renderItem={item => (
-                    <List.Item
-                      className="strategy-list-item"
-                      actions={[
-                        <Button 
-                          key="edit" 
-                          type="link" 
-                          size="small"
-                          onClick={() => handleStrategyClick(item)}
-                        >
-                          编辑
-                        </Button>,
-                        <Button 
-                          key="delete" 
-                          type="link" 
-                          danger 
-                          size="small"
-                          onClick={() => showDeleteConfirm(item)}
-                        >
-                          删除
-                        </Button>
-                      ]}
-                    >
-                      <div className="strategy-list-content">
-                        <div className="strategy-name">{item.name}</div>
-                        <div className="strategy-desc">{item.description}</div>
-                      </div>
-                    </List.Item>
-                  )}
-                />
-              </TabPane>
-              <TabPane tab="策略模板" key="templates">
-                <List
-                  itemLayout="horizontal"
-                  dataSource={templateList}
-                  loading={templatesLoading}
-                  renderItem={item => (
-                    <List.Item
-                      className="strategy-list-item"
-                      actions={[
-                        <Button 
-                          key="use" 
-                          type="link" 
-                          size="small"
-                          onClick={() => handleSelectTemplate(item.id)}
-                        >
-                          使用
-                        </Button>
-                      ]}
-                    >
-                      <div className="strategy-list-content">
-                        <div className="strategy-name">{item.name}</div>
-                        <div className="strategy-desc">{item.description}</div>
-                      </div>
-                    </List.Item>
-                  )}
-                />
-              </TabPane>
-            </Tabs>
+            <Tabs defaultActiveKey="mine" items={getStrategyLibraryTabs()} />
           </Card>
         </Col>
       </Row>
