@@ -1020,11 +1020,11 @@ const Backtest: React.FC = () => {
       title: '触发原因',
       dataIndex: 'trigger_reason',
       key: 'trigger_reason',
-      width: 200,
+      width: 120, // 缩小宽度
       ellipsis: true, // 超出部分显示省略号
       render: (text) => (
-        <Tooltip title={text || '未记录'}>
-          <span>{text || '未记录'}</span>
+        <Tooltip title={text || '未记录'} placement="topLeft">
+          <span style={{ maxWidth: 100, display: 'inline-block', overflow: 'hidden', textOverflow: 'ellipsis', verticalAlign: 'middle', whiteSpace: 'nowrap' }}>{text || '未记录'}</span>
         </Tooltip>
       )
     },
@@ -1057,6 +1057,10 @@ const Backtest: React.FC = () => {
         const priceB = b.entryPrice || 0;
         return priceA - priceB;
       },
+      render: (text) => {
+        const value = parseFloat(text);
+        return isNaN(value) ? '-' : value.toFixed(2);
+      }
     },
     {
       title: '出场价',
@@ -1067,6 +1071,10 @@ const Backtest: React.FC = () => {
         const priceB = b.exitPrice || 0;
         return priceA - priceB;
       },
+      render: (text) => {
+        const value = parseFloat(text);
+        return isNaN(value) ? '-' : value.toFixed(2);
+      }
     },
     {
       title: '数量(股)',
@@ -1982,7 +1990,7 @@ const Backtest: React.FC = () => {
             <Row gutter={16}>
               <Col span={6}>
                 <Statistic
-                  title="年化收益率"
+                  title={<span>年化收益率 <Tooltip title="年化收益率=（总收益率+1）^(365/天数)-1，反映策略年化增长速度"><InfoCircleOutlined style={{ fontSize: 14, color: '#aaa' }} /></Tooltip></span>}
                   value={performanceData.annualReturn}
                   precision={2}
                   valueStyle={{ color: performanceData.annualReturn >= 0 ? '#f5222d' : '#52c41a' }}
@@ -1991,7 +1999,7 @@ const Backtest: React.FC = () => {
               </Col>
               <Col span={6}>
                 <Statistic
-                  title="最大回撤"
+                  title={<span>最大回撤 <Tooltip title="最大回撤=历史最高点到最低点的最大跌幅，衡量风险"><InfoCircleOutlined style={{ fontSize: 14, color: '#aaa' }} /></Tooltip></span>}
                   value={Math.abs(performanceData.maxDrawdown)}
                   precision={2}
                   valueStyle={{ color: '#52c41a' }}
@@ -2000,14 +2008,14 @@ const Backtest: React.FC = () => {
               </Col>
               <Col span={6}>
                 <Statistic
-                  title="夏普比率"
+                  title={<span>夏普比率 <Tooltip title="夏普比率=（年化收益率-无风险利率）/年化波动率，衡量单位风险收益"><InfoCircleOutlined style={{ fontSize: 14, color: '#aaa' }} /></Tooltip></span>}
                   value={performanceData.sharpeRatio}
                   precision={2}
                 />
               </Col>
               <Col span={6}>
                 <Statistic
-                  title="胜率"
+                  title={<span>胜率 <Tooltip title="胜率=盈利交易次数/总交易次数"><InfoCircleOutlined style={{ fontSize: 14, color: '#aaa' }} /></Tooltip></span>}
                   value={performanceData.winRate}
                   precision={2}
                   suffix="%"
@@ -2018,14 +2026,14 @@ const Backtest: React.FC = () => {
             <Row gutter={16} style={{ marginTop: 24 }}>
               <Col span={6}>
                 <Statistic
-                  title="盈亏比"
+                  title={<span>盈亏比 <Tooltip title="盈亏比=所有盈利交易收益总和/所有亏损交易亏损总和"><InfoCircleOutlined style={{ fontSize: 14, color: '#aaa' }} /></Tooltip></span>}
                   value={performanceData.profitFactor || 0}
                   precision={2}
                 />
               </Col>
               <Col span={6}>
                 <Statistic
-                  title="Alpha"
+                  title={<span>Alpha <Tooltip title="Alpha=策略超越基准的年化收益，反映主动收益"><InfoCircleOutlined style={{ fontSize: 14, color: '#aaa' }} /></Tooltip></span>}
                   value={performanceData.alpha || 0}
                   precision={2}
                   suffix="%"
@@ -2033,14 +2041,14 @@ const Backtest: React.FC = () => {
               </Col>
               <Col span={6}>
                 <Statistic
-                  title="Beta"
+                  title={<span>Beta <Tooltip title="Beta=策略与基准的相关性，衡量系统性风险"><InfoCircleOutlined style={{ fontSize: 14, color: '#aaa' }} /></Tooltip></span>}
                   value={performanceData.beta || 0}
                   precision={2}
                 />
               </Col>
               <Col span={6}>
                 <Statistic
-                  title="交易次数"
+                  title={<span>交易次数 <Tooltip title="策略在回测期间的总交易次数"><InfoCircleOutlined style={{ fontSize: 14, color: '#aaa' }} /></Tooltip></span>}
                   value={tradeRecords.length}
                 />
               </Col>
