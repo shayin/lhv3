@@ -1253,6 +1253,48 @@ const Backtest: React.FC = () => {
       });
     }
     
+    // 计算最大回测区间
+    let maxDrawdownStartIndex = -1;
+    let maxDrawdownEndIndex = -1;
+    let maxDrawdownValue = 0;
+    let maxDrawdownStartDate = '';
+    let maxDrawdownEndDate = '';
+    let maxDrawdownPeak = 0;
+    let maxDrawdownBottom = 0;
+    
+    if (validData.length > 0 && performanceData.maxDrawdown > 0) {
+      // 查找最大回测对应的区间
+      let maxValue = validData[0].equity;
+      let currentDrawdown = 0;
+      let tempStartIndex = 0;
+      
+      for (let i = 1; i < validData.length; i++) {
+        // 如果当前值创新高，更新最大值和起始点
+        if (validData[i].equity > maxValue) {
+          maxValue = validData[i].equity;
+          tempStartIndex = i;
+        } 
+        // 计算当前回测
+        else {
+          currentDrawdown = (maxValue - validData[i].equity) / maxValue * 100;
+          
+          // 如果找到更大的回测，更新记录
+          if (currentDrawdown > maxDrawdownValue) {
+            maxDrawdownValue = currentDrawdown;
+            maxDrawdownStartIndex = tempStartIndex;
+            maxDrawdownEndIndex = i;
+            maxDrawdownStartDate = validData[tempStartIndex].date;
+            maxDrawdownEndDate = validData[i].date;
+            maxDrawdownPeak = maxValue;
+            maxDrawdownBottom = validData[i].equity;
+          }
+        }
+      }
+      
+      console.log(`最大回测区间索引: ${maxDrawdownStartIndex} - ${maxDrawdownEndIndex}`);
+      console.log(`最大回测: ${maxDrawdownValue.toFixed(2)}%, 从 ${maxDrawdownStartDate} 到 ${maxDrawdownEndDate}`);
+    }
+    
     return {
       title: {
         text: '策略收益曲线',
@@ -1269,6 +1311,17 @@ const Backtest: React.FC = () => {
           if (Array.isArray(params) && params.length > 0) {
             const date = params[0].axisValue;
             const value = params[0].data;
+            
+            // 检查是否为markArea类型，显示最大回测信息
+            for (let i = 0; i < params.length; i++) {
+              if (params[i].componentType === 'markArea') {
+                return `最大回撤: ${maxDrawdownValue.toFixed(2)}%<br/>
+                        开始日期: ${maxDrawdownStartDate}<br/>
+                        最高点: ¥${maxDrawdownPeak.toLocaleString('zh-CN', {minimumFractionDigits: 2})}<br/>
+                        结束日期: ${maxDrawdownEndDate}<br/>
+                        最低点: ¥${maxDrawdownBottom.toLocaleString('zh-CN', {minimumFractionDigits: 2})}`;
+              }
+            }
             
             // 查找是否有额外的买卖点信息
             let extraInfo = '';
@@ -1301,6 +1354,12 @@ const Backtest: React.FC = () => {
           // 单个值的处理
           const value = params.value;
           return `${params.name}: ¥${parseFloat(value).toLocaleString('zh-CN', {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
+        },
+        axisPointer: {
+          type: 'cross',
+          label: {
+            backgroundColor: '#555'
+          }
         }
       },
       legend: {
@@ -1399,6 +1458,37 @@ const Backtest: React.FC = () => {
               }))
             ],
             symbolSize: 24
+          },
+          // 添加最大回测区间标记
+          markArea: {
+            itemStyle: {
+              color: 'rgba(255, 173, 177, 0.2)',  // 淡红色半透明
+              borderColor: '#f5222d',
+              borderWidth: 1
+            },
+            label: {
+              show: true,
+              position: 'top',
+              formatter: `最大回撤: ${maxDrawdownValue.toFixed(2)}%`,
+              color: '#f5222d',
+              fontSize: 12,
+              fontWeight: 'bold'
+            },
+            data: [
+              maxDrawdownStartIndex >= 0 && maxDrawdownEndIndex >= 0 ? 
+              [
+                {
+                  name: '最大回撤开始',
+                  xAxis: maxDrawdownStartIndex,
+                  itemStyle: { color: 'rgba(255, 173, 177, 0.2)' }
+                },
+                {
+                  name: '最大回撤结束',
+                  xAxis: maxDrawdownEndIndex,
+                  itemStyle: { color: 'rgba(255, 173, 177, 0.2)' }
+                }
+              ] : []
+            ]
           }
         },
         {
