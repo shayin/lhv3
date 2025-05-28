@@ -22,7 +22,7 @@ class MACrossoverStrategy(StrategyTemplate):
         if parameters:
             default_params.update(parameters)
             
-        super().__init__("MA交叉策略", default_params)
+        super().__init__(name="MA交叉策略", parameters=default_params)
         
     def generate_signals(self) -> pd.DataFrame:
         """
