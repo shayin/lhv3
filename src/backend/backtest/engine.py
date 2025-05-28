@@ -46,6 +46,13 @@ class BacktestEngine:
             'signals': None
         }
         
+        # 添加仓位管理相关属性
+        self.position_mode = 'fixed'  # 默认全仓买入
+        self.default_position_size = 1.0  # 默认100%
+        self.position_sizes = []  # 分批建仓的比例
+        self.dynamic_position_max = 1.0  # 动态仓位最大值
+        self.stage_index = 0  # 当前分批建仓的阶段
+        
         logger.info(f"回测引擎初始化完成: 初始资金={initial_capital}, 手续费率={commission_rate}, 滑点率={slippage_rate}")
         if start_date and end_date:
             logger.info(f"回测时间范围: {start_date} 至 {end_date}")
@@ -73,6 +80,29 @@ class BacktestEngine:
             self.start_date = parameters['start_date']
         if 'end_date' in parameters:
             self.end_date = parameters['end_date']
+        
+        # 设置仓位管理相关参数
+        position_config = parameters.get('positionConfig', {})
+        if position_config:
+            self.position_mode = position_config.get('mode', 'fixed')
+            self.default_position_size = position_config.get('defaultSize', 1.0)
+            self.position_sizes = position_config.get('sizes', [])
+            self.dynamic_position_max = position_config.get('dynamicMax', 1.0)
+            self.stage_index = 0  # 重置分批建仓阶段
+            
+            # 记录仓位设置
+            logger.info(f"仓位模式设置: {self.position_mode}")
+            if self.position_mode == 'fixed':
+                logger.info(f"固定仓位比例: {self.default_position_size * 100:.2f}%")
+            elif self.position_mode == 'dynamic':
+                logger.info(f"动态仓位最大比例: {self.dynamic_position_max * 100:.2f}%")
+            elif self.position_mode == 'staged':
+                if self.position_sizes:
+                    sizes_str = ", ".join([f"{size * 100:.2f}%" for size in self.position_sizes])
+                    logger.info(f"分批建仓比例: {sizes_str}")
+                else:
+                    logger.warning("分批建仓比例为空，将使用默认值 [0.25, 0.25, 0.25, 0.25]")
+                    self.position_sizes = [0.25, 0.25, 0.25, 0.25]
             
     def run(self, data: Optional[pd.DataFrame] = None, benchmark_data: Optional[pd.DataFrame] = None) -> Dict[str, Any]:
         """
@@ -483,6 +513,8 @@ class BacktestEngine:
         self.position = 0
         self.position_value = 0.0
         self.position_avg_price = 0.0
+        self.available_capital = self.initial_capital  # 可用资金
+        self.allocated_capital = 0.0  # 已分配资金
         
         # 回测过程中的指标
         max_equity = self.equity  # 历史最高总资产
@@ -535,15 +567,21 @@ class BacktestEngine:
             if signal == 1 and self.position == 0:  # 买入信号且当前无持仓
                 logger.info(f"检测到买入信号: 日期={date}, 价格={price}, 信号值={signal}, 触发原因={trigger_reason}")
                 
+                # 计算本次买入使用的仓位比例
+                position_size = self._calculate_position_size(signal, row)
+                
                 # 计算可买数量
                 # 考虑手续费后的最大可买股数
-                # 计算方法: 资金 / (价格 * (1 + 滑点率) * (1 + 手续费率))
-                # 修正滑点率计算，将decimal值(0.1)转为百分比(0.001)
+                # 计算方法: 资金 * 仓位比例 / (价格 * (1 + 滑点率) * (1 + 手续费率))
                 actual_slippage_rate = self.slippage_rate / 100 if self.slippage_rate > 0.01 else self.slippage_rate
                 execution_price = price * (1 + actual_slippage_rate)  # 考虑滑点
-                # 这里修正手续费率计算，将decimal值(0.15)转为百分比(0.0015)
                 actual_commission_rate = self.commission_rate / 100 if self.commission_rate > 0.01 else self.commission_rate
-                max_shares = int(self.capital / (execution_price * (1 + actual_commission_rate)))  # 确保股数为整数
+                
+                # 计算本次交易的资金
+                trade_capital = self.capital * position_size
+                
+                # 计算可买入的股数
+                max_shares = int(trade_capital / (execution_price * (1 + actual_commission_rate)))  # 确保股数为整数
                 shares = max_shares  # 这里可以根据策略调整买入数量
                 
                 # 执行买入
@@ -551,13 +589,24 @@ class BacktestEngine:
                 commission_fee = cost * actual_commission_rate
                 total_cost = cost + commission_fee
                 
-                logger.debug(f"买入计算: 最大可买={max_shares}股, 执行价格={execution_price}, 成本={cost}, 手续费率={actual_commission_rate:.6f}, 手续费={commission_fee}, 总成本={total_cost}, 当前资金={self.capital}")
+                logger.debug(f"买入计算: 仓位比例={position_size*100:.2f}%, 使用资金={trade_capital:.2f}, 最大可买={max_shares}股, "
+                           f"执行价格={execution_price}, 成本={cost}, 手续费率={actual_commission_rate:.6f}, "
+                           f"手续费={commission_fee}, 总成本={total_cost}, 当前资金={self.capital}")
                 
                 if total_cost <= self.capital and shares > 0:
                     self.capital -= total_cost
                     self.position = shares
                     self.position_avg_price = execution_price
                     self.position_value = shares * price
+                    
+                    # 更新可用资金和已分配资金
+                    self.available_capital = self.capital
+                    self.allocated_capital = self.position_value
+                    
+                    # 如果是分批建仓模式，增加阶段索引
+                    if self.position_mode == 'staged' and self.stage_index < len(self.position_sizes) - 1:
+                        self.stage_index += 1
+                        logger.info(f"分批建仓进入第 {self.stage_index + 1} 阶段")
                     
                     # 记录买入交易
                     entry_price = execution_price
@@ -574,11 +623,15 @@ class BacktestEngine:
                         "after_cash": self.capital,
                         "before_equity": before_equity,
                         "after_equity": self.capital + self.position_value,
-                        "trigger_reason": trigger_reason
+                        "trigger_reason": trigger_reason,
+                        "position_size": position_size,  # 添加仓位比例
+                        "available_capital": self.available_capital,
+                        "allocated_capital": self.allocated_capital
                     }
                     self.results['trades'].append(trade)
                     
-                    logger.info(f"买入: 日期={date}, 价格={execution_price:.4f}, 数量={shares}, 金额={cost:.2f}, 手续费={commission_fee:.2f}")
+                    logger.info(f"买入: 日期={date}, 价格={execution_price:.4f}, 数量={shares}, 金额={cost:.2f}, "
+                              f"手续费={commission_fee:.2f}, 仓位比例={position_size*100:.2f}%")
                 else:
                     logger.warning(f"买入失败: 资金不足或股数为0, 当前资金={self.capital}, 需要资金={total_cost}, 股数={shares}")
             
@@ -586,12 +639,10 @@ class BacktestEngine:
                 logger.info(f"检测到卖出信号: 日期={date}, 价格={price}, 信号值={signal}, 触发原因={trigger_reason}")
                 
                 # 执行卖出
-                # 修正滑点率计算，将decimal值(0.1)转为百分比(0.001)
                 actual_slippage_rate = self.slippage_rate / 100 if self.slippage_rate > 0.01 else self.slippage_rate
                 execution_price = price * (1 - actual_slippage_rate)  # 考虑滑点
                 shares = self.position
                 revenue = shares * execution_price
-                # 修正手续费率计算
                 actual_commission_rate = self.commission_rate / 100 if self.commission_rate > 0.01 else self.commission_rate
                 commission_fee = revenue * actual_commission_rate
                 net_revenue = revenue - commission_fee
@@ -607,10 +658,26 @@ class BacktestEngine:
                 else:
                     holding_days = 0
                 
+                # 获取本次交易的仓位比例（从买入交易记录中获取）
+                position_size = 1.0  # 默认值
+                for trade in reversed(self.results['trades']):
+                    if trade['action'] == 'BUY':
+                        position_size = trade.get('position_size', 1.0)
+                        break
+                
                 self.capital += net_revenue
                 self.position = 0
                 self.position_value = 0
                 self.position_avg_price = 0
+                
+                # 更新可用资金和已分配资金
+                self.available_capital = self.capital
+                self.allocated_capital = 0.0
+                
+                # 如果是分批建仓模式，重置阶段索引
+                if self.position_mode == 'staged':
+                    self.stage_index = 0
+                    logger.info("分批建仓重置为第1阶段")
                 
                 # 记录卖出交易
                 trade = {
@@ -629,7 +696,10 @@ class BacktestEngine:
                     "after_cash": self.capital,
                     "before_equity": before_equity,
                     "after_equity": self.capital,
-                    "trigger_reason": trigger_reason
+                    "trigger_reason": trigger_reason,
+                    "position_size": position_size,  # 添加仓位比例
+                    "available_capital": self.available_capital,
+                    "allocated_capital": self.allocated_capital
                 }
                 self.results['trades'].append(trade)
                 
@@ -637,7 +707,8 @@ class BacktestEngine:
                 entry_price = None
                 entry_date = None
                 
-                logger.info(f"卖出: 日期={date}, 价格={execution_price:.4f}, 数量={shares}, 金额={revenue:.2f}, 手续费={commission_fee:.2f}, 收益={profit:.2f}({profit_percent:.2%})")
+                logger.info(f"卖出: 日期={date}, 价格={execution_price:.4f}, 数量={shares}, 金额={revenue:.2f}, "
+                          f"手续费={commission_fee:.2f}, 收益={profit:.2f}({profit_percent:.2%})")
             
             # 更新持仓市值
             if self.position > 0:
@@ -678,6 +749,140 @@ class BacktestEngine:
             previous_trade_date = date
         
         logger.debug(f"交易模拟完成: 总交易次数={len(self.results['trades'])}, 最终资产={self.equity:.2f}")
+    
+    def _calculate_position_size(self, signal: float, row: pd.Series) -> float:
+        """
+        根据仓位模式计算本次交易应使用的仓位比例
+        
+        Args:
+            signal: 交易信号值
+            row: 当前日期的数据行
+            
+        Returns:
+            float: 仓位比例，范围为0-1的小数
+        """
+        # 固定比例模式
+        if self.position_mode == 'fixed':
+            return self.default_position_size
+        
+        # 分批建仓模式
+        elif self.position_mode == 'staged':
+            if not self.position_sizes:
+                # 默认分4次买入，每次25%
+                self.position_sizes = [0.25, 0.25, 0.25, 0.25]
+                logger.info("使用默认分批建仓比例: [25%, 25%, 25%, 25%]")
+            
+            if self.stage_index < len(self.position_sizes):
+                position_size = self.position_sizes[self.stage_index]
+                logger.info(f"分批建仓第 {self.stage_index + 1} 阶段，使用比例 {position_size * 100:.2f}%")
+                return position_size
+            else:
+                # 如果阶段索引超出范围，使用最后一个比例
+                position_size = self.position_sizes[-1] if self.position_sizes else 0.25
+                logger.warning(f"分批建仓阶段索引超出范围，使用最后一个阶段比例: {position_size * 100:.2f}%")
+                return position_size
+        
+        # 动态比例模式
+        elif self.position_mode == 'dynamic':
+            # 综合计算信号强度，使用多种因素
+            signal_strength = 0.0
+            
+            # 1. 使用信号值的绝对值作为基础强度 (如果信号值有大小关系)
+            # 标准化信号值到0-1范围
+            try:
+                # 假设信号已被标准化为-1到1范围
+                base_strength = abs(signal) if abs(signal) <= 1 else 1
+                signal_strength += base_strength * 0.3  # 30%权重
+            except:
+                pass
+            
+            # 2. 使用均线偏差作为信号强度指标
+            ma_diff = 0
+            ma_strength = 0
+            for column in row.index:
+                # 检查均线偏差列
+                if column.startswith('ma_diff') or column.startswith('diff_') or column.endswith('_diff'):
+                    try:
+                        ma_diff_value = abs(float(row[column])) if not pd.isna(row[column]) else 0
+                        # 归一化处理，将均线偏差转换为0-1范围的信号强度
+                        # 假设偏差超过5%为强信号
+                        ma_strength = min(1.0, ma_diff_value / 0.05)
+                    except:
+                        pass
+                    break
+            
+            signal_strength += ma_strength * 0.2  # 20%权重
+            
+            # 3. 使用RSI作为信号强度指标
+            rsi_strength = 0
+            for column in row.index:
+                if column.startswith('rsi'):
+                    try:
+                        rsi_value = float(row[column]) if not pd.isna(row[column]) else 50
+                        # 将RSI值转换为0-1的信号强度
+                        if signal > 0:  # 买入信号
+                            # RSI低时信号强，高时信号弱
+                            rsi_strength = max(0, min(1, (100 - rsi_value) / 50))
+                        else:  # 卖出信号
+                            # RSI高时信号强，低时信号弱
+                            rsi_strength = max(0, min(1, rsi_value / 50))
+                    except:
+                        pass
+                    break
+            
+            signal_strength += rsi_strength * 0.2  # 20%权重
+            
+            # 4. 使用MACD柱状图作为信号强度指标
+            macd_strength = 0
+            for column in row.index:
+                if column.startswith('macd_hist') or column.endswith('_hist'):
+                    try:
+                        hist_value = float(row[column]) if not pd.isna(row[column]) else 0
+                        # 归一化处理，MACD柱状图的绝对值越大，信号越强
+                        # 假设MACD柱状图超过2为强信号
+                        hist_abs = abs(hist_value)
+                        macd_strength = min(1.0, hist_abs / 2.0)
+                    except:
+                        pass
+                    break
+            
+            signal_strength += macd_strength * 0.15  # 15%权重
+            
+            # 5. 使用成交量变化率作为信号强度指标
+            volume_strength = 0
+            for column in row.index:
+                if column.startswith('volume_change') or column.endswith('_volume_change'):
+                    try:
+                        volume_change = float(row[column]) if not pd.isna(row[column]) else 0
+                        # 归一化处理，成交量增加时信号更强
+                        if volume_change > 0:
+                            # 假设成交量增加50%为强信号
+                            volume_strength = min(1.0, volume_change / 0.5)
+                    except:
+                        pass
+                    break
+            
+            signal_strength += volume_strength * 0.15  # 15%权重
+            
+            # 限制最终信号强度在0-1之间
+            signal_strength = max(0, min(1, signal_strength))
+            
+            # 计算基于信号强度的仓位比例
+            position_size = signal_strength * self.dynamic_position_max
+            
+            # 确保至少有最小仓位
+            min_position = self.dynamic_position_max * 0.2  # 最小为最大仓位的20%
+            if signal_strength > 0.1:  # 信号强度需要达到一定阈值才分配最小仓位
+                position_size = max(min_position, position_size)
+            else:
+                position_size = 0  # 信号太弱时不分配仓位
+            
+            logger.info(f"动态仓位计算: 信号强度={signal_strength:.4f}, 仓位比例={position_size:.4f}")
+            return position_size
+        
+        # 默认情况使用全仓
+        else:
+            return 1.0
     
     def _calculate_performance(self, benchmark_data: Optional[pd.DataFrame] = None) -> None:
         """

@@ -84,6 +84,18 @@ class StrategyBase(ABC):
         # 获取默认的股票代码
         default_symbol = self.data['symbol'].iloc[0] if 'symbol' in self.data.columns else 'default'
         
+        # 获取仓位配置
+        position_config = self.parameters.get('positionConfig', {})
+        position_mode = position_config.get('mode', 'fixed')  # 默认为固定比例模式
+        default_position_size = position_config.get('defaultSize', 1.0)  # 默认100%仓位
+        position_sizes = position_config.get('sizes', [0.25, 0.25, 0.25, 0.25])  # 默认分批建仓比例
+        dynamic_max = position_config.get('dynamicMax', 1.0)  # 动态模式的最大仓位
+        
+        # 分批建仓的当前批次
+        current_stage = 0
+        available_capital = self.cash  # 可用资金
+        allocated_capital = 0  # 已分配资金
+        
         # 遍历所有数据点，严格按照信号执行交易
         for i, row in signals.iterrows():
             date = row['date']
@@ -97,10 +109,31 @@ class StrategyBase(ABC):
             date_str = date.strftime('%Y-%m-%d') if hasattr(date, 'strftime') else str(date)
             
             # 信号变化为买入点
-            if signal > 0 and last_signal <= 0 and current_position == 0:
+            if signal > 0 and last_signal <= 0 and current_position < 1:  # 允许部分仓位，所以检查 < 1而不是 == 0
+                # 根据不同的仓位模式计算买入仓位
+                position_size = 1.0  # 默认全仓
+                
+                if position_mode == 'fixed':
+                    # 固定比例模式
+                    position_size = default_position_size
+                elif position_mode == 'dynamic':
+                    # 动态比例模式，根据信号强度决定仓位
+                    signal_strength = min(abs(signal), 1.0)  # 确保信号强度在0-1之间
+                    position_size = signal_strength * dynamic_max
+                elif position_mode == 'staged' and current_stage < len(position_sizes):
+                    # 分批建仓模式
+                    position_size = position_sizes[current_stage]
+                    current_stage += 1
+                
+                # 确保仓位在0-1之间
+                position_size = max(0.01, min(position_size, 1.0))
+                
+                # 计算本次交易可用资金
+                trade_cash = available_capital * position_size
+                
                 # 计算可以买入的最大数量
                 commission_rate = self.parameters.get('commission_rate', 0.0003)
-                max_quantity = int(self.cash / (price * (1 + commission_rate)))
+                max_quantity = int(trade_cash / (price * (1 + commission_rate)))
                 
                 if max_quantity > 0:
                     # 计算交易成本
@@ -109,9 +142,11 @@ class StrategyBase(ABC):
                     total_cost = cost + commission
                     
                     # 更新资金和持仓
+                    available_capital -= total_cost
+                    allocated_capital += total_cost
                     self.cash -= total_cost
                     self.positions[symbol] = self.positions.get(symbol, 0) + max_quantity
-                    current_position = max_quantity
+                    current_position += position_size  # 更新当前仓位状态
                     
                     # 记录交易
                     trade = {
@@ -122,7 +157,10 @@ class StrategyBase(ABC):
                         'quantity': max_quantity,
                         'commission': float(commission),
                         'cost': float(total_cost),
-                        'signal': float(signal)
+                        'signal': float(signal),
+                        'position_size': float(position_size),  # 记录本次交易的仓位比例
+                        'available_capital': float(available_capital),  # 记录交易后的可用资金
+                        'allocated_capital': float(allocated_capital)  # 记录已分配资金
                     }
                     trades.append(trade)
                     self.trades.append(trade)
@@ -140,9 +178,12 @@ class StrategyBase(ABC):
                     total_revenue = revenue - commission
                     
                     # 更新资金和持仓
+                    available_capital += total_revenue
+                    allocated_capital = 0  # 清空已分配资金
                     self.cash += total_revenue
                     self.positions[symbol] = 0
-                    current_position = 0
+                    current_position = 0  # 清空仓位
+                    current_stage = 0  # 重置分批建仓阶段
                     
                     # 查找对应的买入交易以计算盈亏
                     entry_price = None
@@ -165,7 +206,9 @@ class StrategyBase(ABC):
                         'revenue': float(total_revenue),
                         'profit': float(profit),
                         'profit_pct': float(profit_pct),
-                        'signal': float(signal)
+                        'signal': float(signal),
+                        'available_capital': float(available_capital),
+                        'allocated_capital': float(allocated_capital)
                     }
                     trades.append(trade)
                     self.trades.append(trade)
