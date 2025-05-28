@@ -17,13 +17,13 @@ logger = logging.getLogger(__name__)
 class DataManager:
     """数据抓取管理器"""
     
-    def __init__(self, tushare_token: Optional[str] = None, base_path: str = "data/raw"):
+    def __init__(self, tushare_token: Optional[str] = None, base_path: str = None):
         """
         初始化数据管理器
         
         Args:
             tushare_token: Tushare API token
-            base_path: 数据保存基础路径
+            base_path: 数据保存基础路径，如果为None则使用项目根目录下的data/raw
         """
         self.base_path = base_path
         self.fetchers = {}
