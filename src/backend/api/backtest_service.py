@@ -199,7 +199,7 @@ class BacktestService:
             commission_rate: 手续费率
             slippage_rate: 滑点率
             data_source: 数据来源
-            parameters: 策略参数
+            parameters: 策略参数，包含仓位配置(positionConfig)等
             features: 需要添加的技术指标列表
             
         Returns:
@@ -208,8 +208,24 @@ class BacktestService:
         logger.info("=" * 80)
         logger.info(f"开始回测: 策略={strategy_id}, 品种={symbol}, 日期={start_date}至{end_date}")
         logger.info(f"参数: 初始资金={initial_capital}, 手续费率={commission_rate}, 滑点率={slippage_rate}")
+        
+        # 记录仓位配置信息
+        position_config = parameters.get('positionConfig', {}) if parameters else {}
+        if position_config:
+            position_mode = position_config.get('mode', 'fixed')
+            logger.info(f"仓位模式: {position_mode}")
+            if position_mode == 'fixed':
+                default_size = position_config.get('defaultSize', 1.0) * 100
+                logger.info(f"固定仓位比例: {default_size:.2f}%")
+            elif position_mode == 'dynamic':
+                dynamic_max = position_config.get('dynamicMax', 1.0) * 100
+                logger.info(f"动态仓位最大比例: {dynamic_max:.2f}%")
+            elif position_mode == 'staged':
+                sizes = [size * 100 for size in position_config.get('sizes', [])]
+                logger.info(f"分批建仓比例: {', '.join([f'{size:.2f}%' for size in sizes])}")
+        
         if parameters:
-            logger.info(f"策略参数: {parameters}")
+            logger.info(f"其他策略参数: {parameters}")
         logger.info("-" * 80)
         
         # 1. 获取回测数据
