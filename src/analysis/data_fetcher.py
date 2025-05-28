@@ -16,20 +16,34 @@ logger = logging.getLogger(__name__)
 class DataFetcher(ABC):
     """数据抓取基类"""
     
-    def __init__(self, data_source_name: str, base_path: str = "data/raw"):
+    def __init__(self, data_source_name: str, base_path: str = None):
         """
         初始化数据抓取器
         
         Args:
             data_source_name: 数据源名称，如 'yahoo', 'akshare', 'tushare' 等
-            base_path: 数据保存的基础路径
+            base_path: 数据保存的基础路径，如果为None则使用项目根目录下的data/raw
         """
         self.data_source_name = data_source_name
-        self.base_path = base_path
+        
+        # 如果没有指定base_path，使用项目根目录下的data/raw
+        if base_path is None:
+            # 获取项目根目录（从当前文件向上找到包含src目录的目录）
+            current_dir = os.path.dirname(os.path.abspath(__file__))
+            project_root = current_dir
+            while project_root != os.path.dirname(project_root):  # 避免无限循环
+                if os.path.exists(os.path.join(project_root, 'src')):
+                    break
+                project_root = os.path.dirname(project_root)
+            
+            self.base_path = os.path.join(project_root, 'data', 'raw')
+        else:
+            self.base_path = base_path
+            
         self.today = datetime.now().strftime("%Y%m%d")
         
         # 创建数据保存目录
-        self.data_dir = os.path.join(base_path, data_source_name, self.today)
+        self.data_dir = os.path.join(self.base_path, data_source_name, self.today)
         os.makedirs(self.data_dir, exist_ok=True)
         
         logger.info(f"初始化数据抓取器: {data_source_name}, 保存路径: {self.data_dir}")
