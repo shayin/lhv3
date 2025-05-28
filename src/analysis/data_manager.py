@@ -29,11 +29,11 @@ class DataManager:
         self.fetchers = {}
         
         # 初始化各种数据源
-        try:
-            self.fetchers['yahoo'] = YahooDataFetcher(base_path)
-            logger.info("Yahoo Finance数据源已初始化")
-        except Exception as e:
-            logger.error(f"Yahoo Finance数据源初始化失败: {e}")
+        # try:
+        #     self.fetchers['yahoo'] = YahooDataFetcher(base_path)
+        #     logger.info("Yahoo Finance数据源已初始化")
+        # except Exception as e:
+        #     logger.error(f"Yahoo Finance数据源初始化失败: {e}")
         
         try:
             self.fetchers['akshare'] = AkshareDataFetcher(base_path)
@@ -41,11 +41,11 @@ class DataManager:
         except Exception as e:
             logger.error(f"AkShare数据源初始化失败: {e}")
         
-        try:
-            self.fetchers['tushare'] = TushareDataFetcher(tushare_token, base_path)
-            logger.info("Tushare数据源已初始化")
-        except Exception as e:
-            logger.error(f"Tushare数据源初始化失败: {e}")
+        # try:
+        #     self.fetchers['tushare'] = TushareDataFetcher(tushare_token, base_path)
+        #     logger.info("Tushare数据源已初始化")
+        # except Exception as e:
+        #     logger.error(f"Tushare数据源初始化失败: {e}")
     
     def get_available_sources(self) -> List[str]:
         """
