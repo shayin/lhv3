@@ -262,7 +262,12 @@ class BacktestService:
             end_date=end_date
         )
         
-        # 4. 运行回测
+        # 4. 设置仓位配置参数到回测引擎
+        if parameters:
+            engine.set_parameters(parameters)
+            logger.info("仓位配置参数已传递给回测引擎")
+        
+        # 5. 运行回测
         try:
             result = engine.run(stock_data)
             logger.info(f"回测完成: 总收益率={result['total_return']:.2%}, 最大回撤={result['max_drawdown']:.2%}")
