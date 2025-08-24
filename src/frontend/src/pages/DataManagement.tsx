@@ -380,29 +380,11 @@ const DataManagement: React.FC = () => {
             return;
           }
           
-          // 使用refresh接口更新数据
-          const formData = new FormData();
-          formData.append('symbols', record.symbol);
-          formData.append('source_id', sourceId.toString());
-
-          const response = await axios.post('/api/data/refresh', formData, {
-            headers: {
-              'Content-Type': 'multipart/form-data'
-            }
-          });
+          // 使用update接口更新数据
+          const response = await axios.post(`/api/data/update/${record.id}`);
           
           if (response.data && response.data.status === 'success') {
-            const results = response.data.results;
-            if (results && results.length > 0) {
-              const result = results[0];
-              if (result.status === 'success') {
-                message.success(result.message || '数据更新成功');
-              } else {
-                message.error(result.message || '数据更新失败');
-              }
-            } else {
-              message.success('数据更新成功');
-            }
+            message.success(response.data.message || '数据更新成功');
             fetchList(); // 刷新列表
           } else {
             message.error(response.data?.message || '数据更新失败');
