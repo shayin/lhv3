@@ -40,6 +40,9 @@ class Stock(Base):
     description = Column(Text, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     last_updated = Column(DateTime, nullable=True)
+    total_records = Column(Integer, default=0, comment="总记录数")
+    first_date = Column(Date, nullable=True, comment="数据开始日期")
+    last_date = Column(Date, nullable=True, comment="数据结束日期")
     
     # 关系：一个股票属于一个数据源
     source = relationship("DataSource", back_populates="stocks")

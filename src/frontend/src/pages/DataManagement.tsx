@@ -108,6 +108,8 @@ interface DataItem {
   exchange?: string;
   startDate?: string;
   endDate?: string;
+  first_date?: string;
+  last_date?: string;
   records: number;
   source: string;
   last_updated?: string;
@@ -141,7 +143,8 @@ const DataManagement: React.FC = () => {
     setLoading(true);
     try {
       const stocks = await fetchStockList();
-      // 转换为DataItem格式
+      
+      // 转换为DataItem格式，直接使用stocks表的统计信息
       const formattedData = stocks.map(stock => ({
         id: stock.id.toString(),
         symbol: stock.symbol,
@@ -150,8 +153,11 @@ const DataManagement: React.FC = () => {
         exchange: stock.exchange,
         records: stock.data_count || 0,
         source: stock.source_id?.toString() || '未知',
-        last_updated: stock.last_updated ? new Date(stock.last_updated).toLocaleString() : '未知'
+        last_updated: stock.last_updated ? new Date(stock.last_updated).toLocaleString() : '未知',
+        first_date: stock.first_date || undefined,
+        last_date: stock.last_date || undefined
       }));
+      
       setDataList(formattedData);
     } catch (error) {
       console.error('获取数据列表失败:', error);
@@ -316,26 +322,21 @@ const DataManagement: React.FC = () => {
   const handleFetch = async (values: any) => {
     setFetchLoading(true);
     try {
-      // 构建URL查询参数
-      const params = new URLSearchParams({
+      // 构建请求体
+      const payload = {
         symbol: values.symbol,
         name: values.name,
         type: values.type,
-        source_id: values.source_id.toString()
-      });
-      
-      // 可选字段
-      if (values.start_date) {
-        params.append('start_date', values.start_date.format('YYYY-MM-DD'));
-      }
-      if (values.end_date) {
-        params.append('end_date', values.end_date.format('YYYY-MM-DD'));
-      }
-      
-      // 拼接完整URL
-      const url = `/api/data/fetch?${params.toString()}`;
+        source_id: values.source_id,
+        start_date: values.start_date ? values.start_date.format('YYYY-MM-DD') : undefined,
+        end_date: values.end_date ? values.end_date.format('YYYY-MM-DD') : undefined,
+      };
 
-      const response = await axios.post(url);
+      const response = await axios.post('/api/data/fetch', payload, {
+        headers: {
+          'Content-Type': 'application/json'
+        }
+      });
       
       if (response.data && response.data.status === 'success') {
         message.success(response.data.message || '数据抓取成功');
@@ -494,6 +495,29 @@ const DataManagement: React.FC = () => {
       key: 'records',
       width: 80,
       sorter: (a, b) => a.records - b.records,
+    },
+    {
+      title: '数据时间范围',
+      key: 'date_range',
+      width: 200,
+      render: (_, record) => {
+        if (record.first_date && record.last_date) {
+          return (
+            <div>
+              <div style={{ fontSize: '12px', color: '#666' }}>
+                {record.first_date} 至 {record.last_date}
+              </div>
+              <div style={{ fontSize: '11px', color: '#999' }}>
+                {record.records} 条记录
+              </div>
+            </div>
+          );
+        } else if (record.records > 0) {
+          return <span style={{ color: '#999' }}>时间范围未知</span>;
+        } else {
+          return <span style={{ color: '#ccc' }}>无数据</span>;
+        }
+      }
     },
     {
       title: '数据源',

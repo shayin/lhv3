@@ -9,6 +9,7 @@ from datetime import datetime, timedelta
 import shutil
 import csv
 from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy import func
 
 from ..models import get_db, Stock, DailyPrice, DataSource, StockData
 from ..config import RAW_DATA_DIR, PROCESSED_DATA_DIR
@@ -28,6 +29,35 @@ os.makedirs(PROCESSED_DATA_DIR, exist_ok=True)
 
 # 初始化数据管理器
 data_manager = DataManager()
+
+def update_stock_statistics(db: Session, stock_id: int):
+    """更新股票的统计信息（总记录数、开始日期、结束日期）"""
+    try:
+        # 查询股票的数据统计
+        result = db.query(
+            func.count(StockData.id).label('total_records'),
+            func.min(StockData.date).label('first_date'),
+            func.max(StockData.date).label('last_date')
+        ).filter(StockData.stock_id == stock_id).first()
+        
+        # 更新股票记录
+        stock = db.query(Stock).filter(Stock.id == stock_id).first()
+        if stock:
+            stock.total_records = result.total_records or 0
+            stock.first_date = result.first_date
+            stock.last_date = result.last_date
+            stock.last_updated = datetime.now()
+            db.commit()
+            
+        return {
+            'total_records': result.total_records or 0,
+            'first_date': result.first_date,
+            'last_date': result.last_date
+        }
+    except Exception as e:
+        logger.error(f"更新股票统计信息失败: {str(e)}")
+        db.rollback()
+        raise
 
 @router.get("/list", response_model=List[Dict[str, Any]])
 async def list_data_sources(db: Session = Depends(get_db)):
@@ -56,18 +86,45 @@ async def list_stocks(
             
         stocks = query.all()
         
-        return [
-            {
+        result = []
+        for stock in stocks:
+            result.append({
                 "id": stock.id,
                 "symbol": stock.symbol,
                 "name": stock.name,
                 "type": stock.type,
                 "source_id": stock.source_id,
                 "last_updated": stock.last_updated.isoformat() if stock.last_updated else None,
-                "data_count": db.query(StockData).filter(StockData.stock_id == stock.id).count()
-            }
-            for stock in stocks
-        ]
+                "data_count": stock.total_records or 0,
+                "first_date": stock.first_date.strftime("%Y-%m-%d") if stock.first_date else None,
+                "last_date": stock.last_date.strftime("%Y-%m-%d") if stock.last_date else None
+            })
+        
+        return result
+    except SQLAlchemyError as e:
+        logger.error(f"数据库查询错误: {str(e)}")
+        raise HTTPException(status_code=500, detail="数据库查询失败")
+
+@router.get("/stock/{stock_id}/date-range")
+async def get_stock_date_range(
+    stock_id: int = Path(..., description="股票ID"),
+    db: Session = Depends(get_db)
+):
+    """获取股票的数据时间范围"""
+    try:
+        # 查找股票
+        stock = db.query(Stock).filter(Stock.id == stock_id).first()
+        if not stock:
+            raise HTTPException(status_code=404, detail="股票不存在")
+        
+        return {
+            "stock_id": stock_id,
+            "symbol": stock.symbol,
+            "name": stock.name,
+            "data_count": stock.total_records or 0,
+            "first_date": stock.first_date.strftime("%Y-%m-%d") if stock.first_date else None,
+            "last_date": stock.last_date.strftime("%Y-%m-%d") if stock.last_date else None
+        }
     except SQLAlchemyError as e:
         logger.error(f"数据库查询错误: {str(e)}")
         raise HTTPException(status_code=500, detail="数据库查询失败")
@@ -277,15 +334,43 @@ async def update_stock_data(
         
         # 根据数据源名称确定使用哪个数据抓取器
         source_name = data_source.name.lower()
+        preferred_source = None
+        
         if 'yahoo' in source_name:
-            fetch_source = 'yahoo'
-        elif 'akshare' in source_name or 'a股' in source_name:
-            fetch_source = 'akshare'
+            preferred_source = 'yahoo'
+        elif 'akshare' in source_name:
+            preferred_source = 'akshare'
         elif 'tushare' in source_name:
-            fetch_source = 'tushare'
+            preferred_source = 'tushare'
+        elif 'a股' in source_name:
+            # A股数据通常使用akshare
+            preferred_source = 'akshare'
+        elif '用户上传' in source_name or 'user' in source_name:
+            # 用户上传的数据，需要根据股票类型判断
+            if stock.type in ['美股', 'us', 'US']:
+                preferred_source = 'yahoo'
+            elif stock.type in ['A股', 'a股', 'CN']:
+                preferred_source = 'akshare'
+            else:
+                # 默认使用yahoo（因为美股较多）
+                preferred_source = 'yahoo'
         else:
-            # 默认使用akshare
-            fetch_source = 'akshare'
+            # 根据股票类型判断默认数据源
+            if stock.type in ['美股', 'us', 'US']:
+                preferred_source = 'yahoo'
+            elif stock.type in ['A股', 'a股', 'CN']:
+                preferred_source = 'akshare'
+            else:
+                # 默认使用yahoo
+                preferred_source = 'yahoo'
+        
+        # 检查首选数据源是否可用，如果不可用则回退到akshare
+        available_sources = data_manager.get_available_sources()
+        if preferred_source in available_sources:
+            fetch_source = preferred_source
+        else:
+            fetch_source = 'akshare'  # 默认回退到akshare
+            logger.warning(f"首选数据源 {preferred_source} 不可用，回退到 akshare")
         
         logger.info(f"使用数据源: {fetch_source} 更新数据")
         
@@ -301,7 +386,20 @@ async def update_stock_data(
         file_path = data_manager.fetch_stock_data(fetch_source, stock.symbol, start_date, end_date)
         
         if not file_path:
-            raise HTTPException(status_code=500, detail=f"抓取股票 {stock.symbol} 数据失败")
+            return {
+                "status": "success",
+                "message": f"{stock.symbol} 在指定日期范围内没有新数据（可能是周末或节假日）",
+                "data": {
+                    "symbol": stock.symbol,
+                    "name": stock.name,
+                    "last_date": last_date.strftime("%Y-%m-%d"),
+                    "update_range": {
+                        "start": start_date,
+                        "end": end_date
+                    },
+                    "records_count": 0
+                }
+            }
         
         logger.info(f"数据抓取成功，文件路径: {file_path}")
         
@@ -369,8 +467,22 @@ async def update_stock_data(
                     db.add(new_data)
                     records_count += 1
             
-            # 更新股票的最后更新时间
+            # 更新股票的最后更新时间和统计信息
             stock.last_updated = datetime.now()
+            
+            # 更新股票的统计信息（总记录数、开始日期、结束日期）
+            if records_count > 0:
+                # 查询最新的统计信息
+                result = db.query(
+                    func.count(StockData.id).label('total_records'),
+                    func.min(StockData.date).label('first_date'),
+                    func.max(StockData.date).label('last_date')
+                ).filter(StockData.stock_id == stock_id).first()
+                
+                stock.total_records = result.total_records or 0
+                stock.first_date = result.first_date
+                stock.last_date = result.last_date
+            
             db.commit()
             
             logger.info(f"成功更新 {records_count} 条 {stock.symbol} 的数据记录")
@@ -430,15 +542,43 @@ async def fetch_stock_data(
         
         # 根据数据源名称确定使用哪个数据抓取器
         source_name = data_source.name.lower()
+        preferred_source = None
+        
         if 'yahoo' in source_name:
-            fetch_source = 'yahoo'
-        elif 'akshare' in source_name or 'a股' in source_name:
-            fetch_source = 'akshare'
+            preferred_source = 'yahoo'
+        elif 'akshare' in source_name:
+            preferred_source = 'akshare'
         elif 'tushare' in source_name:
-            fetch_source = 'tushare'
+            preferred_source = 'tushare'
+        elif 'a股' in source_name:
+            # A股数据通常使用akshare
+            preferred_source = 'akshare'
+        elif '用户上传' in source_name or 'user' in source_name:
+            # 用户上传的数据，需要根据股票类型判断
+            if type in ['美股', 'us', 'US']:
+                preferred_source = 'yahoo'
+            elif type in ['A股', 'a股', 'CN']:
+                preferred_source = 'akshare'
+            else:
+                # 默认使用yahoo（因为美股较多）
+                preferred_source = 'yahoo'
         else:
-            # 默认使用akshare
-            fetch_source = 'akshare'
+            # 根据股票类型判断默认数据源
+            if type in ['美股', 'us', 'US']:
+                preferred_source = 'yahoo'
+            elif type in ['A股', 'a股', 'CN']:
+                preferred_source = 'akshare'
+            else:
+                # 默认使用yahoo
+                preferred_source = 'yahoo'
+        
+        # 检查首选数据源是否可用，如果不可用则回退到akshare
+        available_sources = data_manager.get_available_sources()
+        if preferred_source in available_sources:
+            fetch_source = preferred_source
+        else:
+            fetch_source = 'akshare'  # 默认回退到akshare
+            logger.warning(f"首选数据源 {preferred_source} 不可用，回退到 akshare")
         
         logger.info(f"使用数据源: {fetch_source} 抓取数据")
         
@@ -532,6 +672,9 @@ async def fetch_stock_data(
             # 批量插入数据
             db.bulk_save_objects(data_records)
             db.commit()
+            
+            # 更新股票的统计信息（总记录数、开始日期、结束日期）
+            update_stock_statistics(db, stock.id)
             
             logger.info(f"成功导入 {len(data_records)} 条数据记录")
             

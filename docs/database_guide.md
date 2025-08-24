@@ -310,7 +310,7 @@ LIMIT 10;
 #### 查看数据源列表
 ```sql
 SELECT id, name, description, created_at 
-FROM data_sources;
+FROM data_sources; 
 ```
 
 #### 查看策略列表
