@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import {
   Table, Button, Upload, message, Modal, Input, Select, Form, 
   Card, Space, Typography, Spin, Tag, Tooltip, Row, Col, Checkbox,
-  Radio, DatePicker
+  Radio, DatePicker, Divider
 } from 'antd';
 import {
   UploadOutlined, DownloadOutlined, DeleteOutlined, 
@@ -18,6 +18,64 @@ import dayjs from 'dayjs';
 
 const { Title, Text } = Typography;
 const { Option } = Select;
+
+// 日期范围快捷选项
+const DateRangePresets = ({ onSelect }: { onSelect: (startDate: string, endDate: string) => void }) => {
+  const presets = [
+    { label: '最近7天', days: 7 },
+    { label: '最近30天', days: 30 },
+    { label: '最近90天', days: 90 },
+    { label: '最近180天', days: 180 },
+    { label: '最近1年', days: 365 },
+    { label: '今年', type: 'year' },
+    { label: '去年', type: 'lastYear' },
+    { label: '本月', type: 'month' },
+    { label: '上月', type: 'lastMonth' },
+  ];
+
+  const handlePresetClick = (preset: any) => {
+    const now = dayjs();
+    let startDate: string, endDate: string;
+
+    if (preset.type === 'year') {
+      startDate = now.startOf('year').format('YYYY-MM-DD');
+      endDate = now.format('YYYY-MM-DD');
+    } else if (preset.type === 'lastYear') {
+      startDate = now.subtract(1, 'year').startOf('year').format('YYYY-MM-DD');
+      endDate = now.subtract(1, 'year').endOf('year').format('YYYY-MM-DD');
+    } else if (preset.type === 'month') {
+      startDate = now.startOf('month').format('YYYY-MM-DD');
+      endDate = now.format('YYYY-MM-DD');
+    } else if (preset.type === 'lastMonth') {
+      startDate = now.subtract(1, 'month').startOf('month').format('YYYY-MM-DD');
+      endDate = now.subtract(1, 'month').endOf('month').format('YYYY-MM-DD');
+    } else {
+      startDate = now.subtract(preset.days, 'day').format('YYYY-MM-DD');
+      endDate = now.format('YYYY-MM-DD');
+    }
+
+    onSelect(startDate, endDate);
+  };
+
+  return (
+    <div style={{ marginBottom: 16 }}>
+      <Text strong style={{ marginBottom: 8, display: 'block' }}>快捷选择：</Text>
+      <Space wrap>
+        {presets.map((preset, index) => (
+          <Button
+            key={index}
+            size="small"
+            type="link"
+            onClick={() => handlePresetClick(preset)}
+            style={{ padding: '4px 8px', fontSize: '12px' }}
+          >
+            {preset.label}
+          </Button>
+        ))}
+      </Space>
+    </div>
+  );
+};
 
 // 计算移动平均线的函数
 const calculateMA = (dayCount: number, data: any[]) => {
@@ -607,26 +665,41 @@ const DataManagement: React.FC = () => {
                 </Select>
               </Form.Item>
               
-              <Form.Item
-                name="start_date"
-                label="开始日期"
-              >
-                <DatePicker 
-                  placeholder="选择开始日期" 
-                  style={{ width: '100%' }}
-                  format="YYYY-MM-DD"
+              <Form.Item label="日期范围">
+                <DateRangePresets 
+                  onSelect={(startDate, endDate) => {
+                    form.setFieldsValue({
+                      start_date: dayjs(startDate),
+                      end_date: dayjs(endDate)
+                    });
+                  }}
                 />
-              </Form.Item>
-              
-              <Form.Item
-                name="end_date"
-                label="结束日期"
-              >
-                <DatePicker 
-                  placeholder="选择结束日期" 
-                  style={{ width: '100%' }}
-                  format="YYYY-MM-DD"
-                />
+                <Row gutter={8}>
+                  <Col span={12}>
+                    <Form.Item
+                      name="start_date"
+                      noStyle
+                    >
+                      <DatePicker 
+                        placeholder="选择开始日期" 
+                        style={{ width: '100%' }}
+                        format="YYYY-MM-DD"
+                      />
+                    </Form.Item>
+                  </Col>
+                  <Col span={12}>
+                    <Form.Item
+                      name="end_date"
+                      noStyle
+                    >
+                      <DatePicker 
+                        placeholder="选择结束日期" 
+                        style={{ width: '100%' }}
+                        format="YYYY-MM-DD"
+                      />
+                    </Form.Item>
+                  </Col>
+                </Row>
               </Form.Item>
               
               <Form.Item>
