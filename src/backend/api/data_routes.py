@@ -334,43 +334,16 @@ async def update_stock_data(
         
         # 根据数据源名称确定使用哪个数据抓取器
         source_name = data_source.name.lower()
-        preferred_source = None
         
-        if 'yahoo' in source_name:
-            preferred_source = 'yahoo'
-        elif 'akshare' in source_name:
-            preferred_source = 'akshare'
-        elif 'tushare' in source_name:
-            preferred_source = 'tushare'
-        elif 'a股' in source_name:
-            # A股数据通常使用akshare
-            preferred_source = 'akshare'
+        if 'akshare' in source_name or '抓取' in source_name:
+            # AkShare抓取数据源
+            fetch_source = 'akshare'
         elif '用户上传' in source_name or 'user' in source_name:
-            # 用户上传的数据，需要根据股票类型判断
-            if stock.type in ['美股', 'us', 'US']:
-                preferred_source = 'yahoo'
-            elif stock.type in ['A股', 'a股', 'CN']:
-                preferred_source = 'akshare'
-            else:
-                # 默认使用yahoo（因为美股较多）
-                preferred_source = 'yahoo'
+            # 用户上传的数据，使用akshare抓取（因为目前只支持akshare）
+            fetch_source = 'akshare'
         else:
-            # 根据股票类型判断默认数据源
-            if stock.type in ['美股', 'us', 'US']:
-                preferred_source = 'yahoo'
-            elif stock.type in ['A股', 'a股', 'CN']:
-                preferred_source = 'akshare'
-            else:
-                # 默认使用yahoo
-                preferred_source = 'yahoo'
-        
-        # 检查首选数据源是否可用，如果不可用则回退到akshare
-        available_sources = data_manager.get_available_sources()
-        if preferred_source in available_sources:
-            fetch_source = preferred_source
-        else:
-            fetch_source = 'akshare'  # 默认回退到akshare
-            logger.warning(f"首选数据源 {preferred_source} 不可用，回退到 akshare")
+            # 默认使用akshare
+            fetch_source = 'akshare'
         
         logger.info(f"使用数据源: {fetch_source} 更新数据")
         
@@ -542,43 +515,16 @@ async def fetch_stock_data(
         
         # 根据数据源名称确定使用哪个数据抓取器
         source_name = data_source.name.lower()
-        preferred_source = None
         
-        if 'yahoo' in source_name:
-            preferred_source = 'yahoo'
-        elif 'akshare' in source_name:
-            preferred_source = 'akshare'
-        elif 'tushare' in source_name:
-            preferred_source = 'tushare'
-        elif 'a股' in source_name:
-            # A股数据通常使用akshare
-            preferred_source = 'akshare'
+        if 'akshare' in source_name or '抓取' in source_name:
+            # AkShare抓取数据源
+            fetch_source = 'akshare'
         elif '用户上传' in source_name or 'user' in source_name:
-            # 用户上传的数据，需要根据股票类型判断
-            if type in ['美股', 'us', 'US']:
-                preferred_source = 'yahoo'
-            elif type in ['A股', 'a股', 'CN']:
-                preferred_source = 'akshare'
-            else:
-                # 默认使用yahoo（因为美股较多）
-                preferred_source = 'yahoo'
+            # 用户上传的数据，使用akshare抓取（因为目前只支持akshare）
+            fetch_source = 'akshare'
         else:
-            # 根据股票类型判断默认数据源
-            if type in ['美股', 'us', 'US']:
-                preferred_source = 'yahoo'
-            elif type in ['A股', 'a股', 'CN']:
-                preferred_source = 'akshare'
-            else:
-                # 默认使用yahoo
-                preferred_source = 'yahoo'
-        
-        # 检查首选数据源是否可用，如果不可用则回退到akshare
-        available_sources = data_manager.get_available_sources()
-        if preferred_source in available_sources:
-            fetch_source = preferred_source
-        else:
-            fetch_source = 'akshare'  # 默认回退到akshare
-            logger.warning(f"首选数据源 {preferred_source} 不可用，回退到 akshare")
+            # 默认使用akshare
+            fetch_source = 'akshare'
         
         logger.info(f"使用数据源: {fetch_source} 抓取数据")
         
