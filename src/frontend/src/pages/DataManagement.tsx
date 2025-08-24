@@ -172,6 +172,19 @@ const DataManagement: React.FC = () => {
     try {
       const sources = await fetchDataSources();
       setDataSources(sources);
+      
+      // 设置默认数据源
+      if (uploadMode === 'fetch') {
+        const akShareSource = sources.find(source => source.name === 'AkShare抓取');
+        if (akShareSource) {
+          form.setFieldsValue({ source_id: akShareSource.id });
+        }
+      } else if (uploadMode === 'upload') {
+        const userUploadSource = sources.find(source => source.name === '用户上传');
+        if (userUploadSource) {
+          form.setFieldsValue({ source_id: userUploadSource.id });
+        }
+      }
     } catch (error) {
       console.error('获取数据源列表失败:', error);
       message.error('获取数据源列表失败');
@@ -625,9 +638,27 @@ const DataManagement: React.FC = () => {
       >
         {/* 模式切换 */}
         <div style={{ marginBottom: 20, textAlign: 'center' }}>
-          <Radio.Group 
-            value={uploadMode} 
-            onChange={(e) => setUploadMode(e.target.value)}
+                    <Radio.Group
+            value={uploadMode}
+            onChange={(e) => {
+              setUploadMode(e.target.value);
+              form.resetFields();
+              
+              // 根据模式设置默认数据源
+              if (e.target.value === 'fetch') {
+                // 自动抓取模式：默认选择AkShare抓取
+                const akShareSource = dataSources.find(source => source.name === 'AkShare抓取');
+                if (akShareSource) {
+                  form.setFieldsValue({ source_id: akShareSource.id });
+                }
+              } else if (e.target.value === 'upload') {
+                // 手动上传模式：默认选择用户上传
+                const userUploadSource = dataSources.find(source => source.name === '用户上传');
+                if (userUploadSource) {
+                  form.setFieldsValue({ source_id: userUploadSource.id });
+                }
+              }
+            }}
             buttonStyle="solid"
           >
             <Radio.Button value="fetch">自动抓取</Radio.Button>
@@ -679,8 +710,8 @@ const DataManagement: React.FC = () => {
                 label="数据源"
                 rules={[{ required: true, message: '请选择数据源' }]}
               >
-                <Select placeholder="选择数据源">
-                  {dataSources.map(source => (
+                <Select placeholder="选择数据源" disabled>
+                  {dataSources.filter(source => source.name === 'AkShare抓取').map(source => (
                     <Option key={source.id} value={source.id}>{source.name}</Option>
                   ))}
                 </Select>
@@ -800,8 +831,8 @@ const DataManagement: React.FC = () => {
                 label="数据源"
                 rules={[{ required: true, message: '请选择数据源' }]}
               >
-                <Select placeholder="选择数据源">
-                  {dataSources.map(source => (
+                <Select placeholder="选择数据源" disabled>
+                  {dataSources.filter(source => source.name === '用户上传').map(source => (
                     <Option key={source.id} value={source.id}>{source.name}</Option>
                   ))}
                 </Select>
