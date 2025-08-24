@@ -10,6 +10,8 @@ export interface Stock {
   source_id?: number;
   data_count?: number;
   last_updated?: string;
+  first_date?: string;
+  last_date?: string;
 }
 
 // 定义数据源接口
@@ -46,7 +48,9 @@ export const fetchStockList = async (): Promise<Stock[]> => {
         exchange: item.exchange,
         source_id: item.source_id,
         data_count: item.data_count || 0,
-        last_updated: item.last_updated
+        last_updated: item.last_updated,
+        first_date: item.first_date,
+        last_date: item.last_date
       }));
     }
     return [];
