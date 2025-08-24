@@ -5,7 +5,7 @@ from typing import List, Optional, Dict, Any
 import os
 import pandas as pd
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 import shutil
 import csv
 from sqlalchemy.exc import SQLAlchemyError
@@ -185,16 +185,27 @@ async def upload_stock_data(
         if os.path.exists(temp_file_path):
             os.remove(temp_file_path)
 
+from pydantic import BaseModel
+
+class FetchStockDataRequest(BaseModel):
+    symbol: str
+    name: str
+    type: str
+    source_id: int
+    start_date: Optional[str] = None
+    end_date: Optional[str] = None
+
 @router.post("/fetch", status_code=status.HTTP_201_CREATED)
 async def fetch_stock_data(
-    symbol: str = Query(..., description="股票代码"),
-    name: str = Query(..., description="股票名称"),
-    type: str = Query(..., description="股票类型: A股/港股/美股/期货/加密货币等"),
-    source_id: int = Query(..., description="数据源ID"),
-    start_date: Optional[str] = Query(None, description="开始日期，格式：YYYY-MM-DD，默认为30天前"),
-    end_date: Optional[str] = Query(None, description="结束日期，格式：YYYY-MM-DD，默认为今天"),
+    request: FetchStockDataRequest,
     db: Session = Depends(get_db)
 ):
+    symbol = request.symbol
+    name = request.name
+    type = request.type
+    source_id = request.source_id
+    start_date = request.start_date
+    end_date = request.end_date
     """自动抓取股票数据并导入到数据库"""
     try:
         logger.info(f"开始自动抓取股票数据: {symbol} ({name})")
