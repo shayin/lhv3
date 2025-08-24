@@ -72,6 +72,37 @@ async def list_stocks(
         logger.error(f"数据库查询错误: {str(e)}")
         raise HTTPException(status_code=500, detail="数据库查询失败")
 
+@router.get("/stock/{stock_id}/last-date")
+async def get_stock_last_date(
+    stock_id: int = Path(..., description="股票ID"),
+    db: Session = Depends(get_db)
+):
+    """获取股票的最后数据日期"""
+    try:
+        # 查找股票
+        stock = db.query(Stock).filter(Stock.id == stock_id).first()
+        if not stock:
+            raise HTTPException(status_code=404, detail="股票不存在")
+        
+        # 查找该股票的最新数据日期
+        latest_data = db.query(StockData).filter(
+            StockData.stock_id == stock_id
+        ).order_by(StockData.date.desc()).first()
+        
+        if not latest_data:
+            raise HTTPException(status_code=404, detail="该股票没有数据记录")
+        
+        return {
+            "stock_id": stock_id,
+            "symbol": stock.symbol,
+            "name": stock.name,
+            "last_date": latest_data.date.strftime("%Y-%m-%d"),
+            "last_updated": stock.last_updated.isoformat() if stock.last_updated else None
+        }
+    except SQLAlchemyError as e:
+        logger.error(f"数据库查询错误: {str(e)}")
+        raise HTTPException(status_code=500, detail="数据库查询失败")
+
 @router.post("/upload", status_code=status.HTTP_201_CREATED)
 async def upload_stock_data(
     file: UploadFile = File(...),
@@ -194,6 +225,180 @@ class FetchStockDataRequest(BaseModel):
     source_id: int
     start_date: Optional[str] = None
     end_date: Optional[str] = None
+
+@router.post("/update/{stock_id}", status_code=status.HTTP_201_CREATED)
+async def update_stock_data(
+    stock_id: int = Path(..., description="股票ID"),
+    db: Session = Depends(get_db)
+):
+    """更新股票数据，从最后日期抓取到今天"""
+    try:
+        # 查找股票
+        stock = db.query(Stock).filter(Stock.id == stock_id).first()
+        if not stock:
+            raise HTTPException(status_code=404, detail="股票不存在")
+        
+        # 查找该股票的最新数据日期
+        latest_data = db.query(StockData).filter(
+            StockData.stock_id == stock_id
+        ).order_by(StockData.date.desc()).first()
+        
+        if not latest_data:
+            raise HTTPException(status_code=404, detail="该股票没有数据记录，请先抓取初始数据")
+        
+        # 计算开始日期（最后数据日期的下一天）
+        last_date = latest_data.date
+        start_date = (last_date + timedelta(days=1)).strftime("%Y-%m-%d")
+        end_date = datetime.now().strftime("%Y-%m-%d")
+        
+        # 检查是否需要更新
+        if start_date > end_date:
+            return {
+                "status": "success",
+                "message": f"{stock.symbol} 数据已是最新，无需更新",
+                "data": {
+                    "symbol": stock.symbol,
+                    "name": stock.name,
+                    "last_date": last_date.strftime("%Y-%m-%d"),
+                    "update_range": {
+                        "start": start_date,
+                        "end": end_date
+                    }
+                }
+            }
+        
+        logger.info(f"开始更新股票数据: {stock.symbol} ({stock.name})")
+        logger.info(f"更新日期范围: {start_date} 至 {end_date}")
+        
+        # 获取数据源信息
+        data_source = db.query(DataSource).filter(DataSource.id == stock.source_id).first()
+        if not data_source:
+            raise HTTPException(status_code=404, detail=f"数据源ID {stock.source_id} 不存在")
+        
+        # 根据数据源名称确定使用哪个数据抓取器
+        source_name = data_source.name.lower()
+        if 'yahoo' in source_name:
+            fetch_source = 'yahoo'
+        elif 'akshare' in source_name or 'a股' in source_name:
+            fetch_source = 'akshare'
+        elif 'tushare' in source_name:
+            fetch_source = 'tushare'
+        else:
+            # 默认使用akshare
+            fetch_source = 'akshare'
+        
+        logger.info(f"使用数据源: {fetch_source} 更新数据")
+        
+        # 检查数据源是否可用
+        available_sources = data_manager.get_available_sources()
+        if fetch_source not in available_sources:
+            raise HTTPException(
+                status_code=400, 
+                detail=f"数据源 {fetch_source} 不可用，可用数据源: {', '.join(available_sources)}"
+            )
+        
+        # 抓取数据
+        file_path = data_manager.fetch_stock_data(fetch_source, stock.symbol, start_date, end_date)
+        
+        if not file_path:
+            raise HTTPException(status_code=500, detail=f"抓取股票 {stock.symbol} 数据失败")
+        
+        logger.info(f"数据抓取成功，文件路径: {file_path}")
+        
+        # 读取抓取的数据
+        try:
+            df = pd.read_csv(file_path)
+            required_columns = ['date', 'open', 'high', 'low', 'close', 'volume']
+            
+            # 检查必须的列是否存在
+            missing_columns = [col for col in required_columns if col not in df.columns]
+            if missing_columns:
+                raise HTTPException(
+                    status_code=400, 
+                    detail=f"抓取的数据缺少必需的列: {', '.join(missing_columns)}"
+                )
+            
+            # 检查数据是否为空
+            if df.empty:
+                return {
+                    "status": "success",
+                    "message": f"{stock.symbol} 在指定日期范围内没有新数据",
+                    "data": {
+                        "symbol": stock.symbol,
+                        "name": stock.name,
+                        "last_date": last_date.strftime("%Y-%m-%d"),
+                        "update_range": {
+                            "start": start_date,
+                            "end": end_date
+                        },
+                        "records_count": 0
+                    }
+                }
+            
+            # 检查日期格式
+            try:
+                df['date'] = pd.to_datetime(df['date'])
+            except Exception:
+                raise HTTPException(status_code=400, detail="抓取的数据中日期格式无效")
+            
+            # 处理数据
+            processor = DataProcessor()
+            processed_df = processor.process_data(df, features=[])
+            
+            # 导入新数据到数据库
+            records_count = 0
+            for _, row in processed_df.iterrows():
+                # 检查是否已存在该日期的数据
+                existing_data = db.query(StockData).filter(
+                    StockData.stock_id == stock_id,
+                    StockData.date == row['date']
+                ).first()
+                
+                if not existing_data:
+                    # 创建新数据记录
+                    new_data = StockData(
+                        stock_id=stock_id,
+                        date=row['date'],
+                        open=row['open'],
+                        high=row['high'],
+                        low=row['low'],
+                        close=row['close'],
+                        volume=row['volume'],
+                        adj_close=row.get('adj_close', row['close'])
+                    )
+                    db.add(new_data)
+                    records_count += 1
+            
+            # 更新股票的最后更新时间
+            stock.last_updated = datetime.now()
+            db.commit()
+            
+            logger.info(f"成功更新 {records_count} 条 {stock.symbol} 的数据记录")
+            
+            return {
+                "status": "success",
+                "message": f"成功更新 {records_count} 条 {stock.symbol} 的数据记录",
+                "data": {
+                    "symbol": stock.symbol,
+                    "name": stock.name,
+                    "records_count": records_count,
+                    "update_range": {
+                        "start": start_date,
+                        "end": end_date
+                    },
+                    "source": fetch_source
+                }
+            }
+            
+        except Exception as e:
+            logger.error(f"处理抓取的数据时出错: {str(e)}")
+            raise HTTPException(status_code=500, detail=f"处理数据时出错: {str(e)}")
+            
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"更新股票数据失败: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"更新股票数据失败: {str(e)}")
 
 @router.post("/fetch", status_code=status.HTTP_201_CREATED)
 async def fetch_stock_data(
