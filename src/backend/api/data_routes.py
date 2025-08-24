@@ -191,13 +191,21 @@ async def fetch_stock_data(
     name: str = Query(..., description="股票名称"),
     type: str = Query(..., description="股票类型: A股/港股/美股/期货/加密货币等"),
     source_id: int = Query(..., description="数据源ID"),
-    start_date: Optional[str] = Query(None, description="开始日期，格式：YYYY-MM-DD"),
-    end_date: Optional[str] = Query(None, description="结束日期，格式：YYYY-MM-DD"),
+    start_date: Optional[str] = Query(None, description="开始日期，格式：YYYY-MM-DD，默认为30天前"),
+    end_date: Optional[str] = Query(None, description="结束日期，格式：YYYY-MM-DD，默认为今天"),
     db: Session = Depends(get_db)
 ):
     """自动抓取股票数据并导入到数据库"""
     try:
         logger.info(f"开始自动抓取股票数据: {symbol} ({name})")
+        
+        # 设置默认日期范围
+        if not start_date:
+            start_date = (datetime.now() - timedelta(days=30)).strftime("%Y-%m-%d")
+            logger.info(f"使用默认开始日期: {start_date}")
+        if not end_date:
+            end_date = datetime.now().strftime("%Y-%m-%d")
+            logger.info(f"使用默认结束日期: {end_date}")
         
         # 检查数据源是否存在
         data_source = db.query(DataSource).filter(DataSource.id == source_id).first()
