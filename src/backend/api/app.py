@@ -67,6 +67,10 @@ app.include_router(data_routes.router, prefix="/api/data", tags=["数据管理"]
 from .strategy_routes import router as strategy_router
 app.include_router(strategy_router, prefix="/api/strategies", tags=["策略管理"])
 
+# 注册回测路由
+from .backtest_routes import router as backtest_router
+app.include_router(backtest_router, prefix="/api/backtest", tags=["回测"])
+
 # 初始化数据库
 @app.on_event("startup")
 async def startup():
@@ -241,36 +245,7 @@ async def get_symbols(db: Session = Depends(get_db)):
         logger.error(f"获取股票列表失败: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.get("/api/data/fetch")
-async def fetch_data(
-    symbol: str = Query(..., description="股票代码"),
-    start_date: str = Query(..., description="开始日期 (YYYY-MM-DD)"),
-    end_date: Optional[str] = Query(None, description="结束日期 (YYYY-MM-DD)"),
-    data_source: str = Query("yahoo", description="数据源 (yahoo, akshare)"),
-    features: Optional[List[str]] = Query(None, description="要添加的技术指标，如 sma, macd, rsi 等")
-):
-    """获取股票历史数据并添加技术指标"""
-    try:
-        # 创建数据获取器和处理器
-        fetcher = DataFetcher()
-        processor = DataProcessor()
-        
-        # 获取原始数据
-        data = fetcher.fetch_data(symbol, start_date, end_date, data_source)
-        
-        # 处理数据和添加特征
-        if features:
-            data = processor.process_data(data, features)
-            
-        # 转换为JSON兼容格式
-        if not data.empty:
-            data['date'] = data['date'].dt.strftime('%Y-%m-%d')
-            
-        result = data.to_dict(orient='records')
-        return {"status": "success", "data": result}
-    except Exception as e:
-        logger.error(f"获取数据失败: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+# 注意：此路由已移动到 data_routes.py 中，使用 POST /api/data/fetch 进行自动抓取
 
 # 策略API
 @app.get("/api/strategies")

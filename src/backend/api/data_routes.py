@@ -14,12 +14,20 @@ from ..models import get_db, Stock, DailyPrice, DataSource, StockData
 from ..config import RAW_DATA_DIR, PROCESSED_DATA_DIR
 from ..data import DataFetcher, DataProcessor
 
+# 导入数据抓取模块
+import sys
+sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..'))
+from analysis.data_manager import DataManager
+
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
 # 确保数据目录存在
 os.makedirs(RAW_DATA_DIR, exist_ok=True)
 os.makedirs(PROCESSED_DATA_DIR, exist_ok=True)
+
+# 初始化数据管理器
+data_manager = DataManager()
 
 @router.get("/list", response_model=List[Dict[str, Any]])
 async def list_data_sources(db: Session = Depends(get_db)):
@@ -176,6 +184,161 @@ async def upload_stock_data(
         # 清理临时文件
         if os.path.exists(temp_file_path):
             os.remove(temp_file_path)
+
+@router.post("/fetch", status_code=status.HTTP_201_CREATED)
+async def fetch_stock_data(
+    symbol: str = Query(..., description="股票代码"),
+    name: str = Query(..., description="股票名称"),
+    type: str = Query(..., description="股票类型: A股/港股/美股/期货/加密货币等"),
+    source_id: int = Query(..., description="数据源ID"),
+    start_date: Optional[str] = Query(None, description="开始日期，格式：YYYY-MM-DD"),
+    end_date: Optional[str] = Query(None, description="结束日期，格式：YYYY-MM-DD"),
+    db: Session = Depends(get_db)
+):
+    """自动抓取股票数据并导入到数据库"""
+    try:
+        logger.info(f"开始自动抓取股票数据: {symbol} ({name})")
+        
+        # 检查数据源是否存在
+        data_source = db.query(DataSource).filter(DataSource.id == source_id).first()
+        if not data_source:
+            raise HTTPException(status_code=404, detail=f"数据源ID {source_id} 不存在")
+        
+        # 根据数据源名称确定使用哪个数据抓取器
+        source_name = data_source.name.lower()
+        if 'yahoo' in source_name:
+            fetch_source = 'yahoo'
+        elif 'akshare' in source_name or 'a股' in source_name:
+            fetch_source = 'akshare'
+        elif 'tushare' in source_name:
+            fetch_source = 'tushare'
+        else:
+            # 默认使用akshare
+            fetch_source = 'akshare'
+        
+        logger.info(f"使用数据源: {fetch_source} 抓取数据")
+        
+        # 检查数据源是否可用
+        available_sources = data_manager.get_available_sources()
+        if fetch_source not in available_sources:
+            raise HTTPException(
+                status_code=400, 
+                detail=f"数据源 {fetch_source} 不可用，可用数据源: {', '.join(available_sources)}"
+            )
+        
+        # 抓取数据
+        file_path = data_manager.fetch_stock_data(fetch_source, symbol, start_date, end_date)
+        
+        if not file_path:
+            raise HTTPException(status_code=500, detail=f"抓取股票 {symbol} 数据失败")
+        
+        logger.info(f"数据抓取成功，文件路径: {file_path}")
+        
+        # 读取抓取的数据
+        try:
+            df = pd.read_csv(file_path)
+            required_columns = ['date', 'open', 'high', 'low', 'close', 'volume']
+            
+            # 检查必须的列是否存在
+            missing_columns = [col for col in required_columns if col not in df.columns]
+            if missing_columns:
+                raise HTTPException(
+                    status_code=400, 
+                    detail=f"抓取的数据缺少必需的列: {', '.join(missing_columns)}"
+                )
+            
+            # 检查数据是否为空
+            if df.empty:
+                raise HTTPException(status_code=400, detail=f"抓取的数据为空，请检查股票代码 {symbol} 是否正确")
+            
+            # 检查日期格式
+            try:
+                df['date'] = pd.to_datetime(df['date'])
+            except Exception:
+                raise HTTPException(status_code=400, detail="抓取的数据中日期格式无效")
+            
+            # 处理数据
+            processor = DataProcessor()
+            processed_df = processor.process_data(df, features=[])
+            
+            # 检查股票是否已存在
+            stock = db.query(Stock).filter(Stock.symbol == symbol).first()
+            
+            if not stock:
+                # 创建新股票记录
+                stock = Stock(
+                    symbol=symbol,
+                    name=name,
+                    type=type,
+                    source_id=source_id,
+                    last_updated=datetime.now()
+                )
+                db.add(stock)
+                db.commit()
+                db.refresh(stock)
+                logger.info(f"创建新股票记录: {symbol} ({name})")
+            else:
+                # 更新现有股票
+                stock.name = name
+                stock.type = type
+                stock.source_id = source_id
+                stock.last_updated = datetime.now()
+                db.commit()
+                logger.info(f"更新现有股票记录: {symbol} ({name})")
+            
+            # 清除该股票的现有数据（替换数据）
+            deleted_count = db.query(StockData).filter(StockData.stock_id == stock.id).delete()
+            logger.info(f"清除现有数据: {deleted_count} 条记录")
+            
+            # 导入新数据
+            data_records = []
+            for _, row in processed_df.iterrows():
+                stock_data = StockData(
+                    stock_id=stock.id,
+                    date=row['date'],
+                    open=row['open'],
+                    high=row['high'],
+                    low=row['low'],
+                    close=row['close'],
+                    volume=row['volume'],
+                    adj_close=row.get('adj_close', row['close'])
+                )
+                data_records.append(stock_data)
+            
+            # 批量插入数据
+            db.bulk_save_objects(data_records)
+            db.commit()
+            
+            logger.info(f"成功导入 {len(data_records)} 条数据记录")
+            
+            return {
+                "status": "success",
+                "message": f"成功抓取并导入 {len(data_records)} 条 {symbol} 的数据记录",
+                "data": {
+                    "symbol": symbol,
+                    "name": name,
+                    "records_count": len(data_records),
+                    "date_range": {
+                        "start": processed_df['date'].min().strftime('%Y-%m-%d'),
+                        "end": processed_df['date'].max().strftime('%Y-%m-%d')
+                    },
+                    "source": fetch_source
+                }
+            }
+            
+        except pd.errors.EmptyDataError:
+            raise HTTPException(status_code=400, detail="抓取的数据为空")
+        except pd.errors.ParserError:
+            raise HTTPException(status_code=400, detail="抓取的数据格式无效")
+        except Exception as e:
+            logger.error(f"处理抓取数据时发生错误: {str(e)}")
+            raise HTTPException(status_code=500, detail=f"处理抓取数据时发生错误: {str(e)}")
+            
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"自动抓取数据时发生错误: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"自动抓取数据时发生错误: {str(e)}")
 
 @router.get("/download/{stock_id}")
 async def download_stock_data(stock_id: int, db: Session = Depends(get_db)):
