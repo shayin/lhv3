@@ -368,18 +368,18 @@ const DataManagement: React.FC = () => {
   const handleRefreshData = async (record: DataItem) => {
     Modal.confirm({
       title: '更新数据',
-      content: `确定要更新 ${record.name}(${record.symbol}) 的数据吗？这可能需要一些时间。`,
+      content: `确定要更新 ${record.name}(${record.symbol}) 的数据吗？将从最后一天K线抓取到今天的最新数据。`,
       onOk: async () => {
         setLoading(true);
         try {
           // 查找对应的数据源ID
-          const sourceId = dataSources.find(s => s.name === record.source)?.id;
+          const sourceId = dataSources.find(s => s.id.toString() === record.source)?.id;
           if (!sourceId) {
             message.error('找不到对应的数据源');
             return;
           }
           
-          // /refresh API要求使用Form参数 
+          // 使用refresh接口更新数据
           const formData = new FormData();
           formData.append('symbols', record.symbol);
           formData.append('source_id', sourceId.toString());
@@ -391,7 +391,17 @@ const DataManagement: React.FC = () => {
           });
           
           if (response.data && response.data.status === 'success') {
-            message.success('数据更新成功');
+            const results = response.data.results;
+            if (results && results.length > 0) {
+              const result = results[0];
+              if (result.status === 'success') {
+                message.success(result.message || '数据更新成功');
+              } else {
+                message.error(result.message || '数据更新失败');
+              }
+            } else {
+              message.success('数据更新成功');
+            }
             fetchList(); // 刷新列表
           } else {
             message.error(response.data?.message || '数据更新失败');
