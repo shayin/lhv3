@@ -306,7 +306,10 @@ class BacktestService:
         if isinstance(strategy_id, str):
             if strategy_id == "ma_crossover":
                 logger.info(f"创建策略: 移动平均线交叉策略, 参数: {parameters}")
-                return MovingAverageCrossover(parameters=parameters)
+                strategy = MovingAverageCrossover(parameters=parameters)
+                if data is not None:
+                    strategy.set_data(data)
+                return strategy
             # 以下策略暂时注释掉，等实现后再启用
             # elif strategy_id == "bollinger_bands":
             #     logger.info(f"创建策略: 布林带策略, 参数: {parameters}")

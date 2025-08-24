@@ -539,7 +539,7 @@ def load_strategy_from_code(code: str, data: pd.DataFrame = None, parameters: Di
         
         # 实例化策略类
         logger.debug(f"实例化策略类: {strategy_class.__name__}, 参数: {parameters}")
-        strategy_instance = strategy_class(parameters=parameters, data=data)
+        strategy_instance = strategy_class(name="动态策略", data=data, parameters=parameters)
         return strategy_instance
     
     finally:
