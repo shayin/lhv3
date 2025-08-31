@@ -9,6 +9,7 @@
     "@uiw/react-codemirror": "^4.21.20",
     "antd": "^5.9.4",
     "axios": "^1.5.0",
+    "babel-runtime": "^6.26.0",
     "echarts": "^5.4.3",
     "echarts-for-react": "^3.0.2",
     "lodash": "^4.17.21",

@@ -1,15 +1,45 @@
 from typing import Dict, Any, List, Optional
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.orm import Session
 import logging
 import json
 from datetime import datetime
 
-from ..models.base import get_db
+from ..models import get_db, Strategy, StrategySnapshot, Backtest, Trade
+from ..backtest.engine import BacktestEngine
 from .backtest_service import BacktestService
 
-router = APIRouter(prefix="/api/backtest", tags=["backtest"])
+router = APIRouter(tags=["backtest"])
 logger = logging.getLogger(__name__)
+
+# Pydantic模型用于请求和响应
+from pydantic import BaseModel
+from typing import Optional, List, Dict, Any
+
+class SaveBacktestRequest(BaseModel):
+    name: str
+    description: Optional[str] = None
+    strategy_id: Optional[int] = None
+    start_date: str
+    end_date: str
+    initial_capital: float
+    instruments: List[str]
+    parameters: Optional[Dict[str, Any]] = None
+    position_config: Optional[Dict[str, Any]] = None
+
+class BacktestResponse(BaseModel):
+    id: int
+    name: str
+    description: Optional[str]
+    strategy_name: Optional[str]
+    start_date: str
+    end_date: str
+    initial_capital: float
+    instruments: List[str]
+    status: str
+    created_at: str
+    completed_at: Optional[str]
+    performance_metrics: Optional[Dict[str, Any]]
 
 @router.post("/test")
 async def test_backtest(request: Request, db: Session = Depends(get_db)):
@@ -240,3 +270,181 @@ async def generate_report(request: Request, db: Session = Depends(get_db)):
             "message": f"生成报告失败: {str(e)}",
             "data": None
         } 
+
+@router.post("/save", response_model=Dict[str, Any])
+async def save_backtest(
+    request: SaveBacktestRequest,
+    db: Session = Depends(get_db)
+):
+    """保存回测结果"""
+    try:
+        logger.info(f"开始保存回测: {request.name}")
+        
+        # 1. 创建策略快照
+        strategy_snapshot = None
+        if request.strategy_id:
+            strategy = db.query(Strategy).filter(Strategy.id == request.strategy_id).first()
+            if not strategy:
+                raise HTTPException(status_code=404, detail="策略不存在")
+            
+            # 创建策略快照
+            strategy_snapshot = StrategySnapshot(
+                strategy_id=request.strategy_id,
+                name=strategy.name,
+                description=strategy.description,
+                code=strategy.code,
+                parameters=strategy.parameters,
+                template=strategy.template
+            )
+            db.add(strategy_snapshot)
+            db.flush()  # 获取ID
+        
+        # 2. 创建回测记录
+        backtest = Backtest(
+            name=request.name,
+            description=request.description,
+            strategy_id=request.strategy_id,
+            strategy_snapshot_id=strategy_snapshot.id if strategy_snapshot else None,
+            start_date=datetime.fromisoformat(request.start_date.replace('Z', '+00:00')),
+            end_date=datetime.fromisoformat(request.end_date.replace('Z', '+00:00')),
+            initial_capital=request.initial_capital,
+            instruments=request.instruments,
+            parameters=request.parameters,
+            position_config=request.position_config,
+            status='completed',
+            completed_at=datetime.now()
+        )
+        
+        db.add(backtest)
+        db.commit()
+        db.refresh(backtest)
+        
+        logger.info(f"回测保存成功: {backtest.id}")
+        
+        return {
+            "status": "success",
+            "message": "回测保存成功",
+            "data": {
+                "backtest_id": backtest.id,
+                "name": backtest.name
+            }
+        }
+        
+    except Exception as e:
+        logger.error(f"保存回测失败: {str(e)}")
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"保存回测失败: {str(e)}")
+
+@router.get("/list", response_model=List[BacktestResponse])
+async def list_backtests(
+    db: Session = Depends(get_db),
+    page: int = 1,
+    size: int = 20
+):
+    """获取回测列表"""
+    try:
+        offset = (page - 1) * size
+        
+        backtests = db.query(Backtest).order_by(Backtest.created_at.desc()).offset(offset).limit(size).all()
+        
+        result = []
+        for backtest in backtests:
+            strategy_name = None
+            if backtest.strategy_snapshot:
+                strategy_name = backtest.strategy_snapshot.name
+            
+            result.append(BacktestResponse(
+                id=backtest.id,
+                name=backtest.name,
+                description=backtest.description,
+                strategy_name=strategy_name,
+                start_date=backtest.start_date.isoformat(),
+                end_date=backtest.end_date.isoformat(),
+                initial_capital=backtest.initial_capital,
+                instruments=backtest.instruments,
+                status=backtest.status,
+                created_at=backtest.created_at.isoformat(),
+                completed_at=backtest.completed_at.isoformat() if backtest.completed_at else None,
+                performance_metrics=backtest.performance_metrics
+            ))
+        
+        return result
+        
+    except Exception as e:
+        logger.error(f"获取回测列表失败: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"获取回测列表失败: {str(e)}")
+
+@router.get("/{backtest_id}", response_model=Dict[str, Any])
+async def get_backtest(
+    backtest_id: int,
+    db: Session = Depends(get_db)
+):
+    """获取回测详情"""
+    try:
+        backtest = db.query(Backtest).filter(Backtest.id == backtest_id).first()
+        if not backtest:
+            raise HTTPException(status_code=404, detail="回测不存在")
+        
+        # 获取策略快照信息
+        strategy_info = None
+        if backtest.strategy_snapshot:
+            strategy_info = {
+                "id": backtest.strategy_snapshot.id,
+                "name": backtest.strategy_snapshot.name,
+                "description": backtest.strategy_snapshot.description,
+                "code": backtest.strategy_snapshot.code,
+                "parameters": backtest.strategy_snapshot.parameters,
+                "template": backtest.strategy_snapshot.template,
+                "created_at": backtest.strategy_snapshot.created_at.isoformat()
+            }
+        
+        return {
+            "status": "success",
+            "data": {
+                "id": backtest.id,
+                "name": backtest.name,
+                "description": backtest.description,
+                "strategy_info": strategy_info,
+                "start_date": backtest.start_date.isoformat(),
+                "end_date": backtest.end_date.isoformat(),
+                "initial_capital": backtest.initial_capital,
+                "instruments": backtest.instruments,
+                "parameters": backtest.parameters,
+                "position_config": backtest.position_config,
+                "results": backtest.results,
+                "equity_curve": backtest.equity_curve,
+                "trade_records": backtest.trade_records,
+                "performance_metrics": backtest.performance_metrics,
+                "status": backtest.status,
+                "created_at": backtest.created_at.isoformat(),
+                "completed_at": backtest.completed_at.isoformat() if backtest.completed_at else None
+            }
+        }
+        
+    except Exception as e:
+        logger.error(f"获取回测详情失败: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"获取回测详情失败: {str(e)}")
+
+@router.delete("/{backtest_id}")
+async def delete_backtest(
+    backtest_id: int,
+    db: Session = Depends(get_db)
+):
+    """删除回测"""
+    try:
+        backtest = db.query(Backtest).filter(Backtest.id == backtest_id).first()
+        if not backtest:
+            raise HTTPException(status_code=404, detail="回测不存在")
+        
+        db.delete(backtest)
+        db.commit()
+        
+        return {
+            "status": "success",
+            "message": "回测删除成功"
+        }
+        
+    except Exception as e:
+        logger.error(f"删除回测失败: {str(e)}")
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"删除回测失败: {str(e)}") 

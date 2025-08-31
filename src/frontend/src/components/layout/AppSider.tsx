@@ -7,6 +7,7 @@ import {
   CodeOutlined,
   LineChartOutlined,
   SettingOutlined,
+  HistoryOutlined,
 } from '@ant-design/icons';
 
 const { Sider } = Layout;
@@ -33,9 +34,21 @@ const AppSider: React.FC = () => {
       label: '策略编辑',
     },
     {
-      key: '/backtest',
+      key: 'backtest',
       icon: <LineChartOutlined />,
-      label: '回测分析',
+      label: '回测管理',
+      children: [
+        {
+          key: '/backtest',
+          icon: <LineChartOutlined />,
+          label: '回测分析',
+        },
+        {
+          key: '/backtest/history',
+          icon: <HistoryOutlined />,
+          label: '回测历史',
+        },
+      ],
     },
     {
       key: '/optimization',

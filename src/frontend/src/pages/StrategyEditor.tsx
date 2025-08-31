@@ -23,6 +23,7 @@ const { TextArea } = Input;
 
 interface StrategyEditorParams {
   id?: string;
+  [key: string]: string | undefined;
 }
 
 const StrategyEditor: React.FC = () => {

@@ -272,6 +272,27 @@ class BacktestService:
             result = engine.run(stock_data)
             logger.info(f"回测完成: 总收益率={result['total_return']:.2%}, 最大回撤={result['max_drawdown']:.2%}")
             
+            # 6. 保存回测结果（如果需要）
+            if parameters and parameters.get('save_backtest', False):
+                try:
+                    self._save_backtest_result(
+                        strategy_id=strategy_id,
+                        symbol=symbol,
+                        start_date=start_date,
+                        end_date=end_date,
+                        initial_capital=initial_capital,
+                        parameters=parameters,
+                        result=result,
+                        backtest_name=parameters.get('backtest_name'),
+                        backtest_description=parameters.get('backtest_description')
+                    )
+                    logger.info("回测结果已保存")
+                except Exception as e:
+                    logger.error(f"保存回测结果失败: {e}")
+            
+            # 7. 添加保存标识到结果中
+            result['saved'] = parameters.get('save_backtest', False)
+            
             return {
                 "status": "success",
                 "message": "回测完成",
@@ -383,4 +404,100 @@ class BacktestService:
                 return None
         
         logger.error(f"无法创建策略实例: {strategy_id}")
-        return None 
+        return None
+    
+    def _save_backtest_result(self, 
+                            strategy_id: Union[str, int],
+                            symbol: str,
+                            start_date: str,
+                            end_date: str,
+                            initial_capital: float,
+                            parameters: Dict[str, Any],
+                            result: Dict[str, Any],
+                            backtest_name: Optional[str] = None,
+                            backtest_description: Optional[str] = None) -> None:
+        """
+        保存回测结果到数据库
+        
+        Args:
+            strategy_id: 策略ID或策略名称
+            symbol: 交易品种代码
+            start_date: 开始日期
+            end_date: 结束日期
+            initial_capital: 初始资金
+            parameters: 策略参数
+            result: 回测结果
+        """
+        if self.db is None:
+            logger.warning("数据库会话未初始化，无法保存回测结果")
+            return
+        
+        try:
+            from ..models import Strategy, StrategySnapshot, Backtest
+            
+            # 1. 获取策略信息
+            strategy = None
+            if isinstance(strategy_id, int):
+                strategy = self.db.query(Strategy).filter(Strategy.id == strategy_id).first()
+            else:
+                strategy = self.db.query(Strategy).filter(Strategy.name == strategy_id).first()
+            
+            # 2. 创建策略快照
+            strategy_snapshot = None
+            if strategy:
+                strategy_snapshot = StrategySnapshot(
+                    strategy_id=strategy.id,
+                    name=strategy.name,
+                    description=strategy.description,
+                    code=strategy.code,
+                    parameters=strategy.parameters,
+                    template=strategy.template
+                )
+                self.db.add(strategy_snapshot)
+                self.db.flush()  # 获取ID
+            
+            # 3. 创建回测记录
+            if backtest_name:
+                # 使用用户提供的名称
+                pass
+            else:
+                # 生成默认名称
+                backtest_name = f"{symbol}_{start_date}_{end_date}"
+                if strategy:
+                    backtest_name = f"{strategy.name}_{symbol}_{start_date}_{end_date}"
+            
+            backtest = Backtest(
+                name=backtest_name,
+                description=backtest_description or f"回测: {symbol} ({start_date} 至 {end_date})",
+                strategy_id=strategy.id if strategy else None,
+                strategy_snapshot_id=strategy_snapshot.id if strategy_snapshot else None,
+                start_date=datetime.fromisoformat(start_date.replace('Z', '+00:00')),
+                end_date=datetime.fromisoformat(end_date.replace('Z', '+00:00')),
+                initial_capital=initial_capital,
+                instruments=[symbol],
+                parameters=parameters,
+                position_config=parameters.get('positionConfig'),
+                results=result,
+                equity_curve=result.get('equity_curve'),
+                trade_records=result.get('trade_records'),
+                performance_metrics={
+                    'total_return': result.get('total_return'),
+                    'max_drawdown': result.get('max_drawdown'),
+                    'sharpe_ratio': result.get('sharpe_ratio'),
+                    'volatility': result.get('volatility'),
+                    'win_rate': result.get('win_rate'),
+                    'profit_factor': result.get('profit_factor')
+                },
+                status='completed',
+                completed_at=datetime.now()
+            )
+            
+            self.db.add(backtest)
+            self.db.commit()
+            
+            logger.info(f"回测结果已保存: {backtest.id}")
+            
+        except Exception as e:
+            logger.error(f"保存回测结果失败: {e}")
+            self.db.rollback()
+            raise 

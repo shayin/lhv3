@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { Card, Form, Button, DatePicker, Select, InputNumber, Row, Col, Divider, Typography, Tabs, Table, Statistic, Spin, message as antdMessage, Alert, Space, Tooltip, Modal, Tag, App, message, Slider } from 'antd';
+import { Card, Form, Button, DatePicker, Select, InputNumber, Row, Col, Divider, Typography, Tabs, Table, Statistic, Spin, message as antdMessage, Alert, Space, Tooltip, Modal, Tag, App, message, Slider, Input } from 'antd';
+import { useNavigate } from 'react-router-dom';
 import { LineChartOutlined, PlayCircleOutlined, DownloadOutlined, SaveOutlined, InfoCircleOutlined, MinusCircleOutlined, PlusOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import ReactECharts from 'echarts-for-react';
@@ -56,6 +57,8 @@ interface TradeRecord {
 }
 
 const Backtest: React.FC = () => {
+  const navigate = useNavigate();
+  
   // 状态变量
   const [running, setRunning] = useState(false);
   const [hasResults, setHasResults] = useState(false);
@@ -98,6 +101,12 @@ const Backtest: React.FC = () => {
   const [positionSizes, setPositionSizes] = useState<number[]>([25, 25, 25, 25]); // 分批建仓的比例
   const [dynamicPositionMax, setDynamicPositionMax] = useState<number>(100); // 动态仓位最大值
   
+  // 添加保存回测相关状态
+  const [saveModalVisible, setSaveModalVisible] = useState(false);
+  const [saveLoading, setSaveLoading] = useState(false);
+  const [backtestName, setBacktestName] = useState('');
+  const [backtestDescription, setBacktestDescription] = useState('');
+  
   // 规范化日期字符串的函数，确保格式一致
   const normalizeDate = (dateStr: string | any): string => {
     if (typeof dateStr !== 'string') {
@@ -121,6 +130,82 @@ const Backtest: React.FC = () => {
     
     // 如果是其他格式，返回前10个字符
     return dateStr.substring(0, 10);
+  };
+
+  // 保存回测函数
+  const handleSaveBacktest = async () => {
+    if (!backtestResults || !hasResults) {
+      message.error('没有可保存的回测结果');
+      return;
+    }
+
+    if (!backtestName.trim()) {
+      message.error('请输入回测名称');
+      return;
+    }
+
+    setSaveLoading(true);
+    try {
+      // 构建仓位配置
+      const positionConfig = {
+        mode: positionMode,
+        defaultSize: defaultPositionSize / 100,
+        sizes: positionSizes.map(size => size / 100),
+        dynamicMax: dynamicPositionMax / 100
+      };
+
+      // 重新运行回测并保存结果
+      const startDate = dateRange[0].format('YYYY-MM-DD');
+      const endDate = dateRange[1].format('YYYY-MM-DD');
+      
+      const result = await backtestStrategy(
+        selectedStrategy,
+        selectedStock!.symbol,
+        startDate,
+        endDate,
+        initialCapital,
+        {
+          positionConfig: positionConfig,
+          save_backtest: true, // 启用保存
+          backtest_name: backtestName,
+          backtest_description: backtestDescription
+        },
+        commissionRate,
+        slippage,
+        'database',
+        []
+      );
+
+      if (result.error) {
+        message.error(`保存失败: ${result.error}`);
+        return;
+      }
+
+      if (result.saved) {
+        message.success('回测保存成功！');
+        setSaveModalVisible(false);
+        setBacktestName('');
+        setBacktestDescription('');
+        
+        // 询问用户是否跳转到回测历史页面
+        Modal.confirm({
+          title: '保存成功',
+          content: '回测已成功保存，是否查看回测历史？',
+          okText: '查看历史',
+          cancelText: '继续回测',
+          onOk: () => {
+            navigate('/backtest/history');
+          },
+        });
+      } else {
+        message.error('保存失败，请重试');
+      }
+    } catch (error: any) {
+      console.error('保存回测失败:', error);
+      message.error(error.response?.data?.detail || '保存失败，请重试');
+    } finally {
+      setSaveLoading(false);
+    }
   };
   
   // 运行回测
@@ -154,7 +239,8 @@ const Backtest: React.FC = () => {
         endDate,
         initialCapital,
         {
-          positionConfig: positionConfig // 传递仓位配置
+          positionConfig: positionConfig, // 传递仓位配置
+          save_backtest: false // 暂时不自动保存，等用户手动保存
         }, // 参数对象
         commissionRate,
         slippage,
@@ -2528,7 +2614,12 @@ const Backtest: React.FC = () => {
               <Button icon={<DownloadOutlined />} style={{ marginRight: 8 }}>
                 导出报告
               </Button>
-              <Button icon={<SaveOutlined />} type="primary">
+              <Button 
+                icon={<SaveOutlined />} 
+                type="primary"
+                onClick={() => setSaveModalVisible(true)}
+                disabled={!hasResults}
+              >
                 保存回测
               </Button>
             </div>
@@ -2614,6 +2705,66 @@ const Backtest: React.FC = () => {
           </Card>
         </>
       )}
+
+      {/* 保存回测模态框 */}
+      <Modal
+        title="保存回测"
+        open={saveModalVisible}
+        onOk={handleSaveBacktest}
+        onCancel={() => {
+          setSaveModalVisible(false);
+          setBacktestName('');
+          setBacktestDescription('');
+        }}
+        confirmLoading={saveLoading}
+        okText="保存"
+        cancelText="取消"
+      >
+        <Form layout="vertical">
+          <Form.Item
+            label="回测名称"
+            required
+            help="请输入一个描述性的回测名称"
+          >
+            <Input
+              placeholder="例如：MA交叉策略_AAPL_2024年回测"
+              value={backtestName}
+              onChange={(e) => setBacktestName(e.target.value)}
+            />
+          </Form.Item>
+          
+          <Form.Item
+            label="回测描述"
+            help="可选：添加回测的详细描述"
+          >
+            <Input.TextArea
+              placeholder="例如：使用移动平均线交叉策略对AAPL进行回测，包含仓位控制..."
+              value={backtestDescription}
+              onChange={(e) => setBacktestDescription(e.target.value)}
+              rows={3}
+            />
+          </Form.Item>
+          
+          <Alert
+            message="保存信息"
+            description={
+              <div>
+                <p><strong>策略：</strong>{selectedStrategyName}</p>
+                <p><strong>股票：</strong>{selectedStock?.symbol} ({selectedStock?.name})</p>
+                <p><strong>回测期间：</strong>{dateRange[0].format('YYYY-MM-DD')} 至 {dateRange[1].format('YYYY-MM-DD')}</p>
+                <p><strong>初始资金：</strong>${initialCapital.toLocaleString()}</p>
+                <p><strong>仓位模式：</strong>{
+                  positionMode === 'fixed' ? '固定比例' : 
+                  positionMode === 'dynamic' ? '动态比例' : 
+                  '分批建仓'
+                }</p>
+              </div>
+            }
+            type="info"
+            showIcon
+          />
+        </Form>
+      </Modal>
     </div>
   );
 };
