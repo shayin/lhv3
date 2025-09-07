@@ -1447,6 +1447,7 @@ const BacktestHistory: React.FC = () => {
           <Table
             dataSource={selectedBacktest?.results?.trades || selectedBacktest?.trade_records || []}
             columns={tradeColumns}
+            rowKey={(record) => `trade-${record.date}-${record.action}-${record.price}`}
             pagination={{ pageSize: 10 }}
             scroll={{ x: true }}
           />
