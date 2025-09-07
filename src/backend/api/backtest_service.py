@@ -417,7 +417,7 @@ class BacktestService:
                             backtest_name: Optional[str] = None,
                             backtest_description: Optional[str] = None) -> None:
         """
-        保存回测结果到数据库
+        保存回测结果到新架构数据库
         
         Args:
             strategy_id: 策略ID或策略名称
@@ -433,7 +433,7 @@ class BacktestService:
             return
         
         try:
-            from ..models import Strategy, StrategySnapshot, Backtest
+            from ..models import Strategy, StrategySnapshot, Backtest, BacktestStatus, BacktestHistory
             
             # 1. 获取策略信息
             strategy = None
@@ -456,27 +456,110 @@ class BacktestService:
                 self.db.add(strategy_snapshot)
                 self.db.flush()  # 获取ID
             
-            # 3. 创建回测记录
-            if backtest_name:
-                # 使用用户提供的名称
-                pass
-            else:
-                # 生成默认名称
+            # 3. 生成回测名称
+            if not backtest_name:
                 backtest_name = f"{symbol}_{start_date}_{end_date}"
                 if strategy:
                     backtest_name = f"{strategy.name}_{symbol}_{start_date}_{end_date}"
             
+            # 4. 检查是否已存在同名的回测状态
+            existing_status = self.db.query(BacktestStatus).filter(BacktestStatus.name == backtest_name).first()
+            
+            if existing_status:
+                # 更新现有状态记录
+                existing_status.description = backtest_description or f"回测: {symbol} ({start_date} 至 {end_date})"
+                existing_status.strategy_id = strategy.id if strategy else None
+                existing_status.strategy_snapshot_id = strategy_snapshot.id if strategy_snapshot else existing_status.strategy_snapshot_id
+                existing_status.start_date = datetime.fromisoformat(start_date.replace('Z', '+00:00'))
+                existing_status.end_date = datetime.fromisoformat(end_date.replace('Z', '+00:00'))
+                existing_status.initial_capital = initial_capital
+                existing_status.instruments = [symbol]
+                existing_status.parameters = parameters
+                existing_status.position_config = parameters.get('positionConfig')
+                # 保存回测结果数据
+                existing_status.results = result
+                existing_status.equity_curve = result.get('equity_curve')
+                existing_status.trade_records = result.get('trade_records')
+                existing_status.performance_metrics = {
+                    'total_return': result.get('total_return'),
+                    'max_drawdown': result.get('max_drawdown'),
+                    'sharpe_ratio': result.get('sharpe_ratio'),
+                    'volatility': result.get('volatility'),
+                    'win_rate': result.get('win_rate'),
+                    'profit_factor': result.get('profit_factor')
+                }
+                existing_status.status = 'completed'
+                existing_status.updated_at = datetime.now()
+                existing_status.completed_at = datetime.now()
+                
+                status_record = existing_status
+                operation_type = 'update'
+            else:
+                # 创建新的状态记录
+                status_record = BacktestStatus(
+                    name=backtest_name,
+                    description=backtest_description or f"回测: {symbol} ({start_date} 至 {end_date})",
+                    strategy_id=strategy.id if strategy else None,
+                    strategy_snapshot_id=strategy_snapshot.id if strategy_snapshot else None,
+                    start_date=datetime.fromisoformat(start_date.replace('Z', '+00:00')),
+                    end_date=datetime.fromisoformat(end_date.replace('Z', '+00:00')),
+                    initial_capital=initial_capital,
+                    instruments=[symbol],
+                    parameters=parameters,
+                    position_config=parameters.get('positionConfig'),
+                    # 保存回测结果数据
+                    results=result,
+                    equity_curve=result.get('equity_curve'),
+                    trade_records=result.get('trade_records'),
+                    performance_metrics={
+                        'total_return': result.get('total_return'),
+                        'max_drawdown': result.get('max_drawdown'),
+                        'sharpe_ratio': result.get('sharpe_ratio'),
+                        'volatility': result.get('volatility'),
+                        'win_rate': result.get('win_rate'),
+                        'profit_factor': result.get('profit_factor')
+                    },
+                    status='completed',
+                    completed_at=datetime.now()
+                )
+                self.db.add(status_record)
+                self.db.flush()  # 获取ID
+                operation_type = 'create'
+            
+            # 5. 创建历史记录
+            history_record = BacktestHistory(
+                status_id=status_record.id,
+                start_date=status_record.start_date,
+                end_date=status_record.end_date,
+                initial_capital=status_record.initial_capital,
+                instruments=status_record.instruments,
+                parameters=status_record.parameters,
+                position_config=status_record.position_config,
+                # 保存回测结果数据到历史记录
+                results=status_record.results,
+                equity_curve=status_record.equity_curve,
+                trade_records=status_record.trade_records,
+                performance_metrics=status_record.performance_metrics,
+                status=status_record.status,
+                completed_at=status_record.completed_at,
+                operation_type=operation_type
+            )
+            self.db.add(history_record)
+            
+            # 6. 同时保留旧架构的兼容性（可选）
+            # 创建旧架构的回测记录以保持向后兼容
             backtest = Backtest(
                 name=backtest_name,
                 description=backtest_description or f"回测: {symbol} ({start_date} 至 {end_date})",
                 strategy_id=strategy.id if strategy else None,
                 strategy_snapshot_id=strategy_snapshot.id if strategy_snapshot else None,
-                start_date=datetime.fromisoformat(start_date.replace('Z', '+00:00')),
-                end_date=datetime.fromisoformat(end_date.replace('Z', '+00:00')),
+                start_date=status_record.start_date,
+                end_date=status_record.end_date,
                 initial_capital=initial_capital,
                 instruments=[symbol],
                 parameters=parameters,
                 position_config=parameters.get('positionConfig'),
+                # 保存回测结果数据到旧架构记录
                 results=result,
                 equity_curve=result.get('equity_curve'),
                 trade_records=result.get('trade_records'),
@@ -491,11 +574,14 @@ class BacktestService:
                 status='completed',
                 completed_at=datetime.now()
             )
-            
             self.db.add(backtest)
-            self.db.commit()
             
-            logger.info(f"回测结果已保存: {backtest.id}")
+            self.db.commit()
+            self.db.refresh(status_record)
+            self.db.refresh(history_record)
+            self.db.refresh(backtest)
+            
+            logger.info(f"回测结果已保存到新架构: 状态ID={status_record.id}, 历史ID={history_record.id}, 旧记录ID={backtest.id}")
             
         except Exception as e:
             logger.error(f"保存回测结果失败: {e}")

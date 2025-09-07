@@ -77,6 +77,75 @@ class Backtest(Base):
     strategy_snapshot = relationship("StrategySnapshot", back_populates="backtests")
     trades = relationship("Trade", back_populates="backtest")
 
+class BacktestStatus(Base):
+    """回测状态表 - 存储最新状态"""
+    __tablename__ = "backtest_status"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String, index=True, unique=True)  # 回测名称，唯一
+    description = Column(String, nullable=True)
+    
+    # 策略相关
+    strategy_id = Column(Integer, ForeignKey("strategies.id"), nullable=True)
+    strategy_snapshot_id = Column(Integer, ForeignKey("strategy_snapshots.id"), nullable=False)
+    
+    # 回测参数
+    start_date = Column(DateTime)
+    end_date = Column(DateTime)
+    initial_capital = Column(Float)
+    instruments = Column(JSON)
+    parameters = Column(JSON, nullable=True)
+    position_config = Column(JSON, nullable=True)
+    
+    # 最新回测结果
+    results = Column(JSON, nullable=True)
+    equity_curve = Column(JSON, nullable=True)
+    trade_records = Column(JSON, nullable=True)
+    performance_metrics = Column(JSON, nullable=True)
+    
+    # 状态和时间
+    status = Column(String, default='running')
+    created_at = Column(DateTime, default=datetime.now)
+    updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
+    completed_at = Column(DateTime, nullable=True)
+    
+    # 关系
+    strategy = relationship("Strategy")
+    strategy_snapshot = relationship("StrategySnapshot")
+    history_records = relationship("BacktestHistory", back_populates="status_record", cascade="all, delete-orphan")
+
+class BacktestHistory(Base):
+    """回测历史表 - 记录每次更新"""
+    __tablename__ = "backtest_history"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    status_id = Column(Integer, ForeignKey("backtest_status.id"), nullable=False)
+    
+    # 回测参数（保存当时的参数）
+    start_date = Column(DateTime)
+    end_date = Column(DateTime)
+    initial_capital = Column(Float)
+    instruments = Column(JSON)
+    parameters = Column(JSON, nullable=True)
+    position_config = Column(JSON, nullable=True)
+    
+    # 回测结果
+    results = Column(JSON, nullable=True)
+    equity_curve = Column(JSON, nullable=True)
+    trade_records = Column(JSON, nullable=True)
+    performance_metrics = Column(JSON, nullable=True)
+    
+    # 状态和时间
+    status = Column(String, default='running')
+    created_at = Column(DateTime, default=datetime.now)
+    completed_at = Column(DateTime, nullable=True)
+    
+    # 操作类型
+    operation_type = Column(String, default='create')  # create, update, rerun
+    
+    # 关系
+    status_record = relationship("BacktestStatus", back_populates="history_records")
+
 class Trade(Base):
     """交易记录模型"""
     __tablename__ = "trades"

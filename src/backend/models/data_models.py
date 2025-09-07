@@ -127,7 +127,8 @@ class DailyPrice(Base):
 def get_engine(db_url=None):
     """创建数据库引擎"""
     if db_url is None:
-        db_url = os.environ.get('DATABASE_URL', 'sqlite:///./backtesting.db')
+        from ..config import DATABASE_URL
+        db_url = DATABASE_URL
     return create_engine(db_url, echo=False)
 
 def get_session(engine=None):

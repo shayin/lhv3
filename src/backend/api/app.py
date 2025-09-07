@@ -69,7 +69,9 @@ app.include_router(strategy_router, prefix="/api/strategies", tags=["策略管�
 
 # 注册回测路由
 from .backtest_routes import router as backtest_router
+from .backtest_status_routes import router as backtest_status_router
 app.include_router(backtest_router, prefix="/api/backtest", tags=["回测"])
+app.include_router(backtest_status_router, tags=["回测状态"])
 
 # 初始化数据库
 @app.on_event("startup")

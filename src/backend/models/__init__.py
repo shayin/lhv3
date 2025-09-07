@@ -1,5 +1,5 @@
 from .base import Base
-from .strategy import Strategy, StrategySnapshot, Backtest, Trade
+from .strategy import Strategy, StrategySnapshot, Backtest, BacktestStatus, BacktestHistory, Trade
 from .data_models import Stock, StockData, DataSource, TechnicalIndicator, DailyPrice, get_db, init_db
 
 __all__ = [
@@ -10,6 +10,8 @@ __all__ = [
     'Strategy', 
     'StrategySnapshot',
     'Backtest', 
+    'BacktestStatus',
+    'BacktestHistory',
     'Trade',
     'StockData',
     'TechnicalIndicator',
