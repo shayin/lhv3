@@ -291,7 +291,7 @@ const BacktestHistory: React.FC = () => {
   const handleOpenUpdateModal = (record: BacktestRecord) => {
     setSelectedBacktestForUpdate(record);
     updateForm.setFieldsValue({
-      new_name: `${record.name}_更新`,
+      new_name: record.name,
       update_to_date: null
     });
     setUpdateModalVisible(true);

@@ -639,7 +639,7 @@ async def update_backtest(
         db.flush()
         
         # 创建新的回测记录
-        new_backtest_name = new_name or f"{backtest.name}_更新_{end_date}"
+        new_backtest_name = new_name or backtest.name
         new_backtest = Backtest(
             name=new_backtest_name,
             description=f"基于回测ID {backtest_id} 更新，更新到 {end_date}",
