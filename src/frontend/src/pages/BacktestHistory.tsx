@@ -418,13 +418,13 @@ const BacktestHistory: React.FC = () => {
       },
     },
     {
-      title: '收益率',
-      key: 'total_return',
+      title: '年化收益率',
+      key: 'annual_return',
       width: 120,
       render: (_, record) => {
-        const returnValue = record.performance_metrics?.total_return;
+        const returnValue = record.performance_metrics?.annual_return;
         if (returnValue !== undefined) {
-          const color = returnValue >= 0 ? '#52c41a' : '#ff4d4f';
+          const color = '#3f8600';  // 年化收益率统一显示为绿色
           return <Text style={{ color }}>{returnValue >= 0 ? '+' : ''}{(returnValue * 100).toFixed(2)}%</Text>;
         }
         return '-';
@@ -437,7 +437,9 @@ const BacktestHistory: React.FC = () => {
       render: (_, record) => {
         const drawdown = record.performance_metrics?.max_drawdown;
         if (drawdown !== undefined) {
-          return <Text type="danger">-{(drawdown * 100).toFixed(2)}%</Text>;
+          // 使用与详情页面相同的精度处理方式
+          const value = Math.floor((drawdown * 100) * 100) / 100; // 向下舍入到2位小数
+          return <Text style={{ color: '#3f8600' }}>{value.toFixed(2)}%</Text>;  // 修改为绿色
         }
         return '-';
       },
@@ -1592,7 +1594,7 @@ const BacktestHistory: React.FC = () => {
                       title={<span>年化收益率 <Tooltip title="策略的年化收益率"><InfoCircleOutlined style={{ fontSize: 14, color: '#aaa' }} /></Tooltip></span>}
                       value={(selectedBacktest.performance_metrics.annual_return || 0) * 100}
                       precision={2}
-                      valueStyle={{ color: (selectedBacktest.performance_metrics.annual_return || 0) >= 0 ? '#3f8600' : '#cf1322' }}
+                      valueStyle={{ color: '#3f8600' }}  // 年化收益率统一显示为绿色
                       suffix="%"
                     />
                   </Col>
@@ -1601,7 +1603,7 @@ const BacktestHistory: React.FC = () => {
                       title={<span>最大回撤 <Tooltip title="策略的最大回撤幅度"><InfoCircleOutlined style={{ fontSize: 14, color: '#aaa' }} /></Tooltip></span>}
                       value={selectedBacktest.performance_metrics.max_drawdown * 100}
                       precision={2}
-                      valueStyle={{ color: '#cf1322' }}
+                      valueStyle={{ color: '#3f8600' }}  // 修改为绿色
                       suffix="%"
                     />
                   </Col>
