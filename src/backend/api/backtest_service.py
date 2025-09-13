@@ -510,9 +510,10 @@ class BacktestService:
                     # 保存回测结果数据
                     results=result,
                     equity_curve=result.get('equity_curve'),
-                    trade_records=result.get('trade_records'),
+                    trade_records=result.get('trades'),  # 回测引擎返回的字段名是'trades'
                     performance_metrics={
                         'total_return': result.get('total_return'),
+                        'annual_return': result.get('annual_return'),  # 添加年化收益率
                         'max_drawdown': result.get('max_drawdown'),
                         'sharpe_ratio': result.get('sharpe_ratio'),
                         'volatility': result.get('volatility'),
@@ -562,9 +563,10 @@ class BacktestService:
                 # 保存回测结果数据到旧架构记录
                 results=result,
                 equity_curve=result.get('equity_curve'),
-                trade_records=result.get('trade_records'),
+                trade_records=result.get('trades'),  # 回测引擎返回的字段名是'trades'
                 performance_metrics={
                     'total_return': result.get('total_return'),
+                    'annual_return': result.get('annual_return'),  # 添加年化收益率
                     'max_drawdown': result.get('max_drawdown'),
                     'sharpe_ratio': result.get('sharpe_ratio'),
                     'volatility': result.get('volatility'),

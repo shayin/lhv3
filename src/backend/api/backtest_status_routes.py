@@ -94,7 +94,8 @@ async def list_backtest_status(
                 "created_at": status.created_at.isoformat(),
                 "updated_at": status.updated_at.isoformat(),
                 "completed_at": status.completed_at.isoformat() if status.completed_at else None,
-                "performance_metrics": performance_metrics
+                "performance_metrics": performance_metrics,
+                "trade_records": status.trade_records  # 添加交易记录数据
             })
         
         return result
@@ -321,6 +322,7 @@ async def update_backtest_status(
         logger.info(f"更新字段: equity_curve={len(status.equity_curve) if status.equity_curve else 0}条记录")
         status.performance_metrics = {
             'total_return': backtest_data.get('total_return'),
+            'annual_return': backtest_data.get('annual_return'),  # 添加年化收益率
             'max_drawdown': backtest_data.get('max_drawdown'),
             'sharpe_ratio': backtest_data.get('sharpe_ratio'),
             'volatility': backtest_data.get('volatility'),

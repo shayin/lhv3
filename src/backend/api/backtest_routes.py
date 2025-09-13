@@ -656,6 +656,7 @@ async def update_backtest(
             trade_records=result.get("data", {}).get("trade_records"),
             performance_metrics={
                 'total_return': result.get("data", {}).get("total_return"),
+                'annual_return': result.get("data", {}).get("annual_return"),  # 添加年化收益率
                 'max_drawdown': result.get("data", {}).get("max_drawdown"),
                 'sharpe_ratio': result.get("data", {}).get("sharpe_ratio"),
                 'volatility': result.get("data", {}).get("volatility"),

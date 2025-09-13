@@ -54,8 +54,10 @@ interface BacktestRecord {
   status: string;
   created_at: string;
   completed_at?: string;
+  trade_records?: any[];  // 添加交易记录字段
   performance_metrics?: {
     total_return?: number;
+    annual_return?: number;  // 添加年化收益率字段
     max_drawdown?: number;
     sharpe_ratio?: number;
     volatility?: number;
@@ -438,6 +440,15 @@ const BacktestHistory: React.FC = () => {
           return <Text type="danger">-{(drawdown * 100).toFixed(2)}%</Text>;
         }
         return '-';
+      },
+    },
+    {
+      title: '交易次数',
+      key: 'trade_count',
+      width: 100,
+      render: (_, record) => {
+        const tradeCount = record.trade_records?.length || 0;
+        return <Text>{tradeCount}</Text>;
       },
     },
     {
@@ -1579,9 +1590,9 @@ const BacktestHistory: React.FC = () => {
                   <Col span={6}>
                     <Statistic
                       title={<span>年化收益率 <Tooltip title="策略的年化收益率"><InfoCircleOutlined style={{ fontSize: 14, color: '#aaa' }} /></Tooltip></span>}
-                      value={selectedBacktest.performance_metrics.total_return * 100}
+                      value={(selectedBacktest.performance_metrics.annual_return || 0) * 100}
                       precision={2}
-                      valueStyle={{ color: selectedBacktest.performance_metrics.total_return >= 0 ? '#3f8600' : '#cf1322' }}
+                      valueStyle={{ color: (selectedBacktest.performance_metrics.annual_return || 0) >= 0 ? '#3f8600' : '#cf1322' }}
                       suffix="%"
                     />
                   </Col>

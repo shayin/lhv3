@@ -2617,7 +2617,15 @@ const Backtest: React.FC = () => {
               <Button 
                 icon={<SaveOutlined />} 
                 type="primary"
-                onClick={() => setSaveModalVisible(true)}
+                onClick={() => {
+                  // 生成默认回测名称：股票代码_v日期_时分
+                  const now = new Date();
+                  const dateStr = now.toISOString().slice(0, 10).replace(/-/g, ''); // YYYYMMDD
+                  const timeStr = now.toTimeString().slice(0, 5).replace(':', ''); // HHMM
+                  const defaultName = `${selectedStock?.symbol || 'UNKNOWN'}_v${dateStr}_${timeStr}`;
+                  setBacktestName(defaultName);
+                  setSaveModalVisible(true);
+                }}
                 disabled={!hasResults}
               >
                 保存回测
