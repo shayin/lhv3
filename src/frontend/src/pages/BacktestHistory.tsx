@@ -369,6 +369,24 @@ const BacktestHistory: React.FC = () => {
       render: (text: string) => <Text strong>{text}</Text>,
     },
     {
+      title: '描述',
+      dataIndex: 'description',
+      key: 'description',
+      width: 250,
+      render: (text: string) => {
+        if (!text) return '-';
+        // 如果描述太长，显示前50个字符并添加省略号
+        if (text.length > 50) {
+          return (
+            <Tooltip title={text}>
+              <Text>{text.substring(0, 50)}...</Text>
+            </Tooltip>
+          );
+        }
+        return <Text>{text}</Text>;
+      },
+    },
+    {
       title: '策略',
       dataIndex: 'strategy_name',
       key: 'strategy_name',
