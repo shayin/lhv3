@@ -181,4 +181,25 @@ export const fetchStrategyTemplateById = async (id: string): Promise<Strategy> =
     console.error(`获取策略模板(ID:${id})详情失败:`, error);
     throw error;
   }
+};
+
+// 获取股票数据日期范围
+export const fetchStockDateRange = async (stockId: string): Promise<{
+  stock_id: number;
+  symbol: string;
+  name: string;
+  data_count: number;
+  first_date: string | null;
+  last_date: string | null;
+}> => {
+  try {
+    const response = await axios.get(`/api/data/stock/${stockId}/date-range`);
+    if (response.data) {
+      return response.data;
+    }
+    throw new Error('未找到股票日期范围数据');
+  } catch (error) {
+    console.error(`获取股票(ID:${stockId})日期范围失败:`, error);
+    throw error;
+  }
 }; 

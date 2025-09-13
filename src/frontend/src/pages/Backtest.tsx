@@ -4,7 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import { LineChartOutlined, PlayCircleOutlined, DownloadOutlined, SaveOutlined, InfoCircleOutlined, MinusCircleOutlined, PlusOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import ReactECharts from 'echarts-for-react';
-import { fetchStockList, fetchDataSources as fetchDataSourcesAPI, Stock, DataSource } from '../services/apiService';
+import { fetchStockList, fetchDataSources as fetchDataSourcesAPI, fetchStockDateRange, Stock, DataSource } from '../services/apiService';
 import axios from 'axios';
 import moment from 'moment';
 import type { Moment } from 'moment';
@@ -1770,6 +1770,25 @@ const Backtest: React.FC = () => {
     fetchStrategies(); // 加载策略列表
   }, []);
   
+  // 处理股票选择并自动设置日期范围
+  const handleStockSelection = async (stock: Stock) => {
+    setSelectedStock(stock);
+    
+    // 获取该股票的数据日期范围
+    try {
+      const dateRange = await fetchStockDateRange(stock.id);
+      if (dateRange.first_date && dateRange.last_date) {
+        const startDate = dayjs(dateRange.first_date).startOf('day');
+        const endDate = dayjs(dateRange.last_date).endOf('day');
+        setDateRange([startDate, endDate]);
+        antdMessage.success(`已自动设置回测周期：${dateRange.first_date} 至 ${dateRange.last_date}`);
+      }
+    } catch (error) {
+      console.error('获取股票日期范围失败:', error);
+      antdMessage.warning('无法获取该股票的数据日期范围，请手动设置回测周期');
+    }
+  };
+
   // 获取股票列表
   const fetchStocks = async () => {
     setLoading(true);
@@ -1777,8 +1796,8 @@ const Backtest: React.FC = () => {
       const stocks = await fetchStockList();
       setStockList(stocks);
       if (stocks.length > 0) {
-        // 默认选择第一个股票
-        setSelectedStock(stocks[0]);
+        // 默认选择第一个股票并设置日期范围
+        await handleStockSelection(stocks[0]);
       }
     } catch (error) {
       console.error('获取股票列表失败:', error);
@@ -2353,9 +2372,11 @@ const Backtest: React.FC = () => {
                 <Form.Item label="交易品种" required>
                   <Select
                     value={selectedStock?.symbol}
-                    onChange={value => {
+                    onChange={async (value) => {
                       const stock = stockList.find(s => s.symbol === value);
-                      setSelectedStock(stock || null);
+                      if (stock) {
+                        await handleStockSelection(stock);
+                      }
                     }}
                     placeholder="选择交易品种"
                   >
