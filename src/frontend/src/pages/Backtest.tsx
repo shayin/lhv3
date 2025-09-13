@@ -95,6 +95,7 @@ const Backtest: React.FC = () => {
   const [tradesData, setTradesData] = useState<any[]>([]);
   const [equityData, setEquityData] = useState<any[]>([]);
   const resultsRef = useRef<HTMLDivElement>(null);
+  const initializedRef = useRef<boolean>(false); // 防止重复初始化
   // 添加仓位控制相关状态
   const [positionMode, setPositionMode] = useState<string>('fixed'); // 'fixed', 'dynamic', 'staged'
   const [defaultPositionSize, setDefaultPositionSize] = useState<number>(100); // 默认100%
@@ -1765,6 +1766,12 @@ const Backtest: React.FC = () => {
 
   // 加载数据
   useEffect(() => {
+    // 防止React StrictMode导致的重复初始化
+    if (initializedRef.current) {
+      return;
+    }
+    initializedRef.current = true;
+    
     fetchStocks();
     fetchDataSources();
     fetchStrategies(); // 加载策略列表
