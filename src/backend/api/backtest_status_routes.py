@@ -251,7 +251,7 @@ async def update_backtest_status(
                 end_date = update_request.end_date
             else:
                 # 获取最新的可用数据日期
-                from datetime import datetime, timedelta
+                from datetime import timedelta
                 end_date = (datetime.now() - timedelta(days=1)).strftime('%Y-%m-%d')
                 logger.info(f"未指定end_date，使用最新可用日期: {end_date}")
             logger.info(f"使用常规日期参数: start_date={start_date}, end_date={end_date}")
