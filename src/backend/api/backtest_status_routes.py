@@ -22,6 +22,7 @@ router = APIRouter(prefix="/api/backtest-status", tags=["backtest-status"])
 class UpdateBacktestRequest(BaseModel):
     """更新回测请求模型"""
     new_name: Optional[str] = None
+    new_description: Optional[str] = None  # 添加描述字段
     update_to_date: Optional[str] = None
     start_date: Optional[str] = None
     end_date: Optional[str] = None
@@ -262,9 +263,11 @@ async def update_backtest_status(
         parameters = update_request.parameters or status.parameters or {}
         position_config = update_request.position_config or status.position_config
         
-        # 处理新名称
+        # 处理新名称和描述
         new_name = update_request.new_name or status.name
+        new_description = update_request.new_description if update_request.new_description is not None else status.description
         logger.info(f"处理新名称: update_request.new_name={update_request.new_name}, status.name={status.name}, new_name={new_name}")
+        logger.info(f"处理新描述: update_request.new_description={update_request.new_description}, status.description={status.description}, new_description={new_description}")
         
         # 获取股票代码
         symbol = instruments[0] if instruments else 'TSLA'
@@ -307,6 +310,7 @@ async def update_backtest_status(
         
         # 更新状态记录 - 包括新的参数
         status.name = new_name
+        status.description = new_description
         status.start_date = datetime.strptime(start_date, '%Y-%m-%d')
         status.end_date = datetime.strptime(end_date, '%Y-%m-%d')
         status.initial_capital = initial_capital

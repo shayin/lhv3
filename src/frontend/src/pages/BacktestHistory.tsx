@@ -294,6 +294,7 @@ const BacktestHistory: React.FC = () => {
     setSelectedBacktestForUpdate(record);
     updateForm.setFieldsValue({
       new_name: record.name,
+      new_description: record.description || '', // 预填充原有描述
       update_to_date: null
     });
     setUpdateModalVisible(true);
@@ -309,6 +310,7 @@ const BacktestHistory: React.FC = () => {
 
       const updateData = {
         new_name: values.new_name,
+        new_description: values.new_description || '', // 包含描述字段
         update_to_date: values.update_to_date ? values.update_to_date.format('YYYY-MM-DD') : undefined
       };
 
@@ -1717,6 +1719,17 @@ const BacktestHistory: React.FC = () => {
               style={{ width: '100%' }} 
               placeholder="选择更新截止日期（可选）"
               format="YYYY-MM-DD"
+            />
+          </Form.Item>
+
+          <Form.Item
+            label="回测描述"
+            name="new_description"
+            extra="可选：更新回测的描述信息"
+          >
+            <Input.TextArea
+              placeholder="请输入回测描述（可选）"
+              rows={3}
             />
           </Form.Item>
 
