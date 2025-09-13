@@ -245,11 +245,15 @@ async def update_backtest_status(
                 start_date = update_request.start_date or status.start_date
             else:
                 start_date = update_request.start_date or status.start_date.strftime('%Y-%m-%d')
-                
-            if isinstance(status.end_date, str):
-                end_date = update_request.end_date or status.end_date
+            
+            # 如果没有指定end_date，则获取最新的可用数据
+            if update_request.end_date:
+                end_date = update_request.end_date
             else:
-                end_date = update_request.end_date or status.end_date.strftime('%Y-%m-%d')
+                # 获取最新的可用数据日期
+                from datetime import datetime, timedelta
+                end_date = (datetime.now() - timedelta(days=1)).strftime('%Y-%m-%d')
+                logger.info(f"未指定end_date，使用最新可用日期: {end_date}")
             logger.info(f"使用常规日期参数: start_date={start_date}, end_date={end_date}")
         
         initial_capital = update_request.initial_capital or status.initial_capital

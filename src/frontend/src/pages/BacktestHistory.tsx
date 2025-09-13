@@ -307,7 +307,7 @@ const BacktestHistory: React.FC = () => {
 
       const updateData = {
         new_name: values.new_name,
-        update_to_date: values.update_to_date ? values.update_to_date.format('YYYY-MM-DD') : null
+        update_to_date: values.update_to_date ? values.update_to_date.format('YYYY-MM-DD') : undefined
       };
 
       const response = await axios.post(`/api/backtest-status/${selectedBacktestForUpdate.id}/update`, updateData);
@@ -1680,7 +1680,7 @@ const BacktestHistory: React.FC = () => {
           <Form.Item
             label="更新到日期"
             name="update_to_date"
-            extra="留空则更新到最新可用日期"
+            extra="留空则自动更新到最新可用数据（通常是昨天）"
           >
             <DatePicker 
               style={{ width: '100%' }} 
@@ -1696,7 +1696,7 @@ const BacktestHistory: React.FC = () => {
                 <div>
                   <p>• 将基于原回测的配置（策略、参数、仓位配置等）重新运行回测</p>
                   <p>• 起始日期保持原回测的起始日期：{selectedBacktestForUpdate.start_date}</p>
-                  <p>• 结束日期将更新到您选择的日期或最新可用日期</p>
+                  <p>• 结束日期将更新到您选择的日期，如不选择则自动更新到最新可用数据</p>
                   <p>• 将创建新的回测记录，原回测记录保持不变</p>
                 </div>
               }
