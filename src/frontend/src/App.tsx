@@ -14,6 +14,7 @@ import StrategyOptimization from './pages/StrategyOptimization';
 import StrategyList from './pages/StrategyList';
 import StrategyEditor from './pages/StrategyEditor';
 import BacktestHistory from './pages/BacktestHistory';
+import BacktestHistoryDetail from './pages/BacktestHistoryDetail';
 
 import './App.css';
 
@@ -47,6 +48,7 @@ const App: React.FC = () => {
                   <Route path="/strategy/builder" element={<StrategyBuilder />} />
                   <Route path="/backtest" element={<Backtest />} />
                   <Route path="/backtest/history" element={<BacktestHistory />} />
+                  <Route path="/backtest-history/:id" element={<BacktestHistoryDetail />} />
                   <Route path="/optimization" element={<StrategyOptimization />} />
                 </Routes>
               </Content>

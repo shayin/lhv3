@@ -250,7 +250,7 @@ const BacktestHistoryDetail: React.FC = () => {
         <Space>
           <Button
             icon={<ArrowLeftOutlined />}
-            onClick={() => navigate('/backtest-history')}
+            onClick={() => navigate('/backtest/history')}
           >
             返回列表
           </Button>
