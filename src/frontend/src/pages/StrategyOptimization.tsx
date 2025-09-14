@@ -269,19 +269,22 @@ const StrategyOptimization: React.FC = () => {
       title: 'ID',
       dataIndex: 'id',
       key: 'id',
-      width: 80,
+      width: 60,
+      align: 'center',
     },
     {
       title: '任务名称',
       dataIndex: 'name',
       key: 'name',
-      width: 200,
+      width: 180,
+      ellipsis: true,
     },
     {
       title: '状态',
       dataIndex: 'status',
       key: 'status',
-      width: 100,
+      width: 80,
+      align: 'center',
       render: (status: string) => {
         const statusMap = {
           'running': { color: 'processing', text: '运行中' },
@@ -297,11 +300,11 @@ const StrategyOptimization: React.FC = () => {
       title: '进度',
       dataIndex: 'progress',
       key: 'progress',
-      width: 150,
+      width: 120,
       render: (progress: number, record: OptimizationJob) => (
         <div>
           <Progress percent={progress} size="small" />
-          <Text type="secondary" style={{ fontSize: '12px' }}>
+          <Text type="secondary" style={{ fontSize: '11px' }}>
             {record.completed_trials}/{record.total_trials}
           </Text>
         </div>
@@ -311,7 +314,8 @@ const StrategyOptimization: React.FC = () => {
       title: '最佳得分',
       dataIndex: 'best_score',
       key: 'best_score',
-      width: 120,
+      width: 100,
+      align: 'center',
       render: (score: number, record: OptimizationJob) => {
         if (!score) return '-';
         const objectiveMap = {
@@ -322,8 +326,8 @@ const StrategyOptimization: React.FC = () => {
         const objectiveName = objectiveMap[record.objective_function as keyof typeof objectiveMap] || '得分';
         return (
           <div>
-            <div>{score.toFixed(4)}</div>
-            <Text type="secondary" style={{ fontSize: '12px' }}>{objectiveName}</Text>
+            <div style={{ fontWeight: 'bold', color: '#1890ff' }}>{score.toFixed(4)}</div>
+            <Text type="secondary" style={{ fontSize: '11px' }}>{objectiveName}</Text>
           </div>
         );
       }
@@ -332,14 +336,15 @@ const StrategyOptimization: React.FC = () => {
       title: '交易配置',
       dataIndex: 'optimization_config',
       key: 'trading_config',
-      width: 140,
+      width: 110,
+      align: 'center',
       render: (config: any) => {
         if (!config || !config.backtest_config) return '-';
         const { symbol, initial_capital } = config.backtest_config;
         return (
           <div>
-            <Tag color="green">{symbol}</Tag>
-            <div style={{ fontSize: '12px', color: '#666', marginTop: '2px' }}>
+            <Tag color="green" style={{ marginBottom: '2px' }}>{symbol}</Tag>
+            <div style={{ fontSize: '11px', color: '#666' }}>
               ¥{initial_capital?.toLocaleString() || 'N/A'}
             </div>
           </div>
@@ -350,16 +355,17 @@ const StrategyOptimization: React.FC = () => {
       title: '回测时间段',
       dataIndex: 'optimization_config',
       key: 'date_range',
-      width: 180,
+      width: 140,
       render: (config: any) => {
         if (!config || !config.backtest_config) return '-';
         const { start_date, end_date } = config.backtest_config;
         return (
-          <div>
-            <div style={{ fontSize: '12px', color: '#666' }}>
-              {start_date} 至
+          <div style={{ lineHeight: '1.2' }}>
+            <div style={{ fontSize: '11px', color: '#666' }}>
+              {start_date}
             </div>
-            <div style={{ fontSize: '12px', color: '#666' }}>
+            <div style={{ fontSize: '10px', color: '#999', margin: '2px 0' }}>至</div>
+            <div style={{ fontSize: '11px', color: '#666' }}>
               {end_date}
             </div>
           </div>
@@ -370,14 +376,15 @@ const StrategyOptimization: React.FC = () => {
       title: '最佳参数',
       dataIndex: 'best_parameters',
       key: 'best_parameters',
-      width: 200,
+      width: 160,
       render: (params: Record<string, any>) => {
         if (!params) return '-';
         return (
           <div>
             {Object.entries(params).map(([key, value]) => (
-              <Tag key={key} color="blue" style={{ marginBottom: '2px' }}>
-                {key}: {value}
+              <Tag key={key} color="blue" size="small" style={{ marginBottom: '3px', fontSize: '11px' }}>
+                {key === 'short_window' ? '短期' : 
+                 key === 'long_window' ? '长期' : key}: {value}
               </Tag>
             ))}
           </div>
@@ -388,21 +395,28 @@ const StrategyOptimization: React.FC = () => {
       title: '创建时间',
       dataIndex: 'created_at',
       key: 'created_at',
-      width: 180,
-      render: (time: string) => dayjs(time).format('YYYY-MM-DD HH:mm:ss')
+      width: 140,
+      render: (time: string) => (
+        <div style={{ lineHeight: '1.2' }}>
+          <div style={{ fontSize: '11px' }}>{dayjs(time).format('YYYY-MM-DD')}</div>
+          <div style={{ fontSize: '11px', color: '#666' }}>{dayjs(time).format('HH:mm:ss')}</div>
+        </div>
+      )
     },
     {
       title: '操作',
       key: 'action',
-      width: 200,
+      width: 100,
+      align: 'center',
       render: (_, record: OptimizationJob) => (
-        <Space>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
           <Button
             type="link"
             icon={<EyeOutlined />}
             onClick={() => handleViewJobDetail(record)}
             size="small"
             disabled={record.status !== 'completed'}
+            style={{ padding: '2px 8px', height: 'auto', fontSize: '12px' }}
           >
             查看回测
           </Button>
@@ -411,11 +425,11 @@ const StrategyOptimization: React.FC = () => {
             onClick={() => handleViewTrials(record)}
             size="small"
             disabled={record.status !== 'completed'}
-            style={{ color: '#1890ff' }}
+            style={{ color: '#1890ff', padding: '2px 8px', height: 'auto', fontSize: '12px' }}
           >
             其他回测
           </Button>
-        </Space>
+        </div>
       )
     }
   ];
@@ -426,9 +440,9 @@ const StrategyOptimization: React.FC = () => {
   }, []);
   
   return (
-    <div style={{ padding: '24px' }}>
-      <Card>
-        <Title level={3}>策略参数优化</Title>
+    <div style={{ padding: '16px', height: '100vh', display: 'flex', flexDirection: 'column' }}>
+      <Card style={{ marginBottom: '16px', flexShrink: 0 }}>
+        <Title level={3} style={{ margin: '0 0 16px 0' }}>策略参数优化</Title>
         
         <Row gutter={[16, 16]} style={{ marginBottom: '24px' }}>
           <Col span={8}>
@@ -475,13 +489,42 @@ const StrategyOptimization: React.FC = () => {
             </Space>
           </Col>
         </Row>
+      </Card>
 
-            <Table
+      <Card 
+        title="优化任务列表" 
+        style={{ 
+          flex: 1,
+          display: 'flex', 
+          flexDirection: 'column',
+          minHeight: 0
+        }}
+        bodyStyle={{ 
+          flex: 1, 
+          padding: '16px', 
+          display: 'flex',
+          flexDirection: 'column',
+          minHeight: 0
+        }}
+      >
+        <Table
           columns={jobColumns}
           dataSource={optimizationJobs}
           rowKey="id"
-          pagination={{ pageSize: 10 }}
           loading={loading}
+          size="middle"
+          scroll={{ 
+            x: 1200,
+            y: 'calc(100vh - 320px)'
+          }}
+          pagination={{
+            pageSize: 20,
+            showSizeChanger: true,
+            showQuickJumper: true,
+            showTotal: (total) => `共 ${total} 条记录`,
+            size: 'small'
+          }}
+          style={{ flex: 1 }}
         />
       </Card>
 
