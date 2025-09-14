@@ -311,6 +311,46 @@ async def get_optimization_trials(
         raise HTTPException(status_code=500, detail=f"获取优化试验列表失败: {str(e)}")
 
 
+@router.delete("/jobs/{job_id}")
+async def delete_optimization_job(
+    job_id: int,
+    db: Session = Depends(get_db)
+):
+    """删除优化任务"""
+    try:
+        # 检查任务是否存在
+        job = db.query(OptimizationJob).filter(OptimizationJob.id == job_id).first()
+        if not job:
+            raise HTTPException(status_code=404, detail="优化任务不存在")
+        
+        # 检查任务状态，运行中的任务不能删除
+        if job.status == 'running':
+            raise HTTPException(status_code=400, detail="运行中的任务不能删除，请先停止任务")
+        
+        logger.info(f"删除优化任务: ID={job_id}, 名称={job.name}")
+        
+        # 删除相关的试验记录（级联删除）
+        trials_count = db.query(OptimizationTrial).filter(OptimizationTrial.job_id == job_id).count()
+        
+        # 删除任务（会级联删除相关的试验记录）
+        db.delete(job)
+        db.commit()
+        
+        logger.info(f"成功删除优化任务 {job_id}，同时删除了 {trials_count} 个试验记录")
+        
+        return {
+            "status": "success",
+            "message": f"成功删除优化任务 '{job.name}' 及其 {trials_count} 个试验记录"
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"删除优化任务失败: {str(e)}")
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"删除优化任务失败: {str(e)}")
+
+
 @router.post("/parameter-sets")
 async def create_parameter_set(
     request: ParameterSetRequest,

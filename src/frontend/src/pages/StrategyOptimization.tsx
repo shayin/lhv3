@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { Card, Form, Button, Select, InputNumber, Row, Col, Typography, message, Table, Space, Modal, Input, Progress, Tag, Alert, Tabs, Statistic } from 'antd';
-import { PlayCircleOutlined, PlusOutlined, DeleteOutlined, SettingOutlined, EyeOutlined, ReloadOutlined } from '@ant-design/icons';
+import { Card, Form, Button, Select, InputNumber, Row, Col, Typography, message, Table, Space, Modal, Input, Progress, Tag, Alert, Tabs, Statistic, Popconfirm, DatePicker } from 'antd';
+import { PlayCircleOutlined, PlusOutlined, DeleteOutlined, SettingOutlined, EyeOutlined, ReloadOutlined, CalendarOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import axios from 'axios';
 import dayjs from 'dayjs';
@@ -67,6 +67,10 @@ const StrategyOptimization: React.FC = () => {
   const [jobBacktestResult, setJobBacktestResult] = useState<any>(null);
   const [trialsModalVisible, setTrialsModalVisible] = useState(false);
   const [optimizationTrials, setOptimizationTrials] = useState<any[]>([]);
+  
+  // 股票数据范围状态
+  const [stockDateRange, setStockDateRange] = useState<{min_date?: string, max_date?: string}>({});
+  const [availableStocks, setAvailableStocks] = useState<{symbol: string, name: string}[]>([]);
 
   // 加载策略列表
   const loadStrategies = async () => {
@@ -79,6 +83,86 @@ const StrategyOptimization: React.FC = () => {
       console.error('加载策略列表失败:', error);
       message.error('加载策略列表失败');
     }
+  };
+
+  // 加载股票列表
+  const loadStocks = async () => {
+    try {
+      const response = await axios.get('/api/data/stocks');
+      if (response.data && Array.isArray(response.data)) {
+        const stocks = response.data.map((stock: any) => ({
+          symbol: stock.symbol,
+          name: stock.name
+        }));
+        setAvailableStocks(stocks);
+      }
+    } catch (error) {
+      console.error('加载股票列表失败:', error);
+      // 不显示错误消息，使用默认选项
+      setAvailableStocks([
+        { symbol: 'AAPL', name: 'Apple Inc.' },
+        { symbol: 'TSLA', name: 'Tesla Inc.' },
+        { symbol: 'MSFT', name: 'Microsoft Corporation' },
+        { symbol: 'GOOGL', name: 'Alphabet Inc.' },
+        { symbol: 'AMZN', name: 'Amazon.com Inc.' }
+      ]);
+    }
+  };
+
+  // 获取股票数据范围
+  const fetchStockDateRange = async (symbol: string) => {
+    try {
+      const response = await axios.get(`/api/data/stock/symbol/${symbol}/date-range`);
+      if (response.data && response.data.status === 'success') {
+        const { min_date, max_date } = response.data.data;
+        setStockDateRange({ min_date, max_date });
+        
+        // 自动设置表单的开始和结束日期
+        if (min_date && max_date) {
+          optimizationForm.setFieldsValue({
+            start_date: dayjs(min_date),
+            end_date: dayjs(max_date)
+          });
+        }
+      }
+    } catch (error) {
+      console.error('获取股票数据范围失败:', error);
+      // 不显示错误消息，因为可能是新股票代码
+    }
+  };
+
+  // 设置快捷时间范围
+  const setQuickTimeRange = (type: 'recent1y' | 'recent3y' | 'recent5y' | 'full') => {
+    const now = dayjs();
+    let startDate: dayjs.Dayjs;
+    let endDate: dayjs.Dayjs = now;
+
+    switch (type) {
+      case 'recent1y':
+        startDate = now.subtract(1, 'year');
+        break;
+      case 'recent3y':
+        startDate = now.subtract(3, 'year');
+        break;
+      case 'recent5y':
+        startDate = now.subtract(5, 'year');
+        break;
+      case 'full':
+        if (stockDateRange.min_date && stockDateRange.max_date) {
+          startDate = dayjs(stockDateRange.min_date);
+          endDate = dayjs(stockDateRange.max_date);
+        } else {
+          startDate = now.subtract(5, 'year');
+        }
+        break;
+      default:
+        startDate = now.subtract(1, 'year');
+    }
+
+    optimizationForm.setFieldsValue({
+      start_date: startDate,
+      end_date: endDate
+    });
   };
 
   // 加载参数空间
@@ -178,6 +262,31 @@ const StrategyOptimization: React.FC = () => {
     }
   };
 
+  // 删除优化任务
+  const handleDeleteJob = async (job: OptimizationJob) => {
+    try {
+      // 检查任务状态
+      if (job.status === 'running') {
+        message.error('运行中的任务不能删除，请先停止任务');
+        return;
+      }
+
+      const response = await axios.delete(`/api/optimization/jobs/${job.id}`);
+      
+      if (response.data && response.data.status === 'success') {
+        message.success(response.data.message || '删除成功');
+        // 刷新任务列表
+        await loadOptimizationJobs();
+      } else {
+        message.error('删除失败');
+      }
+    } catch (error: any) {
+      console.error('删除优化任务失败:', error);
+      const errorMessage = error.response?.data?.detail || error.message || '删除失败';
+      message.error(errorMessage);
+    }
+  };
+
   // 查看任务详情
   const handleViewJobDetail = async (job: OptimizationJob) => {
     try {
@@ -270,8 +379,8 @@ const StrategyOptimization: React.FC = () => {
         timeout: values.timeout,
         backtest_config: {
           symbol: values.symbol,
-          start_date: values.start_date,
-          end_date: values.end_date,
+          start_date: values.start_date.format('YYYY-MM-DD'),
+          end_date: values.end_date.format('YYYY-MM-DD'),
           initial_capital: values.initial_capital
         }
       };
@@ -408,7 +517,7 @@ const StrategyOptimization: React.FC = () => {
         return (
           <div>
             {Object.entries(params).map(([key, value]) => (
-              <Tag key={key} color="blue" size="small" style={{ marginBottom: '3px', fontSize: '11px' }}>
+              <Tag key={key} color="blue" style={{ marginBottom: '3px', fontSize: '11px' }}>
                 {key === 'short_window' ? '短期' : 
                  key === 'long_window' ? '长期' : key}: {value}
               </Tag>
@@ -455,6 +564,25 @@ const StrategyOptimization: React.FC = () => {
           >
             其他回测
           </Button>
+          <Popconfirm
+            title="确认删除"
+            description={`确定要删除优化任务 "${record.name}" 吗？此操作不可恢复。`}
+            onConfirm={() => handleDeleteJob(record)}
+            okText="确定"
+            cancelText="取消"
+            disabled={record.status === 'running'}
+            placement="top"
+          >
+            <Button 
+              danger
+              size="small"
+              disabled={record.status === 'running'}
+              icon={<DeleteOutlined />}
+              style={{ padding: '2px 8px', height: 'auto', fontSize: '12px' }}
+            >
+              删除
+            </Button>
+          </Popconfirm>
         </div>
       )
     }
@@ -463,6 +591,9 @@ const StrategyOptimization: React.FC = () => {
   useEffect(() => {
     loadStrategies();
     loadOptimizationJobs();
+    loadStocks();
+    // 自动获取默认股票AAPL的数据范围
+    fetchStockDateRange('AAPL');
   }, []);
   
   return (
@@ -727,43 +858,104 @@ const StrategyOptimization: React.FC = () => {
               <Form.Item 
                 name="symbol" 
                 label="交易品种" 
-                rules={[{ required: true, message: '请输入交易品种' }]}
+                rules={[{ required: true, message: '请选择交易品种' }]}
                 initialValue="AAPL"
               >
-                <Input placeholder="如: AAPL, TSLA" />
+                <Select 
+                  placeholder="选择股票代码" 
+                  showSearch
+                  filterOption={(input, option) =>
+                    (option?.label ?? '').toLowerCase().includes(input.toLowerCase()) ||
+                    (option?.value ?? '').toLowerCase().includes(input.toLowerCase())
+                  }
+                  onChange={(value) => {
+                    if (value) {
+                      fetchStockDateRange(value);
+                    }
+                  }}
+                  options={availableStocks.map(stock => ({
+                    value: stock.symbol,
+                    label: `${stock.symbol} - ${stock.name}`
+                  }))}
+                />
                 </Form.Item>
               </Col>
               <Col span={12}>
               <Form.Item name="initial_capital" label="初始资金" initialValue={100000}>
-                  <InputNumber 
+                <InputNumber 
                   min={1000} 
-                    style={{ width: '100%' }} 
+                  style={{ width: '100%' }} 
                   formatter={value => `¥ ${value}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}
-                  parser={value => value ? value.replace(/¥\s?|(,*)/g, '') : ''}
-                  />
-                </Form.Item>
+                  parser={value => value?.replace(/¥\s?|(,*)/g, '') as any}
+                />
+              </Form.Item>
               </Col>
             </Row>
             
+          {/* 快捷时间选择 */}
+          <Form.Item label="快捷时间选择">
+            <Space wrap>
+              <Button 
+                size="small" 
+                icon={<CalendarOutlined />}
+                onClick={() => setQuickTimeRange('recent1y')}
+              >
+                最近1年
+              </Button>
+              <Button 
+                size="small" 
+                icon={<CalendarOutlined />}
+                onClick={() => setQuickTimeRange('recent3y')}
+              >
+                最近3年
+              </Button>
+              <Button 
+                size="small" 
+                icon={<CalendarOutlined />}
+                onClick={() => setQuickTimeRange('recent5y')}
+              >
+                最近5年
+              </Button>
+              {stockDateRange.min_date && stockDateRange.max_date && (
+                <Button 
+                  size="small" 
+                  icon={<CalendarOutlined />}
+                  onClick={() => setQuickTimeRange('full')}
+                  type="primary"
+                >
+                  全部数据 ({stockDateRange.min_date} ~ {stockDateRange.max_date})
+                </Button>
+              )}
+            </Space>
+          </Form.Item>
+
           <Row gutter={[16, 16]}>
             <Col span={12}>
               <Form.Item 
                 name="start_date" 
                 label="开始日期" 
-                rules={[{ required: true, message: '请输入开始日期' }]}
-                initialValue="2023-01-01"
+                rules={[{ required: true, message: '请选择开始日期' }]}
+                initialValue={dayjs('2023-01-01')}
               >
-                <Input placeholder="YYYY-MM-DD" />
+                <DatePicker 
+                  style={{ width: '100%' }}
+                  format="YYYY-MM-DD"
+                  placeholder="选择开始日期"
+                />
                 </Form.Item>
               </Col>
             <Col span={12}>
               <Form.Item 
                 name="end_date" 
                 label="结束日期" 
-                rules={[{ required: true, message: '请输入结束日期' }]}
-                initialValue="2024-12-31"
+                rules={[{ required: true, message: '请选择结束日期' }]}
+                initialValue={dayjs('2024-12-31')}
               >
-                <Input placeholder="YYYY-MM-DD" />
+                <DatePicker 
+                  style={{ width: '100%' }}
+                  format="YYYY-MM-DD"
+                  placeholder="选择结束日期"
+                />
                 </Form.Item>
               </Col>
             </Row>

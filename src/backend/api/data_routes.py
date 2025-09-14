@@ -129,6 +129,45 @@ async def get_stock_date_range(
         logger.error(f"数据库查询错误: {str(e)}")
         raise HTTPException(status_code=500, detail="数据库查询失败")
 
+@router.get("/stock/symbol/{symbol}/date-range")
+async def get_stock_date_range_by_symbol(
+    symbol: str = Path(..., description="股票代码"),
+    db: Session = Depends(get_db)
+):
+    """通过股票代码获取股票的数据时间范围"""
+    try:
+        # 查找股票
+        stock = db.query(Stock).filter(Stock.symbol == symbol.upper()).first()
+        if not stock:
+            raise HTTPException(status_code=404, detail=f"股票代码 {symbol} 不存在")
+        
+        # 查找该股票的最早和最晚数据日期
+        date_range = db.query(
+            func.min(StockData.date).label('min_date'),
+            func.max(StockData.date).label('max_date'),
+            func.count(StockData.id).label('data_count')
+        ).filter(StockData.stock_id == stock.id).first()
+        
+        if not date_range or not date_range.min_date:
+            raise HTTPException(status_code=404, detail=f"股票代码 {symbol} 没有数据记录")
+        
+        return {
+            "status": "success",
+            "data": {
+                "stock_id": stock.id,
+                "symbol": stock.symbol,
+                "name": stock.name,
+                "min_date": date_range.min_date.strftime("%Y-%m-%d"),
+                "max_date": date_range.max_date.strftime("%Y-%m-%d"),
+                "data_count": date_range.data_count or 0
+            }
+        }
+    except HTTPException:
+        raise
+    except SQLAlchemyError as e:
+        logger.error(f"数据库查询错误: {str(e)}")
+        raise HTTPException(status_code=500, detail="数据库查询失败")
+
 @router.get("/stock/{stock_id}/last-date")
 async def get_stock_last_date(
     stock_id: int = Path(..., description="股票ID"),
