@@ -20,6 +20,11 @@ class Strategy(Base):
     
     # 一对多关系：一个策略可以有多个回测
     backtests = relationship("Backtest", back_populates="strategy")
+    
+    # 参数优化相关关系
+    parameter_spaces = relationship("StrategyParameterSpace", back_populates="strategy", cascade="all, delete-orphan")
+    parameter_sets = relationship("ParameterSet", back_populates="strategy", cascade="all, delete-orphan")
+    optimization_jobs = relationship("OptimizationJob", back_populates="strategy", cascade="all, delete-orphan")
 
 class StrategySnapshot(Base):
     """策略快照模型 - 保存策略的镜像"""

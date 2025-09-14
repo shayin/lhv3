@@ -148,6 +148,10 @@ def get_db():
 
 def init_db(db_url=None):
     """初始化数据库，创建所有表"""
+    # 导入所有模型以确保它们被注册到Base.metadata中
+    from . import strategy  # 导入策略相关模型
+    from . import optimization  # 导入优化相关模型
+    
     engine = get_engine(db_url)
     Base.metadata.create_all(engine)
     return engine 

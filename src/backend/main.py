@@ -41,25 +41,8 @@ if __name__ == "__main__":
             logger.error("API应用加载失败，app对象为None")
             sys.exit(1)
         
-        # 注册路由
-        try:
-            from src.backend.api.strategy_routes import router as strategy_router
-            app.include_router(strategy_router)
-            logger.info("已注册策略管理路由")
-            
-            # 注释掉不存在的模块导入，避免错误
-            # 检查backtest_routes是否存在，如果存在则导入，否则记录日志
-            try:
-                from src.backend.api.backtest_routes import router as backtest_router
-                app.include_router(backtest_router)
-                logger.info("已注册回测管理路由")
-            except ImportError as e:
-                logger.warning(f"回测路由模块导入失败: {e}")
-                logger.warning("回测相关功能可能无法使用，但不影响系统启动")
-                
-        except ImportError as e:
-            logger.error(f"无法导入路由模块: {e}")
-            sys.exit(1)
+        # 路由已在app.py中注册，无需重复注册
+        logger.info("路由已在app.py中预配置完成")
         
         # 启动API服务
         logger.info("启动API服务...")

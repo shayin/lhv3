@@ -73,6 +73,11 @@ from .backtest_status_routes import router as backtest_status_router
 app.include_router(backtest_router, prefix="/api/backtest", tags=["回测"])
 app.include_router(backtest_status_router, tags=["回测状态"])
 
+# 注册参数优化路由
+from .optimization_routes import router as optimization_router
+app.include_router(optimization_router, tags=["参数优化"])
+
+
 # 初始化数据库
 @app.on_event("startup")
 async def startup():

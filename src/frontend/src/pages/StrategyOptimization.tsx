@@ -1,554 +1,849 @@
 import React, { useState, useEffect } from 'react';
-import { Card, Form, Button, DatePicker, Select, InputNumber, Row, Col, Divider, Typography, Tabs, Table, Slider, Space, Tag, Spin } from 'antd';
-import { SettingOutlined, PlayCircleOutlined, LineChartOutlined, SyncOutlined, SaveOutlined } from '@ant-design/icons';
+import { Card, Form, Button, Select, InputNumber, Row, Col, Typography, message, Table, Space, Modal, Input, Progress, Tag, Alert, Tabs, Statistic } from 'antd';
+import { PlayCircleOutlined, PlusOutlined, DeleteOutlined, SettingOutlined, EyeOutlined, ReloadOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
-import ReactECharts from 'echarts-for-react';
-import { fetchStockList, Stock } from '../services/apiService';
+import axios from 'axios';
+import dayjs from 'dayjs';
 
-const { Title, Paragraph } = Typography;
+const { Title, Text } = Typography;
 const { Option } = Select;
+const { TabPane } = Tabs;
 
-interface OptimizationResult {
-  key: string;
-  shortPeriod: number;
-  longPeriod: number;
-  annualReturn: number;
-  maxDrawdown: number;
-  sharpeRatio: number;
-  winRate: number;
-  tradeCount: number;
+interface Strategy {
+  id: number;
+  name: string;
+  description?: string;
+}
+
+interface ParameterSpace {
+  id?: number;
+  parameter_name: string;
+  parameter_type: 'int' | 'float' | 'choice';
+  min_value?: number;
+  max_value?: number;
+  step_size?: number;
+  choices?: any[];
+  description?: string;
+}
+
+interface OptimizationJob {
+  id: number;
+  strategy_id: number;
+  name: string;
+  status: string;
+  progress: number;
+  best_score?: number;
+  best_parameters?: Record<string, any>;
+  optimization_config?: {
+    backtest_config: {
+      symbol: string;
+      start_date: string;
+      end_date: string;
+      initial_capital: number;
+    };
+    parameter_spaces: any[];
+    objective_function: string;
+    n_trials: number;
+  };
+  total_trials: number;
+  completed_trials: number;
+  created_at: string;
+  objective_function?: string;
 }
 
 const StrategyOptimization: React.FC = () => {
-  const [running, setRunning] = useState(false);
-  const [hasResults, setHasResults] = useState(false);
-  const [stockList, setStockList] = useState<Stock[]>([]);
+  const [strategies, setStrategies] = useState<Strategy[]>([]);
+  const [selectedStrategy, setSelectedStrategy] = useState<number | null>(null);
+  const [parameterSpaces, setParameterSpaces] = useState<ParameterSpace[]>([]);
+  const [optimizationJobs, setOptimizationJobs] = useState<OptimizationJob[]>([]);
   const [loading, setLoading] = useState(false);
   
-  const handleRunOptimization = () => {
-    setRunning(true);
-    // 模拟优化过程
-    setTimeout(() => {
-      setRunning(false);
-      setHasResults(true);
-    }, 3000);
-  };
-  
-  // 示例优化结果
-  const optimizationResults: OptimizationResult[] = [
-    {
-      key: '1',
-      shortPeriod: 10,
-      longPeriod: 30,
-      annualReturn: 15.6,
-      maxDrawdown: 13.2,
-      sharpeRatio: 1.52,
-      winRate: 62.5,
-      tradeCount: 48
-    },
-    {
-      key: '2',
-      shortPeriod: 15,
-      longPeriod: 45,
-      annualReturn: 18.3,
-      maxDrawdown: 12.8,
-      sharpeRatio: 1.76,
-      winRate: 64.8,
-      tradeCount: 42
-    },
-    {
-      key: '3',
-      shortPeriod: 20,
-      longPeriod: 60,
-      annualReturn: 21.2,
-      maxDrawdown: 11.5,
-      sharpeRatio: 2.03,
-      winRate: 68.2,
-      tradeCount: 36
-    },
-    {
-      key: '4',
-      shortPeriod: 25,
-      longPeriod: 75,
-      annualReturn: 17.8,
-      maxDrawdown: 13.1,
-      sharpeRatio: 1.62,
-      winRate: 63.1,
-      tradeCount: 32
-    },
-    {
-      key: '5',
-      shortPeriod: 12,
-      longPeriod: 36,
-      annualReturn: 16.9,
-      maxDrawdown: 12.4,
-      sharpeRatio: 1.64,
-      winRate: 63.8,
-      tradeCount: 45
-    },
-    {
-      key: '6',
-      shortPeriod: 18,
-      longPeriod: 54,
-      annualReturn: 19.5,
-      maxDrawdown: 11.9,
-      sharpeRatio: 1.88,
-      winRate: 66.5,
-      tradeCount: 38
-    },
-    {
-      key: '7',
-      shortPeriod: 22,
-      longPeriod: 66,
-      annualReturn: 20.1,
-      maxDrawdown: 11.7,
-      sharpeRatio: 1.94,
-      winRate: 67.2,
-      tradeCount: 34
-    },
-  ];
-  
-  const columns: ColumnsType<OptimizationResult> = [
-    {
-      title: 'Short Period',
-      dataIndex: 'shortPeriod',
-      key: 'shortPeriod',
-      sorter: (a, b) => a.shortPeriod - b.shortPeriod,
-    },
-    {
-      title: 'Long Period',
-      dataIndex: 'longPeriod',
-      key: 'longPeriod',
-      sorter: (a, b) => a.longPeriod - b.longPeriod,
-    },
-    {
-      title: 'Annual Return (%)',
-      dataIndex: 'annualReturn',
-      key: 'annualReturn',
-      sorter: (a, b) => a.annualReturn - b.annualReturn,
-      render: (text) => <span style={{ color: '#f5222d' }}>{text.toFixed(2)}%</span>,
-      defaultSortOrder: 'descend',
-    },
-    {
-      title: 'Max Drawdown (%)',
-      dataIndex: 'maxDrawdown',
-      key: 'maxDrawdown',
-      sorter: (a, b) => a.maxDrawdown - b.maxDrawdown,
-      render: (text) => <span style={{ color: '#52c41a' }}>{text.toFixed(2)}%</span>,
-    },
-    {
-      title: 'Sharpe Ratio',
-      dataIndex: 'sharpeRatio',
-      key: 'sharpeRatio',
-      sorter: (a, b) => a.sharpeRatio - b.sharpeRatio,
-    },
-    {
-      title: 'Win Rate (%)',
-      dataIndex: 'winRate',
-      key: 'winRate',
-      sorter: (a, b) => a.winRate - b.winRate,
-    },
-    {
-      title: 'Trade Count',
-      dataIndex: 'tradeCount',
-      key: 'tradeCount',
-      sorter: (a, b) => a.tradeCount - b.tradeCount,
-    },
-    {
-      title: 'Action',
-      key: 'action',
-      render: (_, _record) => (
-        <Space size="small">
-          <Button size="small" type="link">Apply</Button>
-          <Button size="small" type="link">Details</Button>
-        </Space>
-      ),
-    },
-  ];
-  
-  // 热力图
-  const heatmapOption = {
-    title: {
-      text: 'Parameter Optimization Heatmap - Annual Return (%)',
-      left: 'center'
-    },
-    tooltip: {
-      position: 'top',
-      formatter: function (params: any) {
-        return 'Short Period: ' + params.data[0] + '<br>Long Period: ' + params.data[1] + '<br>Return: ' + params.data[2].toFixed(2) + '%';
+  // 表单和模态框状态
+  const [optimizationForm] = Form.useForm();
+  const [parameterSpaceModalVisible, setParameterSpaceModalVisible] = useState(false);
+  const [optimizationModalVisible, setOptimizationModalVisible] = useState(false);
+  const [jobDetailModalVisible, setJobDetailModalVisible] = useState(false);
+  const [selectedJob, setSelectedJob] = useState<OptimizationJob | null>(null);
+  const [jobBacktestResult, setJobBacktestResult] = useState<any>(null);
+
+  // 加载策略列表
+  const loadStrategies = async () => {
+    try {
+      const response = await axios.get('/api/strategies');
+      if (response.data && response.data.data) {
+        setStrategies(response.data.data);
       }
-    },
-    grid: {
-      top: '15%',
-      bottom: '10%',
-      left: '10%',
-      right: '5%'
-    },
-    xAxis: {
-      type: 'category',
-      name: 'Short Period',
-      data: [5, 10, 15, 20, 25, 30],
-      splitArea: {
-        show: true
-      }
-    },
-    yAxis: {
-      type: 'category',
-      name: 'Long Period',
-      data: [20, 30, 40, 50, 60, 70, 80, 90],
-      splitArea: {
-        show: true
-      }
-    },
-    visualMap: {
-      min: 10,
-      max: 25,
-      calculable: true,
-      orient: 'horizontal',
-      left: 'center',
-      bottom: '0%',
-      inRange: {
-        color: ['#52c41a', '#yellow', '#f5222d']
-      }
-    },
-    series: [{
-      name: 'Annual Return',
-      type: 'heatmap',
-      data: [
-        [0, 0, 12.5], [0, 1, 13.2], [0, 2, 14.8], [0, 3, 15.9], [0, 4, 16.7], [0, 5, 15.5], [0, 6, 14.2], [0, 7, 13.8],
-        [1, 0, 13.8], [1, 1, 14.6], [1, 2, 16.2], [1, 3, 17.8], [1, 4, 18.5], [1, 5, 17.2], [1, 6, 16.3], [1, 7, 15.5],
-        [2, 0, 15.2], [2, 1, 16.5], [2, 2, 18.3], [2, 3, 19.8], [2, 4, 20.6], [2, 5, 19.5], [2, 6, 18.4], [2, 7, 17.2],
-        [3, 0, 16.4], [3, 1, 17.8], [3, 2, 19.6], [3, 3, 21.2], [3, 4, 22.5], [3, 5, 21.3], [3, 6, 20.1], [3, 7, 18.9],
-        [4, 0, 15.6], [4, 1, 16.9], [4, 2, 18.7], [4, 3, 20.1], [4, 4, 21.3], [4, 5, 20.2], [4, 6, 19.2], [4, 7, 18.0],
-        [5, 0, 14.3], [5, 1, 15.5], [5, 2, 17.2], [5, 3, 18.5], [5, 4, 19.6], [5, 5, 18.8], [5, 6, 17.5], [5, 7, 16.3]
-      ],
-      emphasis: {
-        itemStyle: {
-          shadowBlur: 10,
-          shadowColor: 'rgba(0, 0, 0, 0.5)'
-        }
-      }
-    }]
-  };
-  
-  // 3D散点图
-  const scatter3DOption = {
-    title: {
-      text: 'Parameter Space Exploration',
-      left: 'center'
-    },
-    grid3D: {
-      viewControl: {
-        projection: 'orthographic',
-        autoRotate: true
-      },
-      axisLabel: {
-        formatter: '{value}'
-      }
-    },
-    xAxis3D: {
-      name: 'Short Period',
-      type: 'value',
-      min: 5,
-      max: 30
-    },
-    yAxis3D: {
-      name: 'Long Period',
-      type: 'value',
-      min: 20,
-      max: 90
-    },
-    zAxis3D: {
-      name: 'Annual Return (%)',
-      type: 'value',
-      min: 10,
-      max: 25
-    },
-    visualMap: {
-      dimension: 2,
-      min: 10,
-      max: 25,
-      inRange: {
-        color: ['#52c41a', '#yellow', '#f5222d']
-      }
-    },
-    dataset: {
-      source: [
-        [10, 30, 12.5], [10, 40, 13.2], [10, 50, 14.8], [10, 60, 15.9], [10, 70, 16.7], [10, 80, 15.5], [10, 90, 14.2],
-        [15, 30, 13.8], [15, 40, 14.6], [15, 50, 16.2], [15, 60, 17.8], [15, 70, 18.5], [15, 80, 17.2], [15, 90, 16.3],
-        [20, 30, 15.2], [20, 40, 16.5], [20, 50, 18.3], [20, 60, 19.8], [20, 70, 20.6], [20, 80, 19.5], [20, 90, 18.4],
-        [25, 30, 16.4], [25, 40, 17.8], [25, 50, 19.6], [25, 60, 21.2], [25, 70, 22.5], [25, 80, 21.3], [25, 90, 20.1],
-        [30, 30, 15.6], [30, 40, 16.9], [30, 50, 18.7], [30, 60, 20.1], [30, 70, 21.3], [30, 80, 20.2], [30, 90, 19.2]
-      ]
-    },
-    series: [{
-      type: 'scatter3D',
-      symbolSize: 8,
-      encode: {
-        x: 0,
-        y: 1,
-        z: 2
-      }
-    }]
+    } catch (error) {
+      console.error('加载策略列表失败:', error);
+      message.error('加载策略列表失败');
+    }
   };
 
-  // 加载数据
-  useEffect(() => {
-    fetchStocks();
-  }, []);
-  
-  // 获取股票列表
-  const fetchStocks = async () => {
-    setLoading(true);
+  // 加载参数空间
+  const loadParameterSpaces = async (strategyId: number) => {
     try {
-      const stocks = await fetchStockList();
-      setStockList(stocks);
+      const response = await axios.get(`/api/optimization/strategies/${strategyId}/parameter-spaces`);
+      if (response.data && response.data.status === 'success') {
+        setParameterSpaces(response.data.data);
+      }
     } catch (error) {
-      console.error('获取股票列表失败:', error);
+      console.error('加载参数空间失败:', error);
+    }
+  };
+
+  // 加载优化任务
+  const loadOptimizationJobs = async (strategyId?: number) => {
+    try {
+      const params = strategyId ? { strategy_id: strategyId } : {};
+      const response = await axios.get('/api/optimization/jobs', { params });
+      if (response.data && response.data.status === 'success') {
+        setOptimizationJobs(response.data.data);
+      }
+    } catch (error) {
+      console.error('加载优化任务失败:', error);
+    }
+  };
+
+  // 策略选择变化
+  const handleStrategyChange = (strategyId: number) => {
+    setSelectedStrategy(strategyId);
+    loadParameterSpaces(strategyId);
+    loadOptimizationJobs(strategyId);
+  };
+
+  // 添加参数空间
+  const addParameterSpace = () => {
+    setParameterSpaces([...parameterSpaces, {
+      parameter_name: '',
+      parameter_type: 'float',
+      min_value: 0,
+      max_value: 1,
+      step_size: 0.1,
+      description: ''
+    }]);
+  };
+
+  // 删除参数空间
+  const removeParameterSpace = (index: number) => {
+    setParameterSpaces(parameterSpaces.filter((_, i) => i !== index));
+  };
+
+  // 更新参数空间
+  const updateParameterSpace = (index: number, field: string, value: any) => {
+    const newSpaces = [...parameterSpaces];
+    newSpaces[index] = { ...newSpaces[index], [field]: value };
+    setParameterSpaces(newSpaces);
+  };
+
+  // 保存参数空间
+  const handleSaveParameterSpaces = async () => {
+    if (!selectedStrategy) {
+      message.error('请先选择策略');
+      return;
+    }
+
+    try {
+      setLoading(true);
+      await axios.post(`/api/optimization/strategies/${selectedStrategy}/parameter-spaces`, parameterSpaces);
+      message.success('参数空间保存成功');
+      setParameterSpaceModalVisible(false);
+    } catch (error) {
+      console.error('保存参数空间失败:', error);
+      message.error('保存参数空间失败');
     } finally {
       setLoading(false);
     }
   };
 
-  // 创建Tabs的items配置
-  const getResultTabItems = () => {
-    return [
-      {
-        key: "1",
-        label: (
-          <span>
-            <LineChartOutlined />
-            Optimization Results
-          </span>
-        ),
-        children: (
-          <>
-            <Table
-              dataSource={optimizationResults}
-              columns={columns}
-              pagination={false}
-              scroll={{ x: true }}
-            />
-            
-            <div style={{ marginTop: 16, marginBottom: 16 }}>
-              <Tag color="blue">Best Parameter Combination: Short MA=20, Long MA=60</Tag>
-              <Tag color="green">Best Sharpe Ratio: 2.03</Tag>
-              <Tag color="red">Max Annual Return: 21.2%</Tag>
-            </div>
-            
-            <div style={{ textAlign: 'right', marginTop: 16 }}>
-              <Button icon={<SaveOutlined />} type="primary">
-                Apply Best Parameters
-              </Button>
-            </div>
-          </>
-        )
-      },
-      {
-        key: "2",
-        label: (
-          <span>
-            <SyncOutlined />
-            Parameter Analysis
-          </span>
-        ),
-        children: (
-          <Row gutter={16}>
-            <Col span={12} style={{ height: 500 }}>
-              <ReactECharts option={heatmapOption} style={{ height: '100%' }} />
-            </Col>
-            <Col span={12} style={{ height: 500 }}>
-              <ReactECharts option={scatter3DOption} style={{ height: '100%' }} />
-            </Col>
-          </Row>
-        )
+  // 查看任务详情
+  const handleViewJobDetail = async (job: OptimizationJob) => {
+    try {
+      setLoading(true);
+      setSelectedJob(job);
+      
+      // 如果有最佳参数和优化配置，获取对应的回测结果
+      if (job.best_parameters && job.status === 'completed' && job.optimization_config) {
+        const backtestConfig = job.optimization_config.backtest_config;
+        
+        // 使用保存的配置和最佳参数运行回测
+        const backtestRequest = {
+          strategy_id: job.strategy_id,
+          parameters: job.best_parameters,
+          symbol: backtestConfig.symbol,
+          start_date: backtestConfig.start_date,
+          end_date: backtestConfig.end_date,
+          initial_capital: backtestConfig.initial_capital
+        };
+        
+        console.log('使用优化配置进行回测:', backtestRequest);
+        
+        const response = await axios.post('/api/strategies/backtest', backtestRequest);
+        if (response.data && response.data.status === 'success') {
+          setJobBacktestResult(response.data.data);
+        } else {
+          console.error('回测失败:', response.data);
+          message.error('回测失败，无法获取详细结果');
+        }
+      } else if (job.status === 'completed') {
+        message.warning('优化配置信息不完整，无法重现回测结果');
       }
-    ];
+      
+      setJobDetailModalVisible(true);
+    } catch (error) {
+      console.error('获取任务详情失败:', error);
+      message.error('获取任务详情失败');
+    } finally {
+      setLoading(false);
+    }
   };
 
+  // 启动优化任务
+  const handleStartOptimization = async (values: any) => {
+    if (!selectedStrategy) {
+      message.error('请先选择策略');
+      return;
+    }
+
+    if (parameterSpaces.length === 0) {
+      message.error('请先配置参数空间');
+      return;
+    }
+
+    try {
+      setLoading(true);
+      const request = {
+        strategy_id: selectedStrategy,
+        name: values.name,
+        description: values.description,
+        parameter_spaces: parameterSpaces,
+        objective_function: values.objective_function,
+        n_trials: values.n_trials,
+        timeout: values.timeout,
+        backtest_config: {
+          symbol: values.symbol,
+          start_date: values.start_date,
+          end_date: values.end_date,
+          initial_capital: values.initial_capital
+        }
+      };
+
+      await axios.post('/api/optimization/optimize', request);
+      message.success('优化任务已启动');
+      setOptimizationModalVisible(false);
+      optimizationForm.resetFields();
+      loadOptimizationJobs(selectedStrategy);
+    } catch (error) {
+      console.error('启动优化任务失败:', error);
+      message.error('启动优化任务失败');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // 优化任务表格列
+  const jobColumns: ColumnsType<OptimizationJob> = [
+    {
+      title: 'ID',
+      dataIndex: 'id',
+      key: 'id',
+      width: 80,
+    },
+    {
+      title: '任务名称',
+      dataIndex: 'name',
+      key: 'name',
+      width: 200,
+    },
+    {
+      title: '状态',
+      dataIndex: 'status',
+      key: 'status',
+      width: 100,
+      render: (status: string) => {
+        const statusMap = {
+          'running': { color: 'processing', text: '运行中' },
+          'completed': { color: 'success', text: '已完成' },
+          'failed': { color: 'error', text: '失败' },
+          'cancelled': { color: 'default', text: '已取消' }
+        };
+        const config = statusMap[status as keyof typeof statusMap] || { color: 'default', text: status };
+        return <Tag color={config.color}>{config.text}</Tag>;
+      }
+    },
+    {
+      title: '进度',
+      dataIndex: 'progress',
+      key: 'progress',
+      width: 150,
+      render: (progress: number, record: OptimizationJob) => (
+        <div>
+          <Progress percent={progress} size="small" />
+          <Text type="secondary" style={{ fontSize: '12px' }}>
+            {record.completed_trials}/{record.total_trials}
+          </Text>
+        </div>
+      )
+    },
+    {
+      title: '最佳得分',
+      dataIndex: 'best_score',
+      key: 'best_score',
+      width: 120,
+      render: (score: number, record: OptimizationJob) => {
+        if (!score) return '-';
+        const objectiveMap = {
+          'sharpe_ratio': '夏普比率',
+          'total_return': '总收益率',
+          'annual_return': '年化收益率'
+        };
+        const objectiveName = objectiveMap[record.objective_function as keyof typeof objectiveMap] || '得分';
+        return (
+          <div>
+            <div>{score.toFixed(4)}</div>
+            <Text type="secondary" style={{ fontSize: '12px' }}>{objectiveName}</Text>
+          </div>
+        );
+      }
+    },
+    {
+      title: '最佳参数',
+      dataIndex: 'best_parameters',
+      key: 'best_parameters',
+      width: 200,
+      render: (params: Record<string, any>) => {
+        if (!params) return '-';
+        return (
+          <div>
+            {Object.entries(params).map(([key, value]) => (
+              <Tag key={key} color="blue" style={{ marginBottom: '2px' }}>
+                {key}: {value}
+              </Tag>
+            ))}
+          </div>
+        );
+      }
+    },
+    {
+      title: '创建时间',
+      dataIndex: 'created_at',
+      key: 'created_at',
+      width: 180,
+      render: (time: string) => dayjs(time).format('YYYY-MM-DD HH:mm:ss')
+    },
+    {
+      title: '操作',
+      key: 'action',
+      width: 120,
+      render: (_, record: OptimizationJob) => (
+        <Space>
+          <Button
+            type="link"
+            icon={<EyeOutlined />}
+            onClick={() => handleViewJobDetail(record)}
+            size="small"
+            disabled={record.status !== 'completed'}
+          >
+            查看回测
+          </Button>
+        </Space>
+      )
+    }
+  ];
+
+  useEffect(() => {
+    loadStrategies();
+    loadOptimizationJobs();
+  }, []);
+  
   return (
-    <div>
-      <Title level={2}>Strategy Optimization</Title>
-      <Paragraph>Optimize your trading strategy parameters to find the best parameter combination.</Paragraph>
-      
+    <div style={{ padding: '24px' }}>
       <Card>
-        <Spin spinning={loading}>
-          <Form layout="vertical">
-            <Row gutter={24}>
-              <Col span={8}>
-                <Form.Item label="Strategy Selection" required>
-                  <Select defaultValue="ma_cross" placeholder="Select Strategy">
-                    <Option value="ma_cross">Moving Average Cross Strategy</Option>
-                    <Option value="rsi">RSI Strategy</Option>
-                    <Option value="macd">MACD Strategy</Option>
-                    <Option value="bbands">Bollinger Bands Strategy</Option>
-                  </Select>
-                </Form.Item>
-              </Col>
-              <Col span={8}>
-                <Form.Item label="Trading Instrument" required>
-                  <Select defaultValue={stockList[0]?.symbol} placeholder="Select Trading Instrument">
-                    {stockList.map(stock => (
-                      <Option key={stock.id} value={stock.symbol}>
-                        {stock.name} ({stock.symbol})
-                      </Option>
-                    ))}
-                  </Select>
-                </Form.Item>
-              </Col>
-              <Col span={8}>
-                <Form.Item label="Optimization Target">
-                  <Select defaultValue="sharpe" placeholder="Select Optimization Target">
-                    <Option value="return">Max Annual Return</Option>
-                    <Option value="sharpe">Max Sharpe Ratio</Option>
-                    <Option value="calmar">Max Calmar Ratio</Option>
-                    <Option value="custom">Custom Target</Option>
-                  </Select>
-                </Form.Item>
-              </Col>
-            </Row>
-            
-            <Divider orientation="left">Parameter Range Settings</Divider>
-            
-            <Row gutter={24}>
-              <Col span={12}>
-                <Form.Item label="Short Period Range">
-                  <Row gutter={12}>
-                    <Col span={10}>
-                      <InputNumber 
-                        min={5} 
-                        max={50} 
-                        defaultValue={5} 
-                        style={{ width: '100%' }} 
-                      />
-                    </Col>
-                    <Col span={4} style={{ textAlign: 'center' }}>
-                      <span>To</span>
-                    </Col>
-                    <Col span={10}>
-                      <InputNumber 
-                        min={5} 
-                        max={50} 
-                        defaultValue={30} 
-                        style={{ width: '100%' }} 
-                      />
-                    </Col>
-                  </Row>
-                </Form.Item>
-              </Col>
-              <Col span={12}>
-                <Form.Item label="Step">
-                  <InputNumber 
-                    min={1} 
-                    max={10} 
-                    defaultValue={5} 
-                    style={{ width: '100%' }} 
-                  />
-                </Form.Item>
-              </Col>
-            </Row>
-            
-            <Row gutter={24}>
-              <Col span={12}>
-                <Form.Item label="Long Period Range">
-                  <Row gutter={12}>
-                    <Col span={10}>
-                      <InputNumber 
-                        min={20} 
-                        max={200} 
-                        defaultValue={20} 
-                        style={{ width: '100%' }} 
-                      />
-                    </Col>
-                    <Col span={4} style={{ textAlign: 'center' }}>
-                      <span>To</span>
-                    </Col>
-                    <Col span={10}>
-                      <InputNumber 
-                        min={20} 
-                        max={200} 
-                        defaultValue={100} 
-                        style={{ width: '100%' }} 
-                      />
-                    </Col>
-                  </Row>
-                </Form.Item>
-              </Col>
-              <Col span={12}>
-                <Form.Item label="Step">
-                  <InputNumber 
-                    min={1} 
-                    max={20} 
-                    defaultValue={10} 
-                    style={{ width: '100%' }} 
-                  />
-                </Form.Item>
-              </Col>
-            </Row>
-            
-            <Divider orientation="left">Advanced Settings</Divider>
-            
-            <Row gutter={24}>
-              <Col span={8}>
-                <Form.Item label="Optimization Method">
-                  <Select defaultValue="grid" placeholder="Select Optimization Method">
-                    <Option value="grid">Grid Search</Option>
-                    <Option value="random">Random Search</Option>
-                    <Option value="bayesian">Bayesian Optimization</Option>
-                    <Option value="genetic">Genetic Algorithm</Option>
-                  </Select>
-                </Form.Item>
-              </Col>
-              <Col span={8}>
-                <Form.Item label="Parallel Processes">
-                  <Slider
-                    min={1}
-                    max={8}
-                    defaultValue={4}
-                    marks={{
-                      1: '1',
-                      4: '4',
-                      8: '8',
-                    }}
-                  />
-                </Form.Item>
-              </Col>
-              <Col span={8}>
-                <Form.Item label="Cross Validation">
-                  <Select defaultValue="none" placeholder="Select Cross Validation Method">
-                    <Option value="none">No Use</Option>
-                    <Option value="time">Time Series Split</Option>
-                    <Option value="walk">Rolling Window</Option>
-                  </Select>
-                </Form.Item>
-              </Col>
-            </Row>
-            
-            <Form.Item>
-              <Space>
-                <Button 
-                  type="primary" 
-                  icon={<PlayCircleOutlined />} 
-                  loading={running} 
-                  onClick={handleRunOptimization}
-                >
-                  Start Optimization
-                </Button>
-                <Button icon={<SettingOutlined />}>Advanced Parameters</Button>
-              </Space>
-            </Form.Item>
-          </Form>
-        </Spin>
+        <Title level={3}>策略参数优化</Title>
+        
+        <Row gutter={[16, 16]} style={{ marginBottom: '24px' }}>
+          <Col span={8}>
+            <Select
+              placeholder="选择策略"
+              style={{ width: '100%' }}
+              value={selectedStrategy}
+              onChange={handleStrategyChange}
+            >
+              {strategies.map(strategy => (
+                <Option key={strategy.id} value={strategy.id}>
+                  {strategy.name}
+                </Option>
+              ))}
+            </Select>
+          </Col>
+          <Col span={16}>
+            <Space>
+              <Button
+                icon={<SettingOutlined />}
+                onClick={() => setParameterSpaceModalVisible(true)}
+                disabled={!selectedStrategy}
+              >
+                配置参数空间
+              </Button>
+              <Button
+                type="primary"
+                icon={<PlayCircleOutlined />}
+                onClick={() => setOptimizationModalVisible(true)}
+                disabled={!selectedStrategy || parameterSpaces.length === 0}
+              >
+                启动优化
+              </Button>
+              <Button
+                icon={<ReloadOutlined />}
+                onClick={() => {
+                  if (selectedStrategy) {
+                    loadOptimizationJobs(selectedStrategy);
+                  }
+                }}
+              >
+                刷新
+              </Button>
+            </Space>
+          </Col>
+        </Row>
+
+            <Table
+          columns={jobColumns}
+          dataSource={optimizationJobs}
+          rowKey="id"
+          pagination={{ pageSize: 10 }}
+          loading={loading}
+        />
       </Card>
-      
-      {hasResults && (
-        <>
-          <Divider />
-          <Card>
-            <Tabs defaultActiveKey="1" items={getResultTabItems()} />
+
+      {/* 参数空间配置模态框 */}
+      <Modal
+        title="配置参数空间"
+        open={parameterSpaceModalVisible}
+        onOk={handleSaveParameterSpaces}
+        onCancel={() => setParameterSpaceModalVisible(false)}
+        width={900}
+        confirmLoading={loading}
+      >
+        <Alert
+          message="MA交叉策略参数优化指南"
+          description={
+            <div>
+              <p><strong>short_window</strong>: 短期移动平均线周期，建议范围 3-15天</p>
+              <p><strong>long_window</strong>: 长期移动平均线周期，建议范围 10-60天</p>
+              <p>注意：短期周期必须小于长期周期</p>
+            </div>
+          }
+          type="info"
+          showIcon
+          style={{ marginBottom: '16px' }}
+        />
+        
+        <div style={{ marginBottom: '16px' }}>
+          <Button type="dashed" onClick={addParameterSpace} icon={<PlusOutlined />} block>
+            添加参数
+              </Button>
+            </div>
+        
+        <div style={{ marginBottom: '16px' }}>
+          <Space>
+            <Button 
+              type="link" 
+              onClick={() => {
+                setParameterSpaces([
+                  {
+                    parameter_name: 'short_window',
+                    parameter_type: 'int',
+                    min_value: 3,
+                    max_value: 15,
+                    step_size: 1,
+                    description: '短期移动平均线周期'
+                  },
+                  {
+                    parameter_name: 'long_window',
+                    parameter_type: 'int',
+                    min_value: 10,
+                    max_value: 60,
+                    step_size: 5,
+                    description: '长期移动平均线周期'
+                  }
+                ]);
+              }}
+            >
+              📊 使用MA策略推荐配置
+            </Button>
+          </Space>
+        </div>
+        
+        {parameterSpaces.map((space, index) => (
+          <Card key={index} size="small" style={{ marginBottom: '8px' }}>
+            <Row gutter={[8, 8]}>
+              <Col span={4}>
+                <Input
+                  placeholder="参数名"
+                  value={space.parameter_name}
+                  onChange={(e) => updateParameterSpace(index, 'parameter_name', e.target.value)}
+                />
+              </Col>
+              <Col span={3}>
+                <Select
+                  value={space.parameter_type}
+                  onChange={(value) => updateParameterSpace(index, 'parameter_type', value)}
+                  style={{ width: '100%' }}
+                >
+                  <Option value="int">整数</Option>
+                  <Option value="float">小数</Option>
+                  <Option value="choice">选择</Option>
+                  </Select>
+              </Col>
+              {space.parameter_type !== 'choice' && (
+                <>
+                  <Col span={3}>
+                      <InputNumber 
+                      placeholder="最小值"
+                      value={space.min_value}
+                      onChange={(value) => updateParameterSpace(index, 'min_value', value)}
+                        style={{ width: '100%' }} 
+                      />
+                    </Col>
+                  <Col span={3}>
+                      <InputNumber 
+                      placeholder="最大值"
+                      value={space.max_value}
+                      onChange={(value) => updateParameterSpace(index, 'max_value', value)}
+                        style={{ width: '100%' }} 
+                      />
+                    </Col>
+                </>
+              )}
+              <Col span={4}>
+                <Input
+                  placeholder="描述"
+                  value={space.description}
+                  onChange={(e) => updateParameterSpace(index, 'description', e.target.value)}
+                />
+              </Col>
+              <Col span={2}>
+                <Button
+                  type="text"
+                  danger
+                  icon={<DeleteOutlined />}
+                  onClick={() => removeParameterSpace(index)}
+                />
+              </Col>
+            </Row>
           </Card>
-        </>
-      )}
+        ))}
+      </Modal>
+
+      {/* 启动优化模态框 */}
+      <Modal
+        title="启动参数优化"
+        open={optimizationModalVisible}
+        onOk={() => optimizationForm.submit()}
+        onCancel={() => setOptimizationModalVisible(false)}
+        width={700}
+        confirmLoading={loading}
+      >
+        <Alert
+          message="优化说明"
+          description="系统将自动测试不同参数组合，找到最优的策略参数。建议先用较少试验次数快速测试。"
+          type="info"
+          showIcon
+          style={{ marginBottom: '16px' }}
+        />
+        
+        <Form form={optimizationForm} onFinish={handleStartOptimization} layout="vertical">
+          <Form.Item name="name" label="任务名称" rules={[{ required: true, message: '请输入任务名称' }]}>
+            <Input placeholder="如: MA策略优化_AAPL_20240101" />
+          </Form.Item>
+          
+          <Form.Item name="description" label="任务描述">
+            <Input.TextArea placeholder="描述此次优化的目的和预期..." rows={2} />
+          </Form.Item>
+          
+          <Row gutter={[16, 16]}>
+              <Col span={12}>
+              <Form.Item name="objective_function" label="优化目标" initialValue="sharpe_ratio">
+                <Select>
+                  <Option value="sharpe_ratio">夏普比率 (推荐)</Option>
+                  <Option value="total_return">总收益率</Option>
+                  <Option value="annual_return">年化收益率</Option>
+                </Select>
+              </Form.Item>
+                    </Col>
+            <Col span={12}>
+              <Form.Item 
+                name="n_trials" 
+                label="试验次数" 
+                initialValue={50}
+                extra="建议: 快速测试50次，详细优化100-200次"
+              >
+                <InputNumber min={10} max={1000} style={{ width: '100%' }} />
+              </Form.Item>
+                    </Col>
+                  </Row>
+          
+          <Row gutter={[16, 16]}>
+            <Col span={12}>
+              <Form.Item 
+                name="symbol" 
+                label="交易品种" 
+                rules={[{ required: true, message: '请输入交易品种' }]}
+                initialValue="AAPL"
+              >
+                <Input placeholder="如: AAPL, TSLA" />
+                </Form.Item>
+              </Col>
+              <Col span={12}>
+              <Form.Item name="initial_capital" label="初始资金" initialValue={100000}>
+                  <InputNumber 
+                  min={1000} 
+                    style={{ width: '100%' }} 
+                  formatter={value => `¥ ${value}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}
+                  parser={value => value ? value.replace(/¥\s?|(,*)/g, '') : ''}
+                  />
+                </Form.Item>
+              </Col>
+            </Row>
+            
+          <Row gutter={[16, 16]}>
+            <Col span={12}>
+              <Form.Item 
+                name="start_date" 
+                label="开始日期" 
+                rules={[{ required: true, message: '请输入开始日期' }]}
+                initialValue="2023-01-01"
+              >
+                <Input placeholder="YYYY-MM-DD" />
+                </Form.Item>
+              </Col>
+            <Col span={12}>
+              <Form.Item 
+                name="end_date" 
+                label="结束日期" 
+                rules={[{ required: true, message: '请输入结束日期' }]}
+                initialValue="2024-12-31"
+              >
+                <Input placeholder="YYYY-MM-DD" />
+                </Form.Item>
+              </Col>
+            </Row>
+            
+          <Alert
+            message="注意事项"
+            description={
+              <ul style={{ margin: 0, paddingLeft: '20px' }}>
+                <li>确保已配置参数空间</li>
+                <li>优化过程可能需要几分钟到几小时</li>
+                <li>可以在任务列表中查看进度</li>
+              </ul>
+            }
+            type="warning"
+            showIcon
+          />
+        </Form>
+      </Modal>
+
+      {/* 任务详情模态框 */}
+      <Modal
+        title="优化任务详情"
+        open={jobDetailModalVisible}
+        onCancel={() => {
+          setJobDetailModalVisible(false);
+          setSelectedJob(null);
+          setJobBacktestResult(null);
+        }}
+        footer={null}
+        width={1000}
+      >
+        {selectedJob && (
+          <div>
+            <Alert
+              message={`任务状态: ${selectedJob.status === 'completed' ? '已完成' : selectedJob.status}`}
+              type={selectedJob.status === 'completed' ? 'success' : 'info'}
+              showIcon
+              style={{ marginBottom: '16px' }}
+            />
+            
+            <Tabs defaultActiveKey="1">
+              <TabPane tab="基本信息" key="1">
+                <Row gutter={[16, 16]}>
+                  <Col span={12}>
+                    <Text strong>任务名称: </Text>
+                    <Text>{selectedJob.name}</Text>
+                  </Col>
+                  <Col span={12}>
+                    <Text strong>优化目标: </Text>
+                    <Text>{selectedJob.objective_function === 'sharpe_ratio' ? '夏普比率' : 
+                          selectedJob.objective_function === 'total_return' ? '总收益率' : 
+                          selectedJob.objective_function === 'annual_return' ? '年化收益率' : '未知'}</Text>
+                  </Col>
+                  <Col span={12}>
+                    <Text strong>试验次数: </Text>
+                    <Text>{selectedJob.completed_trials}/{selectedJob.total_trials}</Text>
+                  </Col>
+                  <Col span={12}>
+                    <Text strong>最佳得分: </Text>
+                    <Text>{selectedJob.best_score ? selectedJob.best_score.toFixed(4) : '-'}</Text>
+                  </Col>
+                </Row>
+                
+                {selectedJob.optimization_config && (
+                  <div style={{ marginTop: '16px' }}>
+                    <Text strong>回测配置:</Text>
+                    <Row gutter={[16, 8]} style={{ marginTop: '8px' }}>
+                      <Col span={12}>
+                        <Text type="secondary">交易品种: </Text>
+                        <Tag color="green">{selectedJob.optimization_config.backtest_config.symbol}</Tag>
+                      </Col>
+                      <Col span={12}>
+                        <Text type="secondary">初始资金: </Text>
+                        <Tag color="blue">¥{selectedJob.optimization_config.backtest_config.initial_capital.toLocaleString()}</Tag>
+                      </Col>
+                      <Col span={12}>
+                        <Text type="secondary">开始日期: </Text>
+                        <Tag>{selectedJob.optimization_config.backtest_config.start_date}</Tag>
+                      </Col>
+                      <Col span={12}>
+                        <Text type="secondary">结束日期: </Text>
+                        <Tag>{selectedJob.optimization_config.backtest_config.end_date}</Tag>
+                      </Col>
+                    </Row>
+                  </div>
+                )}
+                
+                {selectedJob.best_parameters && (
+                  <div style={{ marginTop: '16px' }}>
+                    <Text strong>最优参数组合:</Text>
+                    <div style={{ marginTop: '8px' }}>
+                      {Object.entries(selectedJob.best_parameters).map(([key, value]) => (
+                        <Tag key={key} color="blue" style={{ marginBottom: '4px' }}>
+                          {key === 'short_window' ? '短期均线' : 
+                           key === 'long_window' ? '长期均线' : key}: {value}
+                        </Tag>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </TabPane>
+              
+              <TabPane tab="回测结果" key="2">
+                {jobBacktestResult ? (
+                  <div>
+                    <Row gutter={[16, 16]}>
+                      <Col span={6}>
+                        <Card size="small">
+                          <Statistic
+                            title="总收益率"
+                            value={jobBacktestResult.total_return * 100}
+                            precision={2}
+                            suffix="%"
+                            valueStyle={{ color: jobBacktestResult.total_return >= 0 ? '#3f8600' : '#cf1322' }}
+                          />
+                        </Card>
+                      </Col>
+                      <Col span={6}>
+                        <Card size="small">
+                          <Statistic
+                            title="年化收益率"
+                            value={jobBacktestResult.annual_return * 100}
+                            precision={2}
+                            suffix="%"
+                            valueStyle={{ color: '#3f8600' }}
+                          />
+                        </Card>
+                      </Col>
+                      <Col span={6}>
+                        <Card size="small">
+                          <Statistic
+                            title="最大回撤"
+                            value={jobBacktestResult.max_drawdown * 100}
+                            precision={2}
+                            suffix="%"
+                            valueStyle={{ color: '#3f8600' }}
+                          />
+                        </Card>
+                      </Col>
+                      <Col span={6}>
+                        <Card size="small">
+                          <Statistic
+                            title="夏普比率"
+                            value={jobBacktestResult.sharpe_ratio}
+                            precision={3}
+                            valueStyle={{ color: jobBacktestResult.sharpe_ratio >= 1 ? '#3f8600' : '#cf1322' }}
+                          />
+      </Card>
+                      </Col>
+                    </Row>
+                    
+                    <Row gutter={[16, 16]} style={{ marginTop: '16px' }}>
+                      <Col span={6}>
+                        <Card size="small">
+                          <Statistic
+                            title="胜率"
+                            value={jobBacktestResult.win_rate * 100}
+                            precision={2}
+                            suffix="%"
+                            valueStyle={{ color: jobBacktestResult.win_rate >= 0.5 ? '#3f8600' : '#cf1322' }}
+                          />
+                        </Card>
+                      </Col>
+                      <Col span={6}>
+                        <Card size="small">
+                          <Statistic
+                            title="盈亏比"
+                            value={jobBacktestResult.profit_factor}
+                            precision={2}
+                            valueStyle={{ color: jobBacktestResult.profit_factor >= 1 ? '#3f8600' : '#cf1322' }}
+                          />
+                        </Card>
+                      </Col>
+                      <Col span={6}>
+                        <Card size="small">
+                          <Statistic
+                            title="交易次数"
+                            value={jobBacktestResult.trades ? jobBacktestResult.trades.length : 0}
+                            valueStyle={{ color: '#1890ff' }}
+                          />
+                        </Card>
+                      </Col>
+                      <Col span={6}>
+                        <Card size="small">
+                          <Statistic
+                            title="Alpha"
+                            value={jobBacktestResult.alpha}
+                            precision={4}
+                            valueStyle={{ color: jobBacktestResult.alpha >= 0 ? '#3f8600' : '#cf1322' }}
+                          />
+          </Card>
+                      </Col>
+                    </Row>
+                    
+                    <Alert
+                      message="参数说明"
+                      description={
+                        <div>
+                          <p><strong>夏普比率</strong>: 风险调整后收益，{'>'} 1.0为优秀，{'>'} 2.0为卓越</p>
+                          <p><strong>胜率</strong>: 盈利交易占总交易的比例，{'>'} 50%为良好</p>
+                          <p><strong>盈亏比</strong>: 平均盈利/平均亏损，{'>'} 1.0表示盈利大于亏损</p>
+                          <p><strong>Alpha</strong>: 相对于市场的超额收益，{'>'} 0表示跑赢市场</p>
+                        </div>
+                      }
+                      type="info"
+                      showIcon
+                      style={{ marginTop: '16px' }}
+                    />
+                  </div>
+                ) : (
+                  <div style={{ textAlign: 'center', padding: '40px' }}>
+                    <Text type="secondary">加载回测结果中...</Text>
+                  </div>
+                )}
+              </TabPane>
+            </Tabs>
+          </div>
+        )}
+      </Modal>
     </div>
   );
 };
