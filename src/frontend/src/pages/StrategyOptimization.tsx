@@ -262,8 +262,35 @@ const StrategyOptimization: React.FC = () => {
       setLoading(true);
       setSelectedJob(job);
       
+      console.log('🔍 开始获取试验列表:', job.name);
+      const startTime = performance.now();
+      
+      // 优先使用轻量级摘要API
+      try {
+        console.log('📊 尝试获取轻量级试验摘要...');
+        const response = await axios.get(`/api/optimization/jobs/${job.id}/trials-summary`);
+        const endTime = performance.now();
+        console.log(`✅ 轻量级试验摘要耗时: ${(endTime - startTime).toFixed(0)}ms`);
+        
+        if (response.data && response.data.status === 'success') {
+          console.log(`📊 获取到 ${response.data.data.length} 个试验摘要`);
+          setOptimizationTrials(response.data.data);
+          setTrialsModalVisible(true);
+          return;
+        }
+      } catch (summaryError) {
+        console.warn('⚠️ 轻量级摘要API失败，使用完整数据:', summaryError);
+      }
+      
+      // 如果轻量级API失败，fallback到完整数据
+      console.log('📋 获取完整试验数据...');
+      const fallbackStartTime = performance.now();
       const response = await axios.get(`/api/optimization/jobs/${job.id}/trials`);
+      const endTime = performance.now();
+      console.log(`📊 完整试验数据耗时: ${(endTime - fallbackStartTime).toFixed(0)}ms`);
+      
       if (response.data && response.data.status === 'success') {
+        console.log(`📊 获取到 ${response.data.data.length} 个完整试验结果`);
         setOptimizationTrials(response.data.data);
         setTrialsModalVisible(true);
       } else {
@@ -305,13 +332,52 @@ const StrategyOptimization: React.FC = () => {
   // 查看任务详情
   const handleViewJobDetail = async (job: OptimizationJob) => {
     try {
-      setLoading(true);
+    setLoading(true);
       setSelectedJob(job);
+      
+      console.log('🚀 开始获取任务详情:', job.name);
+      const startTime = performance.now();
       
       // 如果有最佳参数和优化配置，获取对应的回测结果
       if (job.best_parameters && job.status === 'completed' && job.optimization_config) {
-        // 先尝试从优化试验中获取最佳结果
+        // 先尝试使用轻量级API获取性能指标
         try {
+          console.log('📊 尝试获取轻量级性能指标...');
+          const performanceResponse = await axios.get(`/api/optimization/jobs/${job.id}/best-performance`);
+          if (performanceResponse.data && performanceResponse.data.status === 'success') {
+            const cacheTime = performance.now();
+            console.log(`✅ 使用轻量级API，耗时: ${(cacheTime - startTime).toFixed(0)}ms`);
+            
+            // 构造简化的回测结果对象
+            const performanceData = performanceResponse.data.data;
+            const backtestResult = {
+              total_return: performanceData.total_return,
+              annual_return: performanceData.annual_return,
+              sharpe_ratio: performanceData.sharpe_ratio,
+              max_drawdown: performanceData.max_drawdown,
+              win_rate: performanceData.win_rate,
+              profit_factor: performanceData.profit_factor,
+              alpha: performanceData.alpha,
+              beta: performanceData.beta,
+              total_trades: performanceData.total_trades,
+              parameters: performanceData.parameters,
+              // 添加标识，表明这是从优化结果获取的轻量级数据
+              fromOptimization: true,
+              isLightweight: true
+            };
+            
+            setJobBacktestResult(backtestResult);
+            setJobDetailModalVisible(true);
+            setLoading(false);
+            return;
+          }
+        } catch (performanceError) {
+          console.warn('⚠️ 轻量级API失败，尝试完整数据:', performanceError);
+        }
+        
+        // 如果轻量级API失败，尝试获取完整的回测数据
+        try {
+          console.log('📊 尝试获取完整回测结果...');
           const trialsResponse = await axios.get(`/api/optimization/jobs/${job.id}/trials`);
           if (trialsResponse.data && trialsResponse.data.status === 'success' && trialsResponse.data.data.length > 0) {
             // 获取最佳试验结果（已按得分降序排列）
@@ -319,6 +385,9 @@ const StrategyOptimization: React.FC = () => {
             
             // 如果有完整的回测结果，直接使用
             if (bestTrial.backtest_results) {
+              const cacheTime = performance.now();
+              console.log(`✅ 使用完整缓存结果，耗时: ${(cacheTime - startTime).toFixed(0)}ms`);
+              
               const backtestResult = {
                 ...bestTrial.backtest_results,
                 // 添加标识，表明这是从优化结果获取的
@@ -329,13 +398,18 @@ const StrategyOptimization: React.FC = () => {
               setJobDetailModalVisible(true);
               setLoading(false);
               return;
+            } else {
+              console.warn('⚠️ 最佳试验没有缓存的回测结果');
             }
           }
         } catch (trialsError) {
-          console.warn('无法获取优化试验数据，将重新运行回测:', trialsError);
+          console.warn('❌ 无法获取优化试验数据，将重新运行回测:', trialsError);
         }
         
         // 如果无法获取优化试验数据，则重新运行回测
+        console.log('🔄 缓存未命中，重新运行回测...');
+        const backtestStartTime = performance.now();
+        
         const backtestConfig = job.optimization_config.backtest_config;
         
         // 使用保存的配置和最佳参数运行回测
@@ -348,9 +422,11 @@ const StrategyOptimization: React.FC = () => {
           initial_capital: backtestConfig.initial_capital
         };
         
-        console.log('使用优化配置进行回测:', backtestRequest);
+        console.log('📋 回测请求参数:', backtestRequest);
         
         const response = await axios.post('/api/strategies/backtest', backtestRequest);
+        const backtestEndTime = performance.now();
+        console.log(`⏱️ 重新回测耗时: ${(backtestEndTime - backtestStartTime).toFixed(0)}ms`);
         if (response.data && response.data.status === 'success') {
           setJobBacktestResult(response.data.data);
         } else {
@@ -457,7 +533,7 @@ const StrategyOptimization: React.FC = () => {
           <Text type="secondary" style={{ fontSize: '11px' }}>
             {record.completed_trials}/{record.total_trials}
           </Text>
-        </div>
+            </div>
       )
     },
     {
@@ -610,14 +686,14 @@ const StrategyOptimization: React.FC = () => {
     // 自动获取默认股票AAPL的数据范围
     fetchStockDateRange('AAPL');
   }, []);
-  
+
   return (
     <div style={{ padding: '16px', height: '100vh', display: 'flex', flexDirection: 'column' }}>
       <Card style={{ marginBottom: '16px', flexShrink: 0 }}>
         <Title level={3} style={{ margin: '0 0 16px 0' }}>策略参数优化</Title>
         
         <Row gutter={[16, 16]} style={{ marginBottom: '24px' }}>
-          <Col span={8}>
+              <Col span={8}>
             <Select
               placeholder="选择策略"
               style={{ width: '100%' }}
@@ -627,10 +703,10 @@ const StrategyOptimization: React.FC = () => {
               {strategies.map(strategy => (
                 <Option key={strategy.id} value={strategy.id}>
                   {strategy.name}
-                </Option>
-              ))}
-            </Select>
-          </Col>
+                      </Option>
+                    ))}
+                  </Select>
+              </Col>
           <Col span={16}>
             <Space>
               <Button
@@ -659,8 +735,8 @@ const StrategyOptimization: React.FC = () => {
                 刷新
               </Button>
             </Space>
-          </Col>
-        </Row>
+              </Col>
+            </Row>
       </Card>
 
       <Card 
@@ -813,9 +889,9 @@ const StrategyOptimization: React.FC = () => {
                   danger
                   icon={<DeleteOutlined />}
                   onClick={() => removeParameterSpace(index)}
-                />
-              </Col>
-            </Row>
+                      />
+                    </Col>
+                  </Row>
           </Card>
         ))}
       </Modal>
@@ -854,9 +930,9 @@ const StrategyOptimization: React.FC = () => {
                   <Option value="total_return">总收益率</Option>
                   <Option value="annual_return">年化收益率</Option>
                 </Select>
-              </Form.Item>
-                    </Col>
-            <Col span={12}>
+                </Form.Item>
+              </Col>
+              <Col span={12}>
               <Form.Item 
                 name="n_trials" 
                 label="试验次数" 
@@ -864,12 +940,12 @@ const StrategyOptimization: React.FC = () => {
                 extra="建议: 快速测试50次，详细优化100-200次"
               >
                 <InputNumber min={10} max={1000} style={{ width: '100%' }} />
-              </Form.Item>
-                    </Col>
-                  </Row>
-          
+                </Form.Item>
+              </Col>
+            </Row>
+            
           <Row gutter={[16, 16]}>
-            <Col span={12}>
+              <Col span={12}>
               <Form.Item 
                 name="symbol" 
                 label="交易品种" 
@@ -894,18 +970,18 @@ const StrategyOptimization: React.FC = () => {
                   }))}
                 />
                 </Form.Item>
-              </Col>
+                    </Col>
               <Col span={12}>
               <Form.Item name="initial_capital" label="初始资金" initialValue={100000}>
-                <InputNumber 
+                      <InputNumber 
                   min={1000} 
-                  style={{ width: '100%' }} 
+                        style={{ width: '100%' }} 
                   formatter={value => `¥ ${value}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}
                   parser={value => value?.replace(/¥\s?|(,*)/g, '') as any}
-                />
+                      />
               </Form.Item>
-              </Col>
-            </Row>
+                    </Col>
+                  </Row>
             
           {/* 快捷时间选择 */}
           <Form.Item label="快捷时间选择">
@@ -994,7 +1070,7 @@ const StrategyOptimization: React.FC = () => {
                 />
                 </Form.Item>
               </Col>
-            <Col span={12}>
+              <Col span={12}>
               <Form.Item 
                 name="end_date" 
                 label="结束日期" 
@@ -1002,10 +1078,10 @@ const StrategyOptimization: React.FC = () => {
                 initialValue={dayjs('2024-12-31')}
               >
                 <DatePicker 
-                  style={{ width: '100%' }}
+                    style={{ width: '100%' }} 
                   format="YYYY-MM-DD"
                   placeholder="选择结束日期"
-                />
+                  />
                 </Form.Item>
               </Col>
             </Row>
@@ -1052,7 +1128,7 @@ const StrategyOptimization: React.FC = () => {
                   <Col span={12}>
                     <Text strong>任务名称: </Text>
                     <Text>{selectedJob.name}</Text>
-                  </Col>
+              </Col>
                   <Col span={12}>
                     <Text strong>优化目标: </Text>
                     <Text>{selectedJob.objective_function === 'sharpe_ratio' ? '夏普比率' : 
@@ -1066,9 +1142,9 @@ const StrategyOptimization: React.FC = () => {
                   <Col span={12}>
                     <Text strong>最佳得分: </Text>
                     <Text>{selectedJob.best_score ? selectedJob.best_score.toFixed(4) : '-'}</Text>
-                  </Col>
-                </Row>
-                
+              </Col>
+            </Row>
+            
                 {selectedJob.optimization_config && (
                   <div style={{ marginTop: '16px' }}>
                     <Text strong>回测配置:</Text>
@@ -1121,7 +1197,7 @@ const StrategyOptimization: React.FC = () => {
                             suffix="%"
                             valueStyle={{ color: jobBacktestResult.total_return >= 0 ? '#3f8600' : '#cf1322' }}
                           />
-                        </Card>
+      </Card>
                       </Col>
                       <Col span={6}>
                         <Card size="small">
@@ -1167,7 +1243,7 @@ const StrategyOptimization: React.FC = () => {
                             suffix="%"
                             valueStyle={{ color: jobBacktestResult.win_rate >= 0.5 ? '#3f8600' : '#cf1322' }}
                           />
-                        </Card>
+          </Card>
                       </Col>
                       <Col span={6}>
                         <Card size="small">
@@ -1249,7 +1325,7 @@ const StrategyOptimization: React.FC = () => {
             
             <Table
               dataSource={optimizationTrials}
-              rowKey="id"
+              rowKey={(record) => record.id || record.trial_number || Math.random()}
               pagination={false}
               size="small"
               scroll={{ y: 400 }}
@@ -1258,11 +1334,15 @@ const StrategyOptimization: React.FC = () => {
                   title: '排名',
                   key: 'rank',
                   width: 60,
-                  render: (_, __, index) => (
-                    <Tag color={index === 0 ? 'gold' : index === 1 ? 'silver' : index === 2 ? 'orange' : 'default'}>
-                      {index + 1}
-                    </Tag>
-                  )
+                  render: (_, record, index) => {
+                    // 如果有rank字段（轻量级API），使用它；否则使用index+1（完整API）
+                    const rank = record.rank || (index + 1);
+                    return (
+                      <Tag color={rank === 1 ? 'gold' : rank === 2 ? 'silver' : rank === 3 ? 'orange' : 'default'}>
+                        {rank}
+                      </Tag>
+                    );
+                  }
                 },
                 {
                   title: '得分',
@@ -1294,10 +1374,50 @@ const StrategyOptimization: React.FC = () => {
                   )
                 },
                 {
+                  title: '年化收益',
+                  dataIndex: 'annual_return',
+                  key: 'annual_return',
+                  width: 90,
+                  render: (value: number) => {
+                    if (value === undefined || value === null) return '-';
+                    const color = value >= 0 ? '#3f8600' : '#cf1322';
+                    return (
+                      <Text style={{ color, fontWeight: 'bold' }}>
+                        {(value * 100).toFixed(1)}%
+                      </Text>
+                    );
+                  }
+                },
+                {
+                  title: '最大回撤',
+                  dataIndex: 'max_drawdown',
+                  key: 'max_drawdown',
+                  width: 90,
+                  render: (value: number) => {
+                    if (value === undefined || value === null) return '-';
+                    return (
+                      <Text style={{ color: '#3f8600', fontWeight: 'bold' }}>
+                        {(Math.abs(value) * 100).toFixed(1)}%
+                      </Text>
+                    );
+                  }
+                },
+                {
+                  title: '交易次数',
+                  dataIndex: 'total_trades',
+                  key: 'total_trades',
+                  width: 80,
+                  render: (value: number) => (
+                    <Text type="secondary">
+                      {value || 0}
+                    </Text>
+                  )
+                },
+                {
                   title: '执行时间',
                   dataIndex: 'execution_time',
                   key: 'execution_time',
-                  width: 100,
+                  width: 80,
                   render: (time: number) => (
                     <Text type="secondary">
                       {time ? `${(time * 1000).toFixed(0)}ms` : '-'}

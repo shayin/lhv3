@@ -251,7 +251,22 @@ const BacktestHistory: React.FC = () => {
     try {
       const response = await axios.get(`/api/backtest-status/${id}`);
       if (response.data.status === 'success') {
-        setSelectedBacktest(response.data.data);
+        const backtestData = response.data.data;
+        
+        // 对交易记录按时间倒序排序（最新的在前面）
+        if (backtestData.results && backtestData.results.trades) {
+          backtestData.results.trades = backtestData.results.trades.sort((a: any, b: any) => {
+            return new Date(b.date).getTime() - new Date(a.date).getTime();
+          });
+        }
+        
+        if (backtestData.trade_records) {
+          backtestData.trade_records = backtestData.trade_records.sort((a: any, b: any) => {
+            return new Date(b.date).getTime() - new Date(a.date).getTime();
+          });
+        }
+        
+        setSelectedBacktest(backtestData);
         setDetailModalVisible(true);
       } else {
         message.error('获取回测详情失败');

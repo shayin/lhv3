@@ -311,6 +311,102 @@ async def get_optimization_trials(
         raise HTTPException(status_code=500, detail=f"获取优化试验列表失败: {str(e)}")
 
 
+@router.get("/jobs/{job_id}/trials-summary")
+async def get_trials_summary(
+    job_id: int,
+    db: Session = Depends(get_db)
+):
+    """获取优化任务的试验摘要（轻量级，只包含关键指标）"""
+    try:
+        job = db.query(OptimizationJob).filter(OptimizationJob.id == job_id).first()
+        if not job:
+            raise HTTPException(status_code=404, detail="优化任务不存在")
+        
+        trials = db.query(OptimizationTrial)\
+            .filter(OptimizationTrial.job_id == job_id)\
+            .filter(OptimizationTrial.status == 'completed')\
+            .order_by(OptimizationTrial.objective_value.desc())\
+            .all()
+        
+        trials_summary = []
+        for i, trial in enumerate(trials):
+            if trial.backtest_results:
+                backtest_results = trial.backtest_results
+                summary = {
+                    "rank": i + 1,
+                    "trial_number": trial.trial_number,
+                    "objective_value": trial.objective_value,
+                    "parameters": trial.parameters,
+                    "execution_time": trial.execution_time,
+                    "completed_at": trial.completed_at.isoformat() if trial.completed_at else None,
+                    # 只包含关键性能指标，不包含详细数据
+                    "total_return": backtest_results.get("total_return"),
+                    "annual_return": backtest_results.get("annual_return"),
+                    "sharpe_ratio": backtest_results.get("sharpe_ratio"),
+                    "max_drawdown": backtest_results.get("max_drawdown"),
+                    "total_trades": len(backtest_results.get("trades", []))
+                }
+                trials_summary.append(summary)
+        
+        return {
+            "status": "success",
+            "data": trials_summary
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"获取试验摘要失败: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"获取试验摘要失败: {str(e)}")
+
+@router.get("/jobs/{job_id}/best-performance")
+async def get_best_performance(
+    job_id: int,
+    db: Session = Depends(get_db)
+):
+    """获取优化任务最佳试验的性能指标（轻量级，不包含详细数据）"""
+    try:
+        job = db.query(OptimizationJob).filter(OptimizationJob.id == job_id).first()
+        if not job:
+            raise HTTPException(status_code=404, detail="优化任务不存在")
+        
+        # 获取最佳试验
+        best_trial = db.query(OptimizationTrial)\
+            .filter(OptimizationTrial.job_id == job_id)\
+            .filter(OptimizationTrial.status == 'completed')\
+            .order_by(OptimizationTrial.objective_value.desc())\
+            .first()
+        
+        if not best_trial or not best_trial.backtest_results:
+            raise HTTPException(status_code=404, detail="没有找到完整的回测结果")
+        
+        # 只返回关键的性能指标，不返回详细的交易记录和权益曲线
+        backtest_results = best_trial.backtest_results
+        performance_summary = {
+            "total_return": backtest_results.get("total_return"),
+            "annual_return": backtest_results.get("annual_return"), 
+            "sharpe_ratio": backtest_results.get("sharpe_ratio"),
+            "max_drawdown": backtest_results.get("max_drawdown"),
+            "win_rate": backtest_results.get("win_rate"),
+            "profit_factor": backtest_results.get("profit_factor"),
+            "alpha": backtest_results.get("alpha"),
+            "beta": backtest_results.get("beta"),
+            # 添加交易统计但不包含详细记录
+            "total_trades": len(backtest_results.get("trades", [])),
+            "parameters": best_trial.parameters,
+            "trial_number": best_trial.trial_number,
+            "objective_value": best_trial.objective_value
+        }
+        
+        return {
+            "status": "success",
+            "data": performance_summary
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"获取最佳性能指标失败: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"获取最佳性能指标失败: {str(e)}")
+
 @router.delete("/jobs/{job_id}")
 async def delete_optimization_job(
     job_id: int,

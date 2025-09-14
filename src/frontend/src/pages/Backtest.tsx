@@ -370,8 +370,14 @@ const Backtest: React.FC = () => {
             allocated_capital: trade.allocated_capital
           };
         });
-        setTradeRecords(trades);
-        setTradesData(trades);
+        
+        // 按交易时间倒序排序（最新的在前面）
+        const sortedTrades = trades.sort((a: any, b: any) => {
+          return new Date(b.date).getTime() - new Date(a.date).getTime();
+        });
+        
+        setTradeRecords(sortedTrades);
+        setTradesData(sortedTrades);
       }
       
       // 更新资产曲线数据
