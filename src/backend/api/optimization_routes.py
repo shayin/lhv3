@@ -270,6 +270,46 @@ async def list_optimization_jobs(
         raise HTTPException(status_code=500, detail=f"获取优化任务列表失败: {str(e)}")
 
 
+@router.get("/jobs/{job_id}/trials")
+async def get_optimization_trials(
+    job_id: int,
+    db: Session = Depends(get_db)
+):
+    """获取优化任务的所有试验记录"""
+    try:
+        # 检查任务是否存在
+        job = db.query(OptimizationJob).filter(OptimizationJob.id == job_id).first()
+        if not job:
+            raise HTTPException(status_code=404, detail="优化任务不存在")
+        
+        # 获取所有试验记录，按得分降序排列
+        trials = db.query(OptimizationTrial)\
+            .filter(OptimizationTrial.job_id == job_id)\
+            .filter(OptimizationTrial.status == 'completed')\
+            .order_by(OptimizationTrial.objective_value.desc())\
+            .all()
+        
+        return {
+            "status": "success",
+            "data": [
+                {
+                    "id": trial.id,
+                    "trial_number": trial.trial_number,
+                    "parameters": trial.parameters,
+                    "objective_value": trial.objective_value,
+                    "status": trial.status,
+                    "execution_time": trial.execution_time,
+                    "created_at": trial.created_at.isoformat() if trial.created_at else None,
+                    "completed_at": trial.completed_at.isoformat() if trial.completed_at else None
+                }
+                for trial in trials
+            ]
+        }
+    except Exception as e:
+        logger.error(f"获取优化试验列表失败: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"获取优化试验列表失败: {str(e)}")
+
+
 @router.post("/parameter-sets")
 async def create_parameter_set(
     request: ParameterSetRequest,

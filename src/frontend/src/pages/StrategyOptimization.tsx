@@ -65,6 +65,8 @@ const StrategyOptimization: React.FC = () => {
   const [jobDetailModalVisible, setJobDetailModalVisible] = useState(false);
   const [selectedJob, setSelectedJob] = useState<OptimizationJob | null>(null);
   const [jobBacktestResult, setJobBacktestResult] = useState<any>(null);
+  const [trialsModalVisible, setTrialsModalVisible] = useState(false);
+  const [optimizationTrials, setOptimizationTrials] = useState<any[]>([]);
 
   // 加载策略列表
   const loadStrategies = async () => {
@@ -150,6 +152,27 @@ const StrategyOptimization: React.FC = () => {
     } catch (error) {
       console.error('保存参数空间失败:', error);
       message.error('保存参数空间失败');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // 查看其他回测试验
+  const handleViewTrials = async (job: OptimizationJob) => {
+    try {
+      setLoading(true);
+      setSelectedJob(job);
+      
+      const response = await axios.get(`/api/optimization/jobs/${job.id}/trials`);
+      if (response.data && response.data.status === 'success') {
+        setOptimizationTrials(response.data.data);
+        setTrialsModalVisible(true);
+      } else {
+        message.error('获取试验数据失败');
+      }
+    } catch (error) {
+      console.error('获取试验数据失败:', error);
+      message.error('获取试验数据失败');
     } finally {
       setLoading(false);
     }
@@ -306,6 +329,44 @@ const StrategyOptimization: React.FC = () => {
       }
     },
     {
+      title: '交易配置',
+      dataIndex: 'optimization_config',
+      key: 'trading_config',
+      width: 140,
+      render: (config: any) => {
+        if (!config || !config.backtest_config) return '-';
+        const { symbol, initial_capital } = config.backtest_config;
+        return (
+          <div>
+            <Tag color="green">{symbol}</Tag>
+            <div style={{ fontSize: '12px', color: '#666', marginTop: '2px' }}>
+              ¥{initial_capital?.toLocaleString() || 'N/A'}
+            </div>
+          </div>
+        );
+      }
+    },
+    {
+      title: '回测时间段',
+      dataIndex: 'optimization_config',
+      key: 'date_range',
+      width: 180,
+      render: (config: any) => {
+        if (!config || !config.backtest_config) return '-';
+        const { start_date, end_date } = config.backtest_config;
+        return (
+          <div>
+            <div style={{ fontSize: '12px', color: '#666' }}>
+              {start_date} 至
+            </div>
+            <div style={{ fontSize: '12px', color: '#666' }}>
+              {end_date}
+            </div>
+          </div>
+        );
+      }
+    },
+    {
       title: '最佳参数',
       dataIndex: 'best_parameters',
       key: 'best_parameters',
@@ -333,7 +394,7 @@ const StrategyOptimization: React.FC = () => {
     {
       title: '操作',
       key: 'action',
-      width: 120,
+      width: 200,
       render: (_, record: OptimizationJob) => (
         <Space>
           <Button
@@ -344,6 +405,15 @@ const StrategyOptimization: React.FC = () => {
             disabled={record.status !== 'completed'}
           >
             查看回测
+          </Button>
+          <Button
+            type="link"
+            onClick={() => handleViewTrials(record)}
+            size="small"
+            disabled={record.status !== 'completed'}
+            style={{ color: '#1890ff' }}
+          >
+            其他回测
           </Button>
         </Space>
       )
@@ -841,6 +911,113 @@ const StrategyOptimization: React.FC = () => {
                 )}
               </TabPane>
             </Tabs>
+          </div>
+        )}
+      </Modal>
+
+      {/* 试验列表模态框 */}
+      <Modal
+        title="所有回测试验结果"
+        open={trialsModalVisible}
+        onCancel={() => {
+          setTrialsModalVisible(false);
+          setOptimizationTrials([]);
+          setSelectedJob(null);
+        }}
+        footer={null}
+        width={1000}
+      >
+        {selectedJob && (
+          <div>
+            <Alert
+              message={`任务: ${selectedJob.name} - 共${optimizationTrials.length}个试验，按得分降序排列`}
+              type="info"
+              showIcon
+              style={{ marginBottom: '16px' }}
+            />
+            
+            <Table
+              dataSource={optimizationTrials}
+              rowKey="id"
+              pagination={false}
+              size="small"
+              scroll={{ y: 400 }}
+              columns={[
+                {
+                  title: '排名',
+                  key: 'rank',
+                  width: 60,
+                  render: (_, __, index) => (
+                    <Tag color={index === 0 ? 'gold' : index === 1 ? 'silver' : index === 2 ? 'orange' : 'default'}>
+                      {index + 1}
+                    </Tag>
+                  )
+                },
+                {
+                  title: '得分',
+                  dataIndex: 'objective_value',
+                  key: 'objective_value',
+                  width: 100,
+                  render: (value: number) => (
+                    <Text strong style={{ color: '#1890ff' }}>
+                      {value ? value.toFixed(4) : '-'}
+                    </Text>
+                  ),
+                  sorter: (a, b) => (a.objective_value || 0) - (b.objective_value || 0),
+                  defaultSortOrder: 'descend'
+                },
+                {
+                  title: '参数组合',
+                  dataIndex: 'parameters',
+                  key: 'parameters',
+                  width: 200,
+                  render: (params: Record<string, any>) => (
+                    <div>
+                      {Object.entries(params || {}).map(([key, value]) => (
+                        <Tag key={key} color="blue" style={{ marginBottom: '2px' }}>
+                          {key === 'short_window' ? '短期' : 
+                           key === 'long_window' ? '长期' : key}: {value}
+                        </Tag>
+                      ))}
+                    </div>
+                  )
+                },
+                {
+                  title: '执行时间',
+                  dataIndex: 'execution_time',
+                  key: 'execution_time',
+                  width: 100,
+                  render: (time: number) => (
+                    <Text type="secondary">
+                      {time ? `${(time * 1000).toFixed(0)}ms` : '-'}
+                    </Text>
+                  )
+                },
+                {
+                  title: '完成时间',
+                  dataIndex: 'completed_at',
+                  key: 'completed_at',
+                  width: 150,
+                  render: (time: string) => time ? dayjs(time).format('HH:mm:ss') : '-'
+                }
+              ]}
+            />
+            
+            <Alert
+              message="说明"
+              description={
+                <div>
+                  <p><strong>排名</strong>: 按优化目标得分排序，金牌为最佳结果</p>
+                  <p><strong>得分</strong>: {selectedJob.objective_function === 'sharpe_ratio' ? '夏普比率' : 
+                                        selectedJob.objective_function === 'total_return' ? '总收益率' : 
+                                        selectedJob.objective_function === 'annual_return' ? '年化收益率' : '优化目标'}得分</p>
+                  <p><strong>参数组合</strong>: 该试验使用的策略参数</p>
+                </div>
+              }
+              type="info"
+              showIcon
+              style={{ marginTop: '16px' }}
+            />
           </div>
         )}
       </Modal>
