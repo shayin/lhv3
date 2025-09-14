@@ -297,6 +297,7 @@ async def get_optimization_trials(
                     "trial_number": trial.trial_number,
                     "parameters": trial.parameters,
                     "objective_value": trial.objective_value,
+                    "backtest_results": trial.backtest_results,  # 包含完整的回测结果
                     "status": trial.status,
                     "execution_time": trial.execution_time,
                     "created_at": trial.created_at.isoformat() if trial.created_at else None,

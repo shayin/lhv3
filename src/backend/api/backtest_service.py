@@ -242,7 +242,10 @@ class BacktestService:
         logger.info(f"获取到回测数据，行数: {len(stock_data)}")
         
         # 2. 实例化策略
-        strategy = self._get_strategy_instance(strategy_id, stock_data, parameters)
+        # 提取策略参数：如果parameters中有parameters字段，则使用它；否则使用整个parameters对象
+        strategy_params = parameters.get('parameters', {}) if parameters else {}
+        logger.info(f"提取到的策略参数: {strategy_params}")
+        strategy = self._get_strategy_instance(strategy_id, stock_data, strategy_params)
         if strategy is None:
             error_msg = f"无法创建策略实例: {strategy_id}"
             logger.error(error_msg)
@@ -406,6 +409,24 @@ class BacktestService:
         logger.error(f"无法创建策略实例: {strategy_id}")
         return None
     
+    def _prepare_full_parameters(self, parameters: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        准备完整的参数信息，包括策略参数
+        
+        Args:
+            parameters: 原始参数对象
+            
+        Returns:
+            包含策略参数的完整参数对象
+        """
+        if not parameters:
+            return {}
+            
+        strategy_params = parameters.get('parameters', {})
+        full_parameters = parameters.copy()
+        full_parameters['strategy_parameters'] = strategy_params
+        return full_parameters
+    
     def _save_backtest_result(self, 
                             strategy_id: Union[str, int],
                             symbol: str,
@@ -474,7 +495,8 @@ class BacktestService:
                 existing_status.end_date = datetime.fromisoformat(end_date.replace('Z', '+00:00'))
                 existing_status.initial_capital = initial_capital
                 existing_status.instruments = [symbol]
-                existing_status.parameters = parameters
+                # 保存完整的参数信息，包括策略参数
+                existing_status.parameters = self._prepare_full_parameters(parameters)
                 existing_status.position_config = parameters.get('positionConfig')
                 # 保存回测结果数据
                 existing_status.results = result
@@ -505,7 +527,8 @@ class BacktestService:
                     end_date=datetime.fromisoformat(end_date.replace('Z', '+00:00')),
                     initial_capital=initial_capital,
                     instruments=[symbol],
-                    parameters=parameters,
+                    # 保存完整的参数信息，包括策略参数
+                    parameters=self._prepare_full_parameters(parameters),
                     position_config=parameters.get('positionConfig'),
                     # 保存回测结果数据
                     results=result,

@@ -106,6 +106,7 @@ class OptimizationTrial(Base):
     trial_number = Column(Integer, nullable=False)
     parameters = Column(JSON, nullable=False)
     objective_value = Column(Float, nullable=True)
+    backtest_results = Column(JSON, nullable=True)  # 完整的回测结果
     status = Column(String(20), default='running')  # 'running', 'completed', 'failed', 'pruned'
     execution_time = Column(Float, nullable=True)  # 执行时间(秒)
     error_message = Column(Text, nullable=True)

@@ -82,13 +82,22 @@ class StrategyOptimizer:
             
             # 执行回测
             backtest_config = self.config['backtest_config']
+            
+            # 构造正确的参数结构，包装策略参数
+            backtest_parameters = {
+                'parameters': parameters,  # 策略参数
+                'save_backtest': False     # 不保存单个试验的回测
+            }
+            
+            logger.info(f"试验{trial.number}: 参数={parameters}")
+            
             result = self.backtest_service.run_backtest(
                 strategy_id=self.job.strategy_id,
                 symbol=backtest_config['symbol'],
                 start_date=backtest_config['start_date'],
                 end_date=backtest_config['end_date'],
                 initial_capital=backtest_config['initial_capital'],
-                parameters=parameters,
+                parameters=backtest_parameters,
                 data_source=backtest_config.get('data_source', 'database'),
                 features=backtest_config.get('features', [])
             )
@@ -103,6 +112,7 @@ class StrategyOptimizer:
             # 更新试验记录
             execution_time = (datetime.utcnow() - start_time).total_seconds()
             trial_record.objective_value = objective_value
+            trial_record.backtest_results = backtest_data  # 保存完整的回测结果
             trial_record.status = 'completed'
             trial_record.execution_time = execution_time
             trial_record.completed_at = datetime.utcnow()
@@ -256,13 +266,20 @@ class MultiObjectiveOptimizer(StrategyOptimizer):
         
         # 执行回测
         backtest_config = self.config['backtest_config']
+        
+        # 构造正确的参数结构，包装策略参数
+        backtest_parameters = {
+            'parameters': parameters,  # 策略参数
+            'save_backtest': False     # 不保存单个试验的回测
+        }
+        
         result = self.backtest_service.run_backtest(
             strategy_id=self.job.strategy_id,
             symbol=backtest_config['symbol'],
             start_date=backtest_config['start_date'],
             end_date=backtest_config['end_date'],
             initial_capital=backtest_config['initial_capital'],
-            parameters=parameters,
+            parameters=backtest_parameters,
             data_source=backtest_config.get('data_source', 'database'),
             features=backtest_config.get('features', [])
         )

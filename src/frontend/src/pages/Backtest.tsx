@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Card, Form, Button, DatePicker, Select, InputNumber, Row, Col, Divider, Typography, Tabs, Table, Statistic, Spin, message as antdMessage, Alert, Space, Tooltip, Modal, Tag, App, message, Slider, Input } from 'antd';
 import { useNavigate } from 'react-router-dom';
-import { LineChartOutlined, PlayCircleOutlined, DownloadOutlined, SaveOutlined, InfoCircleOutlined, MinusCircleOutlined, PlusOutlined } from '@ant-design/icons';
+import { LineChartOutlined, PlayCircleOutlined, DownloadOutlined, SaveOutlined, InfoCircleOutlined, MinusCircleOutlined, PlusOutlined, SettingOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import ReactECharts from 'echarts-for-react';
 import { fetchStockList, fetchDataSources as fetchDataSourcesAPI, fetchStockDateRange, Stock, DataSource } from '../services/apiService';
@@ -96,6 +96,9 @@ const Backtest: React.FC = () => {
   const [equityData, setEquityData] = useState<any[]>([]);
   const resultsRef = useRef<HTMLDivElement>(null);
   const initializedRef = useRef<boolean>(false); // 防止重复初始化
+  // 添加策略参数状态
+  const [strategyParameters, setStrategyParameters] = useState<Record<string, any>>({});
+  const [showParametersModal, setShowParametersModal] = useState(false);
   // 添加仓位控制相关状态
   const [positionMode, setPositionMode] = useState<string>('fixed'); // 'fixed', 'dynamic', 'staged'
   const [defaultPositionSize, setDefaultPositionSize] = useState<number>(100); // 默认100%
@@ -169,7 +172,8 @@ const Backtest: React.FC = () => {
           positionConfig: positionConfig,
           save_backtest: true, // 启用保存
           backtest_name: backtestName,
-          backtest_description: backtestDescription
+          backtest_description: backtestDescription,
+          parameters: strategyParameters // 添加策略参数
         },
         commissionRate,
         slippage,
@@ -241,7 +245,8 @@ const Backtest: React.FC = () => {
         initialCapital,
         {
           positionConfig: positionConfig, // 传递仓位配置
-          save_backtest: false // 暂时不自动保存，等用户手动保存
+          save_backtest: false, // 暂时不自动保存，等用户手动保存
+          parameters: strategyParameters // 添加策略参数
         }, // 参数对象
         commissionRate,
         slippage,
@@ -1813,6 +1818,34 @@ const Backtest: React.FC = () => {
     }
   };
   
+  // 处理策略参数设置
+  const handleParametersModal = () => {
+    setShowParametersModal(true);
+  };
+
+  // 保存策略参数
+  const handleSaveParameters = () => {
+    setShowParametersModal(false);
+    message.success('参数设置已保存');
+  };
+
+  // 重置参数为默认值
+  const handleResetParameters = () => {
+    if (selectedStrategy === 1) { // MA交叉策略
+      setStrategyParameters({
+        short_window: 5,
+        long_window: 20
+      });
+    }
+    message.success('参数已重置为默认值');
+  };
+
+  // 从优化结果导入参数
+  const handleImportFromOptimization = () => {
+    // 这里可以添加从优化页面导入参数的逻辑
+    message.info('请从参数优化页面复制最佳参数');
+  };
+
   // 获取数据源列表
   const fetchDataSources = async () => {
     try {
@@ -2354,25 +2387,43 @@ const Backtest: React.FC = () => {
             <Row gutter={24}>
               <Col span={8}>
                 <Form.Item label="策略选择" required>
-                  <Select
-                    value={selectedStrategyName}
-                    onChange={(value, option: any) => {
-                      // 设置策略ID为数字类型
-                      setSelectedStrategy(Number(option.key));
-                      // 设置策略显示名称
-                      setSelectedStrategyName(value);
-                    }}
-                    placeholder="选择策略"
-                  >
-                    {strategiesList.map(strategy => (
-                      <Option 
-                        key={strategy.id} 
-                        value={strategy.name}
-                      >
-                        {strategy.name}
-                      </Option>
-                    ))}
-                  </Select>
+                  <Input.Group compact>
+                    <Select
+                      value={selectedStrategyName}
+                      onChange={(value, option: any) => {
+                        // 设置策略ID为数字类型
+                        setSelectedStrategy(Number(option.key));
+                        // 设置策略显示名称
+                        setSelectedStrategyName(value);
+                        // 重置参数
+                        if (Number(option.key) === 1) {
+                          setStrategyParameters({
+                            short_window: 5,
+                            long_window: 20
+                          });
+                        }
+                      }}
+                      placeholder="选择策略"
+                      style={{ width: '70%' }}
+                    >
+                      {strategiesList.map(strategy => (
+                        <Option 
+                          key={strategy.id} 
+                          value={strategy.name}
+                        >
+                          {strategy.name}
+                        </Option>
+                      ))}
+                    </Select>
+                    <Button 
+                      type="default" 
+                      onClick={handleParametersModal}
+                      style={{ width: '30%' }}
+                      icon={<SettingOutlined />}
+                    >
+                      参数
+                    </Button>
+                  </Input.Group>
                 </Form.Item>
               </Col>
               <Col span={8}>
@@ -2794,11 +2845,84 @@ const Backtest: React.FC = () => {
                   positionMode === 'dynamic' ? '动态比例' : 
                   '分批建仓'
                 }</p>
+                {Object.keys(strategyParameters).length > 0 && (
+                  <p><strong>策略参数：</strong>
+                    短期均线 {strategyParameters.short_window || 5}天, 
+                    长期均线 {strategyParameters.long_window || 20}天
+                  </p>
+                )}
               </div>
             }
             type="info"
             showIcon
           />
+        </Form>
+      </Modal>
+
+      {/* 策略参数设置模态框 */}
+      <Modal
+        title="策略参数设置"
+        open={showParametersModal}
+        onOk={handleSaveParameters}
+        onCancel={() => setShowParametersModal(false)}
+        width={600}
+      >
+        <Alert
+          message="当前策略: MA交叉策略"
+          description="移动平均线交叉策略，通过短期和长期均线的交叉信号进行买卖决策"
+          type="info"
+          showIcon
+          style={{ marginBottom: '16px' }}
+        />
+        
+        <Form layout="vertical">
+          <Row gutter={16}>
+            <Col span={12}>
+              <Form.Item label="短期均线周期 (天)">
+                <InputNumber
+                  value={strategyParameters.short_window || 5}
+                  onChange={(value) => setStrategyParameters(prev => ({ ...prev, short_window: value }))}
+                  min={1}
+                  max={50}
+                  style={{ width: '100%' }}
+                />
+              </Form.Item>
+            </Col>
+            <Col span={12}>
+              <Form.Item label="长期均线周期 (天)">
+                <InputNumber
+                  value={strategyParameters.long_window || 20}
+                  onChange={(value) => setStrategyParameters(prev => ({ ...prev, long_window: value }))}
+                  min={5}
+                  max={200}
+                  style={{ width: '100%' }}
+                />
+              </Form.Item>
+            </Col>
+          </Row>
+          
+          <Alert
+            message="参数说明"
+            description={
+              <div>
+                <p><strong>短期均线</strong>: 反应价格变化的敏感度，值越小越敏感，建议范围 3-15</p>
+                <p><strong>长期均线</strong>: 趋势判断的基准线，值越大越稳定，建议范围 10-60</p>
+                <p><strong>交叉信号</strong>: 短期均线上穿长期均线时买入，下穿时卖出</p>
+              </div>
+            }
+            type="info"
+            showIcon
+            style={{ marginBottom: '16px' }}
+          />
+          
+          <Space>
+            <Button onClick={handleResetParameters}>
+              重置默认值
+            </Button>
+            <Button type="dashed" onClick={handleImportFromOptimization}>
+              从优化导入
+            </Button>
+          </Space>
         </Form>
       </Modal>
     </div>

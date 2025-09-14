@@ -186,6 +186,32 @@ const StrategyOptimization: React.FC = () => {
       
       // 如果有最佳参数和优化配置，获取对应的回测结果
       if (job.best_parameters && job.status === 'completed' && job.optimization_config) {
+        // 先尝试从优化试验中获取最佳结果
+        try {
+          const trialsResponse = await axios.get(`/api/optimization/jobs/${job.id}/trials`);
+          if (trialsResponse.data && trialsResponse.data.status === 'success' && trialsResponse.data.data.length > 0) {
+            // 获取最佳试验结果（已按得分降序排列）
+            const bestTrial = trialsResponse.data.data[0];
+            
+            // 如果有完整的回测结果，直接使用
+            if (bestTrial.backtest_results) {
+              const backtestResult = {
+                ...bestTrial.backtest_results,
+                // 添加标识，表明这是从优化结果获取的
+                fromOptimization: true
+              };
+              
+              setJobBacktestResult(backtestResult);
+              setJobDetailModalVisible(true);
+              setLoading(false);
+              return;
+            }
+          }
+        } catch (trialsError) {
+          console.warn('无法获取优化试验数据，将重新运行回测:', trialsError);
+        }
+        
+        // 如果无法获取优化试验数据，则重新运行回测
         const backtestConfig = job.optimization_config.backtest_config;
         
         // 使用保存的配置和最佳参数运行回测
@@ -507,7 +533,7 @@ const StrategyOptimization: React.FC = () => {
           minHeight: 0
         }}
       >
-        <Table
+            <Table
           columns={jobColumns}
           dataSource={optimizationJobs}
           rowKey="id"
