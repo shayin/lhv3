@@ -132,7 +132,7 @@ const StrategyOptimization: React.FC = () => {
   };
 
   // 设置快捷时间范围
-  const setQuickTimeRange = (type: 'recent1y' | 'recent3y' | 'recent5y' | 'full') => {
+  const setQuickTimeRange = (type: 'recent1y' | 'recent3y' | 'recent5y' | 'recent6y' | 'recent7y' | 'recent8y' | 'recent9y' | 'recent10y' | 'full') => {
     const now = dayjs();
     let startDate: dayjs.Dayjs;
     let endDate: dayjs.Dayjs = now;
@@ -146,6 +146,21 @@ const StrategyOptimization: React.FC = () => {
         break;
       case 'recent5y':
         startDate = now.subtract(5, 'year');
+        break;
+      case 'recent6y':
+        startDate = now.subtract(6, 'year');
+        break;
+      case 'recent7y':
+        startDate = now.subtract(7, 'year');
+        break;
+      case 'recent8y':
+        startDate = now.subtract(8, 'year');
+        break;
+      case 'recent9y':
+        startDate = now.subtract(9, 'year');
+        break;
+      case 'recent10y':
+        startDate = now.subtract(10, 'year');
         break;
       case 'full':
         if (stockDateRange.min_date && stockDateRange.max_date) {
@@ -915,6 +930,41 @@ const StrategyOptimization: React.FC = () => {
                 onClick={() => setQuickTimeRange('recent5y')}
               >
                 最近5年
+              </Button>
+              <Button 
+                size="small" 
+                icon={<CalendarOutlined />}
+                onClick={() => setQuickTimeRange('recent6y')}
+              >
+                最近6年
+              </Button>
+              <Button 
+                size="small" 
+                icon={<CalendarOutlined />}
+                onClick={() => setQuickTimeRange('recent7y')}
+              >
+                最近7年
+              </Button>
+              <Button 
+                size="small" 
+                icon={<CalendarOutlined />}
+                onClick={() => setQuickTimeRange('recent8y')}
+              >
+                最近8年
+              </Button>
+              <Button 
+                size="small" 
+                icon={<CalendarOutlined />}
+                onClick={() => setQuickTimeRange('recent9y')}
+              >
+                最近9年
+              </Button>
+              <Button 
+                size="small" 
+                icon={<CalendarOutlined />}
+                onClick={() => setQuickTimeRange('recent10y')}
+              >
+                最近10年
               </Button>
               {stockDateRange.min_date && stockDateRange.max_date && (
                 <Button 
