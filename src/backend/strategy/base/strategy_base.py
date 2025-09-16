@@ -26,8 +26,52 @@ class StrategyBase:
         self.name = name
         self.data = None  # 会在运行时设置
         self.initial_capital = 100000.0  # 默认初始资金
+        self.strategy_logs = []  # 策略执行日志
         
         logger.info(f"初始化策略: {name}, 参数: {self.params}")
+
+    def log(self, message: str, level: str = "INFO") -> None:
+        """
+        策略日志记录函数，供用户在策略中调用
+        
+        Args:
+            message: 日志消息
+            level: 日志级别 (DEBUG, INFO, WARNING, ERROR)
+        """
+        from datetime import datetime
+        
+        # 创建日志条目
+        log_entry = {
+            'timestamp': datetime.now().isoformat(),
+            'level': level.upper(),
+            'message': str(message)
+        }
+        
+        # 添加到策略日志列表
+        self.strategy_logs.append(log_entry)
+        
+        # 同时输出到系统日志（便于调试）
+        if level.upper() == "DEBUG":
+            logger.debug(f"[策略日志] {message}")
+        elif level.upper() == "WARNING":
+            logger.warning(f"[策略日志] {message}")
+        elif level.upper() == "ERROR":
+            logger.error(f"[策略日志] {message}")
+        else:
+            logger.info(f"[策略日志] {message}")
+    
+    def get_logs(self) -> List[Dict[str, str]]:
+        """
+        获取策略执行日志
+        
+        Returns:
+            日志列表
+        """
+        return self.strategy_logs.copy()
+    
+    def clear_logs(self) -> None:
+        """清空策略日志"""
+        self.strategy_logs.clear()
 
     def initialize(self, initial_capital: float = 100000.0) -> None:
         """
@@ -499,6 +543,9 @@ class StrategyBase:
         results['kline_data'] = kline_data
             
         logger.info(f"回测完成: {self.name}, 总收益率: {total_return:.2f}%, 年化收益率: {annual_return:.2f}%, Sharpe比率: {results['sharpe']:.4f}, 最大回撤: {max_drawdown:.2f}%, 胜率: {win_rate:.2f}%")
+        
+        # 添加策略日志到结果中
+        results['logs'] = self.get_logs()
 
         # 更新权益曲线 - 跟踪每次交易后的实际资金变化
         if trades:

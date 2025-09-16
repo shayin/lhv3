@@ -12,7 +12,8 @@ import {
   Spin,
   Typography,
   Row,
-  Col
+  Col,
+  Alert
 } from 'antd';
 import { CodeOutlined, SaveOutlined, PlayCircleOutlined, ArrowLeftOutlined } from '@ant-design/icons';
 import MonacoEditor from 'react-monaco-editor';
@@ -83,16 +84,33 @@ class MyStrategy(StrategyTemplate):
         df['trigger_reason'] = ''
         
         # TODO: 实现您的交易逻辑
+        
+        # 使用log函数记录策略执行过程（可选）
+        self.log("开始生成交易信号", "INFO")
+        self.log(f"数据行数: {len(df)}", "DEBUG")
+        
         # 示例: 当价格上涨超过2%时买入
         price_change = df['close'].pct_change() * 100
         buy_signal = price_change > 2
         df.loc[buy_signal, 'signal'] = 1
         df.loc[buy_signal, 'trigger_reason'] = "价格上涨超过2%"
         
+        # 记录买入信号数量
+        buy_count = buy_signal.sum()
+        if buy_count > 0:
+            self.log(f"生成买入信号 {buy_count} 个", "INFO")
+        
         # 示例: 当价格下跌超过2%时卖出
         sell_signal = price_change < -2
         df.loc[sell_signal, 'signal'] = -1
         df.loc[sell_signal, 'trigger_reason'] = "价格下跌超过2%"
+        
+        # 记录卖出信号数量
+        sell_count = sell_signal.sum()
+        if sell_count > 0:
+            self.log(f"生成卖出信号 {sell_count} 个", "INFO")
+        
+        self.log("交易信号生成完成", "INFO")
         
         return df
 `;
@@ -278,6 +296,30 @@ class MyStrategy(StrategyTemplate):
                   <Text strong>策略代码</Text>
                 </Space>
               </Divider>
+              
+              {/* Log函数使用说明 */}
+              <div style={{ marginBottom: '16px' }}>
+                <Alert
+                  message="💡 策略日志功能"
+                  description={
+                    <div>
+                      <p>您可以在策略中使用 <code>self.log(message, level)</code> 函数记录执行过程：</p>
+                      <ul style={{ marginBottom: 0 }}>
+                        <li><code>self.log("信息内容", "INFO")</code> - 记录一般信息</li>
+                        <li><code>self.log("调试信息", "DEBUG")</code> - 记录调试信息</li>
+                        <li><code>self.log("警告信息", "WARNING")</code> - 记录警告信息</li>
+                        <li><code>self.log("错误信息", "ERROR")</code> - 记录错误信息</li>
+                      </ul>
+                      <p style={{ marginTop: '8px', marginBottom: 0 }}>
+                        <Text type="secondary">日志将在回测历史的"控制台"按钮中查看，帮助您调试和监控策略执行过程。</Text>
+                      </p>
+                    </div>
+                  }
+                  type="info"
+                  showIcon
+                  style={{ marginBottom: '16px' }}
+                />
+              </div>
               
               <div style={{ border: '1px solid #d9d9d9', borderRadius: '2px' }}>
                 <MonacoEditor

@@ -107,6 +107,7 @@ class BacktestStatus(Base):
     equity_curve = Column(JSON, nullable=True)
     trade_records = Column(JSON, nullable=True)
     performance_metrics = Column(JSON, nullable=True)
+    logs = Column(JSON, nullable=True)  # 策略执行日志
     
     # 状态和时间
     status = Column(String, default='running')
@@ -139,6 +140,7 @@ class BacktestHistory(Base):
     equity_curve = Column(JSON, nullable=True)
     trade_records = Column(JSON, nullable=True)
     performance_metrics = Column(JSON, nullable=True)
+    logs = Column(JSON, nullable=True)  # 策略执行日志
     
     # 状态和时间
     status = Column(String, default='running')

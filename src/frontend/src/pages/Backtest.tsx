@@ -273,47 +273,22 @@ const Backtest: React.FC = () => {
       console.log('- equity_curve 数量:', result.equity_curve?.length);
       console.log('- drawdowns 数量:', result.drawdowns?.length);
       
-      // 如果找不到任何数据，添加一些示例数据以确保UI能显示（仅用于调试）
-      if (!result.trades || result.trades.length === 0) {
-        console.warn('未找到交易记录，添加示例数据用于调试');
-        result.trades = [{
-          date: new Date().toISOString(),
-          action: 'BUY',
-          price: 100,
-          shares: 100,
-          value: 10000,
-          commission: 15,
-          before_cash: 100000,
-          after_cash: 90000,
-          before_equity: 100000,
-          after_equity: 100000,
-          trigger_reason: '调试示例'
-        }];
+      // 确保trades数组存在
+      if (!result.trades) {
+        result.trades = [];
+        console.warn('未找到交易记录，设置为空数组');
       }
       
-      if (!result.equity_curve || result.equity_curve.length === 0) {
-        console.warn('未找到权益曲线数据，添加示例数据用于调试');
-        // 创建30天的模拟权益曲线
-        result.equity_curve = Array.from({ length: 30 }, (_, i) => {
-          const date = new Date();
-          date.setDate(date.getDate() - 30 + i);
-          return {
-            date: date.toISOString(),
-            equity: 100000 + i * 1000,
-            capital: 50000,
-            position: 100,
-            position_value: 50000 + i * 1000,
-            drawdown: 0
-          };
-        });
+      // 确保equity_curve数组存在
+      if (!result.equity_curve) {
+        result.equity_curve = [];
+        console.warn('未找到权益曲线数据，设置为空数组');
       }
       
-      if (!result.drawdowns || result.drawdowns.length === 0) {
-        console.warn('未找到回撤数据，添加示例数据用于调试');
-        result.drawdowns = result.equity_curve.map((item: any) => ({
-          date: item.date,
-          drawdown: Math.random() * 0.05 // 随机回撤，最大5%
-        }));
+      // 确保drawdowns数组存在
+      if (!result.drawdowns) {
+        result.drawdowns = [];
+        console.warn('未找到回撤数据，设置为空数组');
       }
       
       // 设置性能指标
@@ -342,8 +317,8 @@ const Backtest: React.FC = () => {
       setBacktestResults(result);
       
       // 更新图表数据
+      // 设置交易记录（即使为空也要处理）
       if (result.trades && result.trades.length > 0) {
-        // 设置交易记录
         const trades = result.trades.map((trade: any, index: number) => {
           console.log('处理交易记录:', trade);
           return {
@@ -378,6 +353,10 @@ const Backtest: React.FC = () => {
         
         setTradeRecords(sortedTrades);
         setTradesData(sortedTrades);
+      } else {
+        // 如果没有交易记录，设置为空数组
+        setTradeRecords([]);
+        setTradesData([]);
       }
       
       // 更新资产曲线数据
@@ -417,6 +396,11 @@ const Backtest: React.FC = () => {
         
         console.log('K线数据示例(前3条):', kData.slice(0, 3));
         setKlineData(kData);
+      } else {
+        // 如果没有权益曲线数据，设置为空数组
+        setEquityCurveData([]);
+        setEquityData([]);
+        setKlineData([]);
       }
       
       // 更新回撤曲线
@@ -426,6 +410,9 @@ const Backtest: React.FC = () => {
           drawdown: (item.drawdown || 0) * 100 // 转为百分比
         }));
         setDrawdownData(drawdownsData);
+      } else {
+        // 如果没有回撤数据，设置为空数组
+        setDrawdownData([]);
       }
       
       // 标记有回测结果
@@ -1786,7 +1773,23 @@ const Backtest: React.FC = () => {
     fetchStocks();
     fetchDataSources();
     fetchStrategies(); // 加载策略列表
-  }, []);
+    
+  // 初始化默认策略参数
+  setStrategyParameters({
+    short_window: 5,
+    long_window: 20
+  });
+}, []);
+
+// 当选择的策略改变时，重置策略参数
+useEffect(() => {
+  if (selectedStrategy === 1) { // MA交叉策略
+    setStrategyParameters({
+      short_window: 5,
+      long_window: 20
+    });
+  }
+}, [selectedStrategy]);
   
   // 处理股票选择并自动设置日期范围
   const handleStockSelection = async (stock: Stock) => {

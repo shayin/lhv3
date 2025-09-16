@@ -92,6 +92,7 @@ async def list_backtest_status(
                 "status": status.status,
                 "total_return": total_return,
                 "max_drawdown": max_drawdown,
+                "parameters": status.parameters,  # 添加参数配置
                 "created_at": status.created_at.isoformat(),
                 "updated_at": status.updated_at.isoformat(),
                 "completed_at": status.completed_at.isoformat() if status.completed_at else None,
@@ -142,6 +143,7 @@ async def get_backtest_status(
                 "equity_curve": status.equity_curve,
                 "trade_records": status.trade_records,
                 "performance_metrics": status.performance_metrics,
+                "logs": status.logs,
                 "status": status.status,
                 "created_at": status.created_at.isoformat(),
                 "updated_at": status.updated_at.isoformat(),
@@ -196,7 +198,8 @@ async def get_backtest_history(
                 "created_at": record.created_at.isoformat(),
                 "completed_at": record.completed_at.isoformat() if record.completed_at else None,
                 "operation_type": record.operation_type,
-                "performance_metrics": performance_metrics
+                "performance_metrics": performance_metrics,
+                "logs": record.logs
             })
         
         return result

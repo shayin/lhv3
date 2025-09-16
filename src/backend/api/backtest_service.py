@@ -510,6 +510,7 @@ class BacktestService:
                     'win_rate': result.get('win_rate'),
                     'profit_factor': result.get('profit_factor')
                 }
+                existing_status.logs = result.get('logs', [])
                 existing_status.status = 'completed'
                 existing_status.updated_at = datetime.now()
                 existing_status.completed_at = datetime.now()
@@ -543,6 +544,7 @@ class BacktestService:
                         'win_rate': result.get('win_rate'),
                         'profit_factor': result.get('profit_factor')
                     },
+                    logs=result.get('logs', []),
                     status='completed',
                     completed_at=datetime.now()
                 )
@@ -564,6 +566,7 @@ class BacktestService:
                 equity_curve=status_record.equity_curve,
                 trade_records=status_record.trade_records,
                 performance_metrics=status_record.performance_metrics,
+                logs=status_record.logs,
                 status=status_record.status,
                 completed_at=status_record.completed_at,
                 operation_type=operation_type

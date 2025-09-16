@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Card, Table, Button, Space, Modal, message, Tag, Typography, Descriptions, Statistic, Row, Col, Alert, Form, Input, DatePicker, Tabs, Tooltip } from 'antd';
-import { EyeOutlined, DeleteOutlined, ReloadOutlined, HistoryOutlined, SyncOutlined, LineChartOutlined, InfoCircleOutlined } from '@ant-design/icons';
+import { EyeOutlined, DeleteOutlined, ReloadOutlined, HistoryOutlined, SyncOutlined, LineChartOutlined, InfoCircleOutlined, ConsoleSqlOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import type { ColumnsType } from 'antd/es/table';
 import axios from 'axios';
@@ -55,6 +55,8 @@ interface BacktestRecord {
   created_at: string;
   completed_at?: string;
   trade_records?: any[];  // 添加交易记录字段
+  logs?: any[];  // 添加日志字段
+  parameters?: any;  // 添加参数配置字段
   performance_metrics?: {
     total_return?: number;
     annual_return?: number;  // 添加年化收益率字段
@@ -229,6 +231,8 @@ const BacktestHistory: React.FC = () => {
   const [selectedBacktestForUpdate, setSelectedBacktestForUpdate] = useState<BacktestRecord | null>(null);
   const [updateLoading, setUpdateLoading] = useState(false);
   const [updateForm] = Form.useForm();
+  const [logsModalVisible, setLogsModalVisible] = useState(false);
+  const [selectedLogs, setSelectedLogs] = useState<any[]>([]);
 
   // 获取回测列表
   const fetchBacktestList = async () => {
@@ -313,6 +317,13 @@ const BacktestHistory: React.FC = () => {
       update_to_date: null
     });
     setUpdateModalVisible(true);
+  };
+
+  // 查看日志
+  const handleViewLogs = (record: BacktestRecord) => {
+    const logs = record.logs || [];
+    setSelectedLogs(logs);
+    setLogsModalVisible(true);
   };
 
   // 更新回测
@@ -409,6 +420,44 @@ const BacktestHistory: React.FC = () => {
       key: 'strategy_name',
       width: 150,
       render: (text: string) => text || '-',
+    },
+    {
+      title: '策略参数',
+      key: 'strategy_parameters',
+      width: 200,
+      render: (_, record) => {
+        if (!record.parameters) return '-';
+        
+        // 提取策略参数（跳过系统参数）
+        const strategyParams = record.parameters.parameters || {};
+        const systemParams = ['positionConfig', 'save_backtest'];
+        
+        // 过滤掉系统参数，只显示策略参数
+        const filteredParams = Object.keys(strategyParams)
+          .filter(key => !systemParams.includes(key))
+          .reduce((obj: any, key) => {
+            obj[key] = strategyParams[key];
+            return obj;
+          }, {});
+        
+        if (Object.keys(filteredParams).length === 0) return '-';
+        
+        // 格式化参数显示
+        const paramText = Object.entries(filteredParams)
+          .map(([key, value]) => `${key}: ${value}`)
+          .join(', ');
+        
+        // 如果参数太长，显示前30个字符并添加省略号
+        if (paramText.length > 30) {
+          return (
+            <Tooltip title={paramText}>
+              <Text style={{ fontSize: '12px' }}>{paramText.substring(0, 30)}...</Text>
+            </Tooltip>
+          );
+        }
+        
+        return <Text style={{ fontSize: '12px' }}>{paramText}</Text>;
+      },
     },
     {
       title: '股票',
@@ -524,6 +573,14 @@ const BacktestHistory: React.FC = () => {
             size="small"
           >
             更新
+          </Button>
+          <Button
+            type="link"
+            icon={<ConsoleSqlOutlined />}
+            onClick={() => handleViewLogs(record)}
+            size="small"
+          >
+            控制台
           </Button>
           <Button
             type="link"
@@ -1849,6 +1906,63 @@ const BacktestHistory: React.FC = () => {
             />
           )}
         </Form>
+      </Modal>
+
+      {/* 日志查看模态框 */}
+      <Modal
+        title="策略执行日志"
+        open={logsModalVisible}
+        onCancel={() => setLogsModalVisible(false)}
+        footer={[
+          <Button key="close" onClick={() => setLogsModalVisible(false)}>
+            关闭
+          </Button>
+        ]}
+        width={800}
+      >
+        <div style={{ maxHeight: '500px', overflowY: 'auto' }}>
+          {selectedLogs.length > 0 ? (
+            <div style={{ fontFamily: 'monospace', fontSize: '12px' }}>
+              {selectedLogs.map((log, index) => (
+                <div
+                  key={index}
+                  style={{
+                    marginBottom: '8px',
+                    padding: '8px 12px',
+                    backgroundColor: log.level === 'ERROR' ? '#fff2f0' : 
+                                   log.level === 'WARNING' ? '#fffbe6' : 
+                                   log.level === 'DEBUG' ? '#f6ffed' : '#fafafa',
+                    border: `1px solid ${log.level === 'ERROR' ? '#ffccc7' : 
+                                         log.level === 'WARNING' ? '#ffe58f' : 
+                                         log.level === 'DEBUG' ? '#d9f7be' : '#d9d9d9'}`,
+                    borderRadius: '4px'
+                  }}
+                >
+                  <div style={{ 
+                    color: log.level === 'ERROR' ? '#cf1322' : 
+                           log.level === 'WARNING' ? '#d46b08' : 
+                           log.level === 'DEBUG' ? '#52c41a' : '#595959',
+                    fontWeight: 'bold',
+                    marginBottom: '4px'
+                  }}>
+                    [{log.timestamp}] {log.level}
+                  </div>
+                  <div style={{ color: '#262626', whiteSpace: 'pre-wrap' }}>
+                    {log.message}
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div style={{ textAlign: 'center', color: '#999', padding: '40px 0' }}>
+              <ConsoleSqlOutlined style={{ fontSize: '48px', marginBottom: '16px' }} />
+              <div>暂无策略执行日志</div>
+              <div style={{ fontSize: '12px', marginTop: '8px' }}>
+                策略中可以使用 log() 函数记录执行过程
+              </div>
+            </div>
+          )}
+        </div>
       </Modal>
     </div>
   );
