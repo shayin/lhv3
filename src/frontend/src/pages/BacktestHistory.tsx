@@ -381,101 +381,60 @@ const BacktestHistory: React.FC = () => {
     }
   };
 
-  // 表格列定义
+  // 表格列定义 - 优化后的版本
   const columns: ColumnsType<BacktestRecord> = [
     {
       title: 'ID',
       dataIndex: 'id',
       key: 'id',
-      width: 80,
+      width: 60,
+      fixed: 'left',
+      align: 'center',
     },
     {
       title: '回测名称',
       dataIndex: 'name',
       key: 'name',
-      width: 200,
-      render: (text: string) => <Text strong>{text}</Text>,
-    },
-    {
-      title: '描述',
-      dataIndex: 'description',
-      key: 'description',
-      width: 250,
-      render: (text: string) => {
-        if (!text) return '-';
-        // 如果描述太长，显示前50个字符并添加省略号
-        if (text.length > 50) {
-          return (
-            <Tooltip title={text}>
-              <Text>{text.substring(0, 50)}...</Text>
-            </Tooltip>
-          );
-        }
-        return <Text>{text}</Text>;
-      },
+      width: 180,
+      fixed: 'left',
+      ellipsis: true,
+      render: (text: string) => (
+        <Tooltip title={text} placement="topLeft">
+          <Text strong style={{ color: '#1890ff' }}>{text}</Text>
+        </Tooltip>
+      ),
     },
     {
       title: '策略',
       dataIndex: 'strategy_name',
       key: 'strategy_name',
-      width: 150,
-      render: (text: string) => text || '-',
-    },
-    {
-      title: '策略参数',
-      key: 'strategy_parameters',
-      width: 200,
-      render: (_, record) => {
-        if (!record.parameters) return '-';
-        
-        // 提取策略参数（跳过系统参数）
-        const strategyParams = record.parameters.parameters || {};
-        const systemParams = ['positionConfig', 'save_backtest'];
-        
-        // 过滤掉系统参数，只显示策略参数
-        const filteredParams = Object.keys(strategyParams)
-          .filter(key => !systemParams.includes(key))
-          .reduce((obj: any, key) => {
-            obj[key] = strategyParams[key];
-            return obj;
-          }, {});
-        
-        if (Object.keys(filteredParams).length === 0) return '-';
-        
-        // 格式化参数显示
-        const paramText = Object.entries(filteredParams)
-          .map(([key, value]) => `${key}: ${value}`)
-          .join(', ');
-        
-        // 如果参数太长，显示前30个字符并添加省略号
-        if (paramText.length > 30) {
-          return (
-            <Tooltip title={paramText}>
-              <Text style={{ fontSize: '12px' }}>{paramText.substring(0, 30)}...</Text>
-            </Tooltip>
-          );
-        }
-        
-        return <Text style={{ fontSize: '12px' }}>{paramText}</Text>;
-      },
+      width: 120,
+      ellipsis: true,
+      render: (text: string) => (
+        <Tooltip title={text || '未知策略'} placement="topLeft">
+          <Tag color="blue">{text || '未知'}</Tag>
+        </Tooltip>
+      ),
     },
     {
       title: '股票',
       dataIndex: 'instruments',
       key: 'instruments',
-      width: 120,
-      render: (instruments: string[]) => instruments.join(', '),
+      width: 80,
+      align: 'center',
+      render: (instruments: string[]) => (
+        <Tag color="green">{instruments.join(', ')}</Tag>
+      ),
     },
     {
       title: '回测期间',
       key: 'date_range',
-      width: 200,
+      width: 160,
+      align: 'center',
       render: (_, record) => (
-        <div>
-          <div>{dayjs(record.start_date).format('YYYY-MM-DD')}</div>
-          <div style={{ fontSize: '12px', color: '#999' }}>
-            至 {dayjs(record.end_date).format('YYYY-MM-DD')}
-          </div>
+        <div style={{ fontSize: '12px', lineHeight: '1.4' }}>
+          <div style={{ fontWeight: 'bold' }}>{dayjs(record.start_date).format('MM-DD')}</div>
+          <div style={{ color: '#999' }}>至 {dayjs(record.end_date).format('MM-DD')}</div>
         </div>
       ),
     },
@@ -483,14 +442,20 @@ const BacktestHistory: React.FC = () => {
       title: '初始资金',
       dataIndex: 'initial_capital',
       key: 'initial_capital',
-      width: 120,
-      render: (value: number) => `$${value.toLocaleString()}`,
+      width: 100,
+      align: 'right',
+      render: (value: number) => (
+        <Text style={{ fontWeight: 'bold', color: '#52c41a' }}>
+          ${(value / 1000).toFixed(0)}K
+        </Text>
+      ),
     },
     {
       title: '状态',
       dataIndex: 'status',
       key: 'status',
-      width: 100,
+      width: 80,
+      align: 'center',
       render: (status: string) => {
         const statusMap = {
           'running': { text: '运行中', color: 'processing' },
@@ -504,93 +469,119 @@ const BacktestHistory: React.FC = () => {
     {
       title: '年化收益率',
       key: 'annual_return',
-      width: 120,
+      width: 100,
+      align: 'right',
       render: (_, record) => {
         const returnValue = record.performance_metrics?.annual_return;
         if (returnValue !== undefined) {
-          const color = '#3f8600';  // 年化收益率统一显示为绿色
-          return <Text style={{ color }}>{returnValue >= 0 ? '+' : ''}{(returnValue * 100).toFixed(2)}%</Text>;
+          const color = returnValue >= 0 ? '#52c41a' : '#ff4d4f';
+          const displayValue = returnValue * 100;
+          return (
+            <Text style={{ color, fontWeight: 'bold' }}>
+              {displayValue >= 0 ? '+' : ''}{displayValue.toFixed(1)}%
+            </Text>
+          );
         }
-        return '-';
+        return <Text style={{ color: '#999' }}>-</Text>;
       },
     },
     {
       title: '最大回撤',
       key: 'max_drawdown',
-      width: 120,
+      width: 100,
+      align: 'right',
       render: (_, record) => {
         const drawdown = record.performance_metrics?.max_drawdown;
         if (drawdown !== undefined) {
-          // 使用与详情页面相同的精度处理方式
-          const value = Math.floor((drawdown * 100) * 100) / 100; // 向下舍入到2位小数
-          return <Text style={{ color: '#3f8600' }}>{value.toFixed(2)}%</Text>;  // 修改为绿色
+          const value = Math.floor((drawdown * 100) * 100) / 100;
+          return (
+            <Text style={{ color: '#ff4d4f', fontWeight: 'bold' }}>
+              {value.toFixed(1)}%
+            </Text>
+          );
         }
-        return '-';
+        return <Text style={{ color: '#999' }}>-</Text>;
       },
     },
     {
       title: '交易次数',
       key: 'trade_count',
-      width: 100,
+      width: 80,
+      align: 'center',
       render: (_, record) => {
         const tradeCount = record.trade_records?.length || 0;
-        return <Text>{tradeCount}</Text>;
+        return (
+          <Tag color={tradeCount > 0 ? 'blue' : 'default'}>
+            {tradeCount}
+          </Tag>
+        );
       },
     },
     {
       title: '创建时间',
       dataIndex: 'created_at',
       key: 'created_at',
-      width: 180,
-      render: (date: string) => dayjs(date).format('YYYY-MM-DD HH:mm'),
+      width: 120,
+      align: 'center',
+      render: (date: string) => (
+        <div style={{ fontSize: '12px', lineHeight: '1.4' }}>
+          <div>{dayjs(date).format('MM-DD')}</div>
+          <div style={{ color: '#999' }}>{dayjs(date).format('HH:mm')}</div>
+        </div>
+      ),
     },
     {
       title: '操作',
       key: 'actions',
-      width: 200,
+      width: 180,
+      fixed: 'right',
       render: (_, record) => (
-        <Space>
-          <Button
-            type="link"
-            icon={<EyeOutlined />}
-            onClick={() => fetchBacktestDetail(record.id)}
-            size="small"
-          >
-            查看
-          </Button>
-          <Button
-            type="link"
-            icon={<HistoryOutlined />}
-            onClick={() => navigate(`/backtest-history/${record.id}`)}
-            size="small"
-          >
-            历史
-          </Button>
-          <Button
-            type="link"
-            icon={<SyncOutlined />}
-            onClick={() => handleOpenUpdateModal(record)}
-            size="small"
-          >
-            更新
-          </Button>
-          <Button
-            type="link"
-            icon={<ConsoleSqlOutlined />}
-            onClick={() => handleViewLogs(record)}
-            size="small"
-          >
-            控制台
-          </Button>
-          <Button
-            type="link"
-            danger
-            icon={<DeleteOutlined />}
-            onClick={() => handleDeleteBacktest(record.id)}
-            size="small"
-          >
-            删除
-          </Button>
+        <Space size="small">
+          <Tooltip title="查看详情">
+            <Button
+              type="text"
+              icon={<EyeOutlined />}
+              onClick={() => fetchBacktestDetail(record.id)}
+              size="small"
+              style={{ color: '#1890ff' }}
+            />
+          </Tooltip>
+          <Tooltip title="历史记录">
+            <Button
+              type="text"
+              icon={<HistoryOutlined />}
+              onClick={() => navigate(`/backtest-history/${record.id}`)}
+              size="small"
+              style={{ color: '#52c41a' }}
+            />
+          </Tooltip>
+          <Tooltip title="更新数据">
+            <Button
+              type="text"
+              icon={<SyncOutlined />}
+              onClick={() => handleOpenUpdateModal(record)}
+              size="small"
+              style={{ color: '#faad14' }}
+            />
+          </Tooltip>
+          <Tooltip title="查看日志">
+            <Button
+              type="text"
+              icon={<ConsoleSqlOutlined />}
+              onClick={() => handleViewLogs(record)}
+              size="small"
+              style={{ color: '#722ed1' }}
+            />
+          </Tooltip>
+          <Tooltip title="删除">
+            <Button
+              type="text"
+              danger
+              icon={<DeleteOutlined />}
+              onClick={() => handleDeleteBacktest(record.id)}
+              size="small"
+            />
+          </Tooltip>
         </Space>
       ),
     },
@@ -1686,6 +1677,35 @@ const BacktestHistory: React.FC = () => {
 
   return (
     <div style={{ padding: '24px' }}>
+      <style>{`
+        .table-row-light {
+          background-color: #fafafa;
+        }
+        .table-row-dark {
+          background-color: #ffffff;
+        }
+        .ant-table-thead > tr > th {
+          background-color: #f5f5f5 !important;
+          font-weight: 600 !important;
+          text-align: center !important;
+          white-space: nowrap !important;
+        }
+        .ant-table-tbody > tr:hover > td {
+          background-color: #e6f7ff !important;
+        }
+        .ant-table-tbody > tr > td {
+          padding: 8px 12px !important;
+          border-bottom: 1px solid #f0f0f0 !important;
+        }
+        .ant-table-fixed-left .ant-table-thead > tr > th,
+        .ant-table-fixed-right .ant-table-thead > tr > th {
+          background-color: #f5f5f5 !important;
+        }
+        .ant-table-fixed-left .ant-table-tbody > tr > td,
+        .ant-table-fixed-right .ant-table-tbody > tr > td {
+          background-color: inherit !important;
+        }
+      `}</style>
       <Card
         title={
           <Space>
@@ -1708,13 +1728,23 @@ const BacktestHistory: React.FC = () => {
           dataSource={backtestList}
           rowKey="id"
           loading={loading}
+          size="small"
+          bordered
           pagination={{
-            pageSize: 20,
+            pageSize: 15,
             showSizeChanger: true,
             showQuickJumper: true,
             showTotal: (total, range) => `第 ${range[0]}-${range[1]} 条，共 ${total} 条`,
+            pageSizeOptions: ['10', '15', '20', '50'],
+            size: 'small',
           }}
-          scroll={{ x: 1200 }}
+          scroll={{ 
+            x: 1400,
+            y: 'calc(100vh - 300px)'
+          }}
+          rowClassName={(record, index) => 
+            index % 2 === 0 ? 'table-row-light' : 'table-row-dark'
+          }
         />
       </Card>
 
