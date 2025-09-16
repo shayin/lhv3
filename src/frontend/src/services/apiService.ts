@@ -202,4 +202,33 @@ export const fetchStockDateRange = async (stockId: string): Promise<{
     console.error(`获取股票(ID:${stockId})日期范围失败:`, error);
     throw error;
   }
+};
+
+// 一键更新所有股票数据
+export const updateAllStocksData = async (): Promise<{
+  status: string;
+  message: string;
+  summary: {
+    total: number;
+    success: number;
+    error: number;
+  };
+  results: Array<{
+    symbol: string;
+    name: string;
+    status: string;
+    message: string;
+    records_count?: number;
+  }>;
+}> => {
+  try {
+    const response = await axios.post('/api/data/update-all');
+    if (response.data) {
+      return response.data;
+    }
+    throw new Error('一键更新失败，返回数据格式错误');
+  } catch (error) {
+    console.error('一键更新所有股票数据失败:', error);
+    throw error;
+  }
 }; 

@@ -888,6 +888,234 @@ async def refresh_stock_data(
         logger.error(f"刷新股票数据时发生错误: {str(e)}")
         raise HTTPException(status_code=500, detail=f"刷新股票数据时发生错误: {str(e)}")
 
+@router.post("/update-all", status_code=status.HTTP_200_OK)
+async def update_all_stocks_data(db: Session = Depends(get_db)):
+    """一键更新所有股票数据"""
+    try:
+        logger.info("开始一键更新所有股票数据")
+        
+        # 获取所有股票
+        stocks = db.query(Stock).all()
+        if not stocks:
+            return {
+                "status": "success",
+                "message": "没有找到任何股票数据",
+                "results": []
+            }
+        
+        results = []
+        success_count = 0
+        error_count = 0
+        
+        for stock in stocks:
+            try:
+                logger.info(f"正在更新股票: {stock.symbol} ({stock.name})")
+                
+                # 查找该股票的最新数据日期
+                latest_data = db.query(StockData).filter(
+                    StockData.stock_id == stock.id
+                ).order_by(StockData.date.desc()).first()
+                
+                if not latest_data:
+                    results.append({
+                        "symbol": stock.symbol,
+                        "name": stock.name,
+                        "status": "skipped",
+                        "message": "该股票没有数据记录，请先抓取初始数据"
+                    })
+                    continue
+                
+                # 计算开始日期（最后数据日期的下一天）
+                last_date = latest_data.date
+                start_date = (last_date + timedelta(days=1)).strftime("%Y-%m-%d")
+                end_date = datetime.now().strftime("%Y-%m-%d")
+                
+                # 检查是否需要更新
+                if start_date > end_date:
+                    results.append({
+                        "symbol": stock.symbol,
+                        "name": stock.name,
+                        "status": "success",
+                        "message": "数据已是最新，无需更新",
+                        "records_count": 0
+                    })
+                    success_count += 1
+                    continue
+                
+                # 获取数据源信息
+                data_source = db.query(DataSource).filter(DataSource.id == stock.source_id).first()
+                if not data_source:
+                    results.append({
+                        "symbol": stock.symbol,
+                        "name": stock.name,
+                        "status": "error",
+                        "message": f"数据源ID {stock.source_id} 不存在"
+                    })
+                    error_count += 1
+                    continue
+                
+                # 根据数据源名称确定使用哪个数据抓取器
+                source_name = data_source.name.lower()
+                
+                if 'akshare' in source_name or '抓取' in source_name:
+                    fetch_source = 'akshare'
+                elif '用户上传' in source_name or 'user' in source_name:
+                    fetch_source = 'akshare'
+                else:
+                    fetch_source = 'akshare'
+                
+                # 检查数据源是否可用
+                available_sources = data_manager.get_available_sources()
+                if fetch_source not in available_sources:
+                    results.append({
+                        "symbol": stock.symbol,
+                        "name": stock.name,
+                        "status": "error",
+                        "message": f"数据源 {fetch_source} 不可用"
+                    })
+                    error_count += 1
+                    continue
+                
+                # 抓取数据
+                file_path = data_manager.fetch_stock_data(fetch_source, stock.symbol, start_date, end_date)
+                
+                if not file_path:
+                    results.append({
+                        "symbol": stock.symbol,
+                        "name": stock.name,
+                        "status": "success",
+                        "message": "在指定日期范围内没有新数据（可能是周末或节假日）",
+                        "records_count": 0
+                    })
+                    success_count += 1
+                    continue
+                
+                # 读取抓取的数据
+                df = pd.read_csv(file_path)
+                required_columns = ['date', 'open', 'high', 'low', 'close', 'volume']
+                
+                # 检查必须的列是否存在
+                missing_columns = [col for col in required_columns if col not in df.columns]
+                if missing_columns:
+                    results.append({
+                        "symbol": stock.symbol,
+                        "name": stock.name,
+                        "status": "error",
+                        "message": f"抓取的数据缺少必需的列: {', '.join(missing_columns)}"
+                    })
+                    error_count += 1
+                    continue
+                
+                # 检查数据是否为空
+                if df.empty:
+                    results.append({
+                        "symbol": stock.symbol,
+                        "name": stock.name,
+                        "status": "success",
+                        "message": "在指定日期范围内没有新数据",
+                        "records_count": 0
+                    })
+                    success_count += 1
+                    continue
+                
+                # 检查日期格式
+                try:
+                    df['date'] = pd.to_datetime(df['date'])
+                except Exception:
+                    results.append({
+                        "symbol": stock.symbol,
+                        "name": stock.name,
+                        "status": "error",
+                        "message": "抓取的数据中日期格式无效"
+                    })
+                    error_count += 1
+                    continue
+                
+                # 处理数据
+                processor = DataProcessor()
+                processed_df = processor.process_data(df, features=[])
+                
+                # 导入新数据到数据库
+                records_count = 0
+                for _, row in processed_df.iterrows():
+                    # 检查是否已存在该日期的数据
+                    existing_data = db.query(StockData).filter(
+                        StockData.stock_id == stock.id,
+                        StockData.date == row['date']
+                    ).first()
+                    
+                    if not existing_data:
+                        # 创建新数据记录
+                        new_data = StockData(
+                            stock_id=stock.id,
+                            date=row['date'],
+                            open=row['open'],
+                            high=row['high'],
+                            low=row['low'],
+                            close=row['close'],
+                            volume=row['volume'],
+                            adj_close=row.get('adj_close', row['close'])
+                        )
+                        db.add(new_data)
+                        records_count += 1
+                
+                # 更新股票的最后更新时间和统计信息
+                stock.last_updated = datetime.now()
+                
+                # 更新股票的统计信息（总记录数、开始日期、结束日期）
+                if records_count > 0:
+                    # 查询最新的统计信息
+                    result = db.query(
+                        func.count(StockData.id).label('total_records'),
+                        func.min(StockData.date).label('first_date'),
+                        func.max(StockData.date).label('last_date')
+                    ).filter(StockData.stock_id == stock.id).first()
+                    
+                    stock.total_records = result.total_records or 0
+                    stock.first_date = result.first_date
+                    stock.last_date = result.last_date
+                
+                db.commit()
+                
+                results.append({
+                    "symbol": stock.symbol,
+                    "name": stock.name,
+                    "status": "success",
+                    "message": f"成功更新 {records_count} 条数据记录",
+                    "records_count": records_count
+                })
+                success_count += 1
+                
+                logger.info(f"成功更新 {records_count} 条 {stock.symbol} 的数据记录")
+                
+            except Exception as e:
+                logger.error(f"更新股票 {stock.symbol} 数据时发生错误: {str(e)}")
+                results.append({
+                    "symbol": stock.symbol,
+                    "name": stock.name,
+                    "status": "error",
+                    "message": f"更新失败: {str(e)}"
+                })
+                error_count += 1
+                db.rollback()  # 回滚当前股票的事务
+        
+        logger.info(f"一键更新完成: 成功 {success_count} 个，失败 {error_count} 个")
+        
+        return {
+            "status": "success",
+            "message": f"一键更新完成: 成功 {success_count} 个，失败 {error_count} 个",
+            "summary": {
+                "total": len(stocks),
+                "success": success_count,
+                "error": error_count
+            },
+            "results": results
+        }
+        
+    except Exception as e:
+        logger.error(f"一键更新所有股票数据失败: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"一键更新所有股票数据失败: {str(e)}")
+
 @router.get("/chart/{stock_id}")
 async def get_stock_chart_data(stock_id: int, db: Session = Depends(get_db)):
     """获取股票数据用于绘制K线图"""

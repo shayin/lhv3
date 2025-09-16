@@ -13,7 +13,7 @@ import type { UploadProps } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import axios from 'axios';
 import ReactECharts from 'echarts-for-react';
-import { fetchStockList, fetchDataSources, fetchChartData, Stock, DataSource } from '../services/apiService';
+import { fetchStockList, fetchDataSources, fetchChartData, updateAllStocksData, Stock, DataSource } from '../services/apiService';
 import dayjs from 'dayjs';
 
 const { Title, Text } = Typography;
@@ -125,6 +125,7 @@ const DataManagement: React.FC = () => {
   const [form] = Form.useForm();
   const [uploadMode, setUploadMode] = useState<'upload' | 'fetch'>('fetch'); // 新增：上传模式
   const [fetchLoading, setFetchLoading] = useState(false); // 新增：抓取加载状态
+  const [updateAllLoading, setUpdateAllLoading] = useState(false); // 新增：一键更新加载状态
   
   // K线图相关状态
   const [chartVisible, setChartVisible] = useState<boolean>(false);
@@ -457,6 +458,68 @@ const DataManagement: React.FC = () => {
     }
   };
 
+  // 处理一键更新所有股票数据
+  const handleUpdateAll = async () => {
+    Modal.confirm({
+      title: '一键更新所有股票数据',
+      content: '确定要更新所有股票的数据吗？这将从每个股票的最后数据日期抓取到今天的最新数据。此操作可能需要较长时间，请耐心等待。',
+      okText: '确认更新',
+      okType: 'primary',
+      cancelText: '取消',
+      onOk: async () => {
+        setUpdateAllLoading(true);
+        try {
+          const result = await updateAllStocksData();
+          
+          if (result.status === 'success') {
+            const { summary, results } = result;
+            
+            // 显示更新结果摘要
+            message.success(
+              `一键更新完成！成功: ${summary.success} 个，失败: ${summary.error} 个，总计: ${summary.total} 个`,
+              5
+            );
+            
+            // 显示详细结果（可选）
+            if (summary.error > 0) {
+              const errorResults = results.filter(r => r.status === 'error');
+              console.warn('更新失败的股票:', errorResults);
+              
+              // 显示前几个错误信息
+              const errorMessages = errorResults.slice(0, 3).map(r => `${r.symbol}: ${r.message}`).join('; ');
+              if (errorResults.length > 3) {
+                message.warning(`部分股票更新失败: ${errorMessages}... (共${errorResults.length}个失败)`);
+              } else {
+                message.warning(`部分股票更新失败: ${errorMessages}`);
+              }
+            }
+            
+            // 刷新列表
+            fetchList();
+          } else {
+            message.error('一键更新失败');
+          }
+        } catch (error: any) {
+          console.error('一键更新失败:', error);
+          
+          // 安全地处理错误信息
+          const detail = error.response?.data?.detail;
+          if (detail) {
+            if (typeof detail === 'object') {
+              message.error(JSON.stringify(detail));
+            } else {
+              message.error(detail);
+            }
+          } else {
+            message.error('一键更新失败，请重试');
+          }
+        } finally {
+          setUpdateAllLoading(false);
+        }
+      },
+    });
+  };
+
   // 表格列定义
   const columns: ColumnsType<DataItem> = [
     {
@@ -596,6 +659,15 @@ const DataManagement: React.FC = () => {
                 onClick={() => setUploadVisible(true)}
               >
                 添加数据
+              </Button>
+              <Button 
+                type="primary"
+                icon={<SyncOutlined />} 
+                loading={updateAllLoading}
+                onClick={handleUpdateAll}
+                style={{ backgroundColor: '#52c41a', borderColor: '#52c41a' }}
+              >
+                一键更新
               </Button>
               <Button 
                 icon={<SyncOutlined />} 
