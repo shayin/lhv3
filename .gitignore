@@ -4,3 +4,5 @@
 .env
 .DS_Store
 data/raw/
+backtesting.db
+data/backup/

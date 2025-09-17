@@ -417,6 +417,59 @@ const BacktestHistory: React.FC = () => {
       ),
     },
     {
+      title: '自定义参数',
+      key: 'parameters',
+      width: 150,
+      ellipsis: true,
+      render: (_, record) => {
+        const parameters = record.parameters;
+        if (!parameters || Object.keys(parameters).length === 0) {
+          return <Text style={{ color: '#999' }}>-</Text>;
+        }
+        
+        // 提取策略参数
+        const strategyParams = parameters.parameters || {};
+        const paramCount = Object.keys(strategyParams).length;
+        
+        if (paramCount === 0) {
+          return <Text style={{ color: '#999' }}>-</Text>;
+        }
+        
+        // 显示前2个参数，超过的用省略号
+        const paramEntries = Object.entries(strategyParams).slice(0, 2);
+        const paramText = paramEntries.map(([key, value]) => `${key}:${value}`).join(', ');
+        const displayText = paramCount > 2 ? `${paramText}...` : paramText;
+        
+        return (
+          <Tooltip 
+            title={
+              <div>
+                <div style={{ fontWeight: 'bold', marginBottom: '8px' }}>策略参数:</div>
+                {Object.entries(strategyParams).map(([key, value]) => (
+                  <div key={key} style={{ marginBottom: '4px' }}>
+                    <span style={{ color: '#1890ff' }}>{key}:</span> {String(value)}
+                  </div>
+                ))}
+                {parameters.positionConfig && (
+                  <div>
+                    <div style={{ fontWeight: 'bold', marginTop: '8px', marginBottom: '4px' }}>仓位配置:</div>
+                    <div style={{ fontSize: '12px' }}>
+                      模式: {parameters.positionConfig.mode || 'fixed'}
+                    </div>
+                  </div>
+                )}
+              </div>
+            } 
+            placement="topLeft"
+          >
+            <Text style={{ color: '#722ed1', fontSize: '12px' }}>
+              {displayText}
+            </Text>
+          </Tooltip>
+        );
+      },
+    },
+    {
       title: '股票',
       dataIndex: 'instruments',
       key: 'instruments',
@@ -1739,7 +1792,7 @@ const BacktestHistory: React.FC = () => {
             size: 'small',
           }}
           scroll={{ 
-            x: 1400,
+            x: 1550,
             y: 'calc(100vh - 300px)'
           }}
           rowClassName={(record, index) => 
