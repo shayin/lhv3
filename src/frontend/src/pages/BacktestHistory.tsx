@@ -382,7 +382,7 @@ const BacktestHistory: React.FC = () => {
   };
 
   // 表格列定义 - 优化后的版本
-  const columns: ColumnsType<BacktestRecord> = [
+  const columns: ColumnsType<BacktestRecord> = [ 
     {
       title: 'ID',
       dataIndex: 'id',
