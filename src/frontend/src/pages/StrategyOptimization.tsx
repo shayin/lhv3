@@ -602,17 +602,52 @@ const StrategyOptimization: React.FC = () => {
       title: '最佳参数',
       dataIndex: 'best_parameters',
       key: 'best_parameters',
-      width: 160,
+      width: 200,
       render: (params: Record<string, any>) => {
         if (!params) return '-';
+        
+        const paramEntries = Object.entries(params);
+        const maxDisplay = 3; // 最多显示3个参数
+        const displayParams = paramEntries.slice(0, maxDisplay);
+        const remainingCount = paramEntries.length - maxDisplay;
+        
         return (
-          <div>
-            {Object.entries(params).map(([key, value]) => (
-              <Tag key={key} color="blue" style={{ marginBottom: '3px', fontSize: '11px' }}>
+          <div style={{ maxHeight: '60px', overflow: 'hidden' }}>
+            {displayParams.map(([key, value]) => (
+              <Tag 
+                key={key} 
+                color="blue" 
+                style={{ 
+                  marginBottom: '2px', 
+                  fontSize: '10px',
+                  padding: '1px 4px',
+                  lineHeight: '16px'
+                }}
+              >
                 {key === 'short_window' ? '短期' : 
-                 key === 'long_window' ? '长期' : key}: {value}
+                 key === 'long_window' ? '长期' : 
+                 key === 'min_reversal_points' ? '反转点' :
+                 key === 'lookback_period' ? '回望期' :
+                 key === 'signal_strength_threshold' ? '信号阈值' :
+                 key === 'batch_count' ? '批次数' :
+                 key === 'stop_loss_ratio' ? '止损' :
+                 key === 'take_profit_ratio' ? '止盈' :
+                 key}: {typeof value === 'number' ? value.toFixed(2) : value}
               </Tag>
             ))}
+            {remainingCount > 0 && (
+              <Tag 
+                color="default" 
+                style={{ 
+                  marginBottom: '2px', 
+                  fontSize: '10px',
+                  padding: '1px 4px',
+                  lineHeight: '16px'
+                }}
+              >
+                +{remainingCount}个
+              </Tag>
+            )}
           </div>
         );
       }
@@ -1172,11 +1207,36 @@ const StrategyOptimization: React.FC = () => {
                 {selectedJob.best_parameters && (
                   <div style={{ marginTop: '16px' }}>
                     <Text strong>最优参数组合:</Text>
-                    <div style={{ marginTop: '8px' }}>
+                    <div style={{ marginTop: '8px', maxHeight: '120px', overflowY: 'auto' }}>
                       {Object.entries(selectedJob.best_parameters).map(([key, value]) => (
-                        <Tag key={key} color="blue" style={{ marginBottom: '4px' }}>
+                        <Tag 
+                          key={key} 
+                          color="blue" 
+                          style={{ 
+                            marginBottom: '4px', 
+                            marginRight: '4px',
+                            fontSize: '11px',
+                            padding: '2px 6px'
+                          }}
+                        >
                           {key === 'short_window' ? '短期均线' : 
-                           key === 'long_window' ? '长期均线' : key}: {value}
+                           key === 'long_window' ? '长期均线' : 
+                           key === 'min_reversal_points' ? '反转点数' :
+                           key === 'lookback_period' ? '回望周期' :
+                           key === 'min_price_change' ? '最小价格变化' :
+                           key === 'signal_strength_threshold' ? '信号强度阈值' :
+                           key === 'max_trading_range' ? '最大交易范围' :
+                           key === 'batch_count' ? '分批次数' :
+                           key === 'batch_interval' ? '分批间隔' :
+                           key === 'position_size_per_batch' ? '分批仓位' :
+                           key === 'stop_loss_ratio' ? '止损比例' :
+                           key === 'take_profit_ratio' ? '止盈比例' :
+                           key === 'rsi_oversold' ? 'RSI超卖' :
+                           key === 'rsi_overbought' ? 'RSI超买' :
+                           key === 'volume_threshold' ? '成交量阈值' :
+                           key === 'max_extremums' ? '最大极值点' :
+                           key === 'min_extremum_distance' ? '极值点距离' :
+                           key}: {typeof value === 'number' ? value.toFixed(2) : value}
                         </Tag>
                       ))}
                     </div>

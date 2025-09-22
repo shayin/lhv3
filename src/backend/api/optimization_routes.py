@@ -597,3 +597,82 @@ async def run_optimization(job_id: int, db: Session):
             job.error_message = str(e)
             job.completed_at = datetime.utcnow()
             db.commit()
+
+@router.get("/strategies/{strategy_id}/best-parameters")
+async def get_best_parameters(
+    strategy_id: int,
+    db: Session = Depends(get_db)
+):
+    """获取策略的最佳参数（从已完成的优化任务中）"""
+    try:
+        # 查找该策略已完成的优化任务，按最佳得分排序
+        jobs = db.query(OptimizationJob).filter(
+            OptimizationJob.strategy_id == strategy_id,
+            OptimizationJob.status == 'completed',
+            OptimizationJob.best_parameters.isnot(None)
+        ).order_by(OptimizationJob.best_score.desc()).all()
+        
+        if not jobs:
+            return {
+                "status": "success", 
+                "data": [],
+                "message": "该策略暂无优化结果"
+            }
+        
+        result = []
+        for job in jobs:
+            result.append({
+                "job_id": job.id,
+                "job_name": job.name,
+                "best_score": job.best_score,
+                "best_parameters": job.best_parameters,
+                "objective_function": job.objective_function,
+                "total_trials": job.total_trials,
+                "completed_at": job.completed_at.isoformat() if job.completed_at else None,
+                "description": job.description
+            })
+        
+        return {"status": "success", "data": result}
+        
+    except Exception as e:
+        logger.error(f"获取最佳参数失败: {e}")
+        raise HTTPException(status_code=500, detail=f"获取最佳参数失败: {str(e)}")
+
+@router.get("/jobs/{job_id}/best-parameters")
+async def get_job_best_parameters(
+    job_id: int,
+    db: Session = Depends(get_db)
+):
+    """获取特定优化任务的最佳参数"""
+    try:
+        job = db.query(OptimizationJob).filter(OptimizationJob.id == job_id).first()
+        
+        if not job:
+            raise HTTPException(status_code=404, detail="优化任务不存在")
+        
+        if job.status != 'completed':
+            raise HTTPException(status_code=400, detail="优化任务尚未完成")
+        
+        if not job.best_parameters:
+            raise HTTPException(status_code=400, detail="该任务暂无最佳参数")
+        
+        return {
+            "status": "success",
+            "data": {
+                "job_id": job.id,
+                "job_name": job.name,
+                "strategy_id": job.strategy_id,
+                "best_score": job.best_score,
+                "best_parameters": job.best_parameters,
+                "objective_function": job.objective_function,
+                "total_trials": job.total_trials,
+                "completed_at": job.completed_at.isoformat() if job.completed_at else None,
+                "description": job.description
+            }
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"获取任务最佳参数失败: {e}")
+        raise HTTPException(status_code=500, detail=f"获取任务最佳参数失败: {str(e)}")

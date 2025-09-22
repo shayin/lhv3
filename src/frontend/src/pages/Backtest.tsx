@@ -99,6 +99,10 @@ const Backtest: React.FC = () => {
   // 添加策略参数状态
   const [strategyParameters, setStrategyParameters] = useState<Record<string, any>>({});
   const [showParametersModal, setShowParametersModal] = useState(false);
+  const [parameterSpaces, setParameterSpaces] = useState<any[]>([]);
+  const [currentStrategyInfo, setCurrentStrategyInfo] = useState<any>(null);
+  const [showOptimizationResultsModal, setShowOptimizationResultsModal] = useState(false);
+  const [optimizationResults, setOptimizationResults] = useState<any[]>([]);
   // 添加仓位控制相关状态
   const [positionMode, setPositionMode] = useState<string>('fixed'); // 'fixed', 'dynamic', 'staged'
   const [defaultPositionSize, setDefaultPositionSize] = useState<number>(100); // 默认100%
@@ -1774,22 +1778,14 @@ const Backtest: React.FC = () => {
     fetchDataSources();
     fetchStrategies(); // 加载策略列表
     
-  // 初始化默认策略参数
-  setStrategyParameters({
-    short_window: 5,
-    long_window: 20
-  });
-}, []);
+  }, []);
 
-// 当选择的策略改变时，重置策略参数
-useEffect(() => {
-  if (selectedStrategy === 1) { // MA交叉策略
-    setStrategyParameters({
-      short_window: 5,
-      long_window: 20
-    });
-  }
-}, [selectedStrategy]);
+  // 当策略列表加载完成后，初始化默认策略的参数
+  useEffect(() => {
+    if (strategiesList.length > 0 && selectedStrategy) {
+      loadParameterSpaces(selectedStrategy);
+    }
+  }, [strategiesList, selectedStrategy]);
   
   // 处理股票选择并自动设置日期范围
   const handleStockSelection = async (stock: Stock) => {
@@ -1827,6 +1823,31 @@ useEffect(() => {
     }
   };
   
+  // 加载策略参数空间
+  const loadParameterSpaces = async (strategyId: number) => {
+    try {
+      const response = await axios.get(`/api/optimization/strategies/${strategyId}/parameter-spaces`);
+      if (response.data && response.data.status === 'success') {
+        setParameterSpaces(response.data.data);
+        
+        // 根据参数空间初始化默认参数值
+        const defaultParams: Record<string, any> = {};
+        response.data.data.forEach((param: any) => {
+          if (param.parameter_type === 'int' || param.parameter_type === 'float') {
+            // 使用最小值作为默认值
+            defaultParams[param.parameter_name] = param.min_value;
+          }
+        });
+        setStrategyParameters(defaultParams);
+      }
+    } catch (error) {
+      console.error('加载参数空间失败:', error);
+      // 如果加载失败，使用默认参数
+      setParameterSpaces([]);
+      setStrategyParameters({});
+    }
+  };
+
   // 处理策略参数设置
   const handleParametersModal = () => {
     setShowParametersModal(true);
@@ -1840,19 +1861,55 @@ useEffect(() => {
 
   // 重置参数为默认值
   const handleResetParameters = () => {
-    if (selectedStrategy === 1) { // MA交叉策略
-      setStrategyParameters({
-        short_window: 5,
-        long_window: 20
-      });
-    }
+    const defaultParams: Record<string, any> = {};
+    parameterSpaces.forEach((param: any) => {
+      if (param.parameter_type === 'int' || param.parameter_type === 'float') {
+        defaultParams[param.parameter_name] = param.min_value;
+      }
+    });
+    setStrategyParameters(defaultParams);
     message.success('参数已重置为默认值');
   };
 
   // 从优化结果导入参数
-  const handleImportFromOptimization = () => {
-    // 这里可以添加从优化页面导入参数的逻辑
-    message.info('请从参数优化页面复制最佳参数');
+  const handleImportFromOptimization = async () => {
+    try {
+      // 获取该策略的最佳参数
+      const response = await axios.get(`/api/optimization/strategies/${selectedStrategy}/best-parameters`);
+      
+      if (response.data && response.data.status === 'success' && response.data.data.length > 0) {
+        setOptimizationResults(response.data.data);
+        setShowOptimizationResultsModal(true);
+      } else {
+        message.warning('该策略暂无优化结果，请先进行参数优化');
+      }
+    } catch (error) {
+      console.error('获取优化结果失败:', error);
+      message.error('获取优化结果失败，请检查网络连接');
+    }
+  };
+
+  // 选择优化结果并导入参数
+  const handleSelectOptimizationResult = (result: any) => {
+    setStrategyParameters(result.best_parameters);
+    setShowOptimizationResultsModal(false);
+    setShowParametersModal(false);
+    message.success(`已导入优化结果: ${result.job_name} (得分: ${result.best_score?.toFixed(4)})`);
+  };
+
+  // 策略选择变化处理
+  const handleStrategyChange = (strategyId: number) => {
+    setSelectedStrategy(strategyId);
+    
+    // 更新策略名称
+    const strategy = strategiesList.find(s => s.id === strategyId);
+    if (strategy) {
+      setSelectedStrategyName(strategy.name);
+      setCurrentStrategyInfo(strategy);
+    }
+    
+    // 加载参数空间
+    loadParameterSpaces(strategyId);
   };
 
   // 获取数据源列表
@@ -2113,21 +2170,6 @@ useEffect(() => {
                 </Col>
               </Row>
             </Form.Item>
-            <Alert
-              message="固定仓位说明"
-              description={
-                <div>
-                  <p>每次买入信号都使用相同比例的资金进行交易：</p>
-                  <ul>
-                    <li>设置为100%表示每次买入信号都使用全部可用资金</li>
-                    <li>设置为50%表示每次买入信号都使用一半可用资金</li>
-                    <li>适合稳定型策略，或者想要均匀分配资金的情况</li>
-                  </ul>
-                </div>
-              }
-              type="info"
-              showIcon
-            />
           </>
         );
       
@@ -2156,22 +2198,6 @@ useEffect(() => {
                 </Col>
               </Row>
             </Form.Item>
-            <Alert
-              message="动态仓位说明"
-              description={
-                <div>
-                  <p>系统将根据多种因素综合评估信号强度，自动调整每次买入的仓位大小：</p>
-                  <ul>
-                    <li>信号强度越高，分配的仓位越接近设置的最大值</li>
-                    <li>信号强度综合考虑以下因素：信号值大小、均线偏离度、RSI指标、MACD柱状图、成交量变化</li>
-                    <li>当信号强度低于阈值时，将不会开仓或使用极小仓位</li>
-                    <li>适合于顺势交易策略，可以在趋势初期小仓位试水，趋势明确后加大仓位</li>
-                  </ul>
-                </div>
-              }
-              type="info"
-              showIcon
-            />
           </>
         );
       
@@ -2179,84 +2205,84 @@ useEffect(() => {
         return (
           <>
             <Form.Item label="分批建仓比例设置(%)">
-              <Space direction="vertical" style={{ width: '100%' }}>
+              <Row gutter={8}>
                 {positionSizes.map((size, index) => (
-                  <div key={index} style={{ display: 'flex', alignItems: 'center' }}>
-                    <span style={{ marginRight: '8px', minWidth: '60px' }}>第{index + 1}批:</span>
-                    <InputNumber
-                      value={size}
-                      onChange={value => {
-                        const newSizes = [...positionSizes];
-                        newSizes[index] = Number(value) || 0;
-                        setPositionSizes(newSizes);
-                      }}
-                      min={0}
-                      max={100}
-                      style={{ flex: 1 }}
-                    />
-                    {index > 0 && (
-                      <Button 
-                        type="text" 
-                        danger
-                        icon={<MinusCircleOutlined />}
-                        onClick={() => {
-                          const newSizes = positionSizes.filter((_, i) => i !== index);
+                  <Col span={6} key={index}>
+                    <div style={{ display: 'flex', alignItems: 'center', marginBottom: '8px' }}>
+                      <span style={{ marginRight: '4px', fontSize: '12px', minWidth: '40px' }}>第{index + 1}批:</span>
+                      <InputNumber
+                        value={size}
+                        onChange={value => {
+                          const newSizes = [...positionSizes];
+                          newSizes[index] = Number(value) || 0;
                           setPositionSizes(newSizes);
                         }}
+                        min={0}
+                        max={100}
+                        size="small"
+                        style={{ width: '60px' }}
                       />
-                    )}
-                  </div>
+                      {index > 0 && (
+                        <Button 
+                          type="text" 
+                          danger
+                          size="small"
+                          icon={<MinusCircleOutlined />}
+                          onClick={() => {
+                            const newSizes = positionSizes.filter((_, i) => i !== index);
+                            setPositionSizes(newSizes);
+                          }}
+                        />
+                      )}
+                    </div>
+                  </Col>
                 ))}
-                {positionSizes.length < 5 && (
-                  <Button
-                    type="dashed"
-                    onClick={() => {
-                      if (positionSizes.length < 5) {
-                        // 计算合理的默认值
-                        const remainingPercent = 100 - positionSizes.reduce((sum, size) => sum + size, 0);
-                        const defaultNewSize = Math.max(0, Math.min(20, remainingPercent));
-                        setPositionSizes([...positionSizes, defaultNewSize]);
-                      }
-                    }}
-                    block
-                    icon={<PlusOutlined />}
-                  >
-                    添加批次
-                  </Button>
-                )}
-                <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '8px' }}>
-                  <span>当前总仓位: {positionSizes.reduce((sum, size) => sum + size, 0)}%</span>
+              </Row>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '8px' }}>
+                <div>
+                  <span style={{ fontSize: '12px' }}>总仓位: {positionSizes.reduce((sum, size) => sum + size, 0)}%</span>
                   {positionSizes.reduce((sum, size) => sum + size, 0) !== 100 && (
-                    <span style={{ color: '#ff4d4f' }}>
-                      (建议总和为100%)
+                    <span style={{ color: '#ff4d4f', marginLeft: '8px', fontSize: '12px' }}>
+                      (建议100%)
                     </span>
+                  )}
+                </div>
+                <div>
+                  {positionSizes.length < 5 && (
+                    <Button
+                      type="dashed"
+                      size="small"
+                      onClick={() => {
+                        if (positionSizes.length < 5) {
+                          const remainingPercent = 100 - positionSizes.reduce((sum, size) => sum + size, 0);
+                          const defaultNewSize = Math.max(0, Math.min(20, remainingPercent));
+                          setPositionSizes([...positionSizes, defaultNewSize]);
+                        }
+                      }}
+                      icon={<PlusOutlined />}
+                    >
+                      添加
+                    </Button>
                   )}
                   <Button
                     type="link"
                     onClick={() => {
-                      // 平均分配各批次仓位
                       const batchCount = positionSizes.length;
                       const equalSize = Math.floor(100 / batchCount);
                       const remainder = 100 - (equalSize * batchCount);
-                      
                       const newSizes = positionSizes.map((_, i) => 
                         i === 0 ? equalSize + remainder : equalSize
                       );
                       setPositionSizes(newSizes);
                     }}
                     size="small"
+                    style={{ marginLeft: '8px' }}
                   >
                     平均分配
                   </Button>
                 </div>
-              </Space>
+              </div>
             </Form.Item>
-            <Alert
-              message="分批建仓说明"
-              description="按顺序使用配置的比例进行买入。当出现多个连续的买入信号时，系统将按照第1批→第2批→第3批...的顺序依次使用对应比例的资金进行买入。卖出信号会重置顺序至第1批。"
-              type="info"
-              showIcon
-            />
           </>
         );
       
@@ -2400,17 +2426,7 @@ useEffect(() => {
                     <Select
                       value={selectedStrategyName}
                       onChange={(value, option: any) => {
-                        // 设置策略ID为数字类型
-                        setSelectedStrategy(Number(option.key));
-                        // 设置策略显示名称
-                        setSelectedStrategyName(value);
-                        // 重置参数
-                        if (Number(option.key) === 1) {
-                          setStrategyParameters({
-                            short_window: 5,
-                            long_window: 20
-                          });
-                        }
+                        handleStrategyChange(Number(option.key));
                       }}
                       placeholder="选择策略"
                       style={{ width: '70%' }}
@@ -2500,6 +2516,18 @@ useEffect(() => {
                       {
                         label: 'Last 3 years',
                         value: [dayjs().subtract(3, 'year'), dayjs()]
+                      },
+                      {
+                        label: 'Last 5 years',
+                        value: [dayjs().subtract(5, 'year'), dayjs()]
+                      },
+                      {
+                        label: 'Last 7 years',
+                        value: [dayjs().subtract(7, 'year'), dayjs()]
+                      },
+                      {
+                        label: 'Last 10 years',
+                        value: [dayjs().subtract(10, 'year'), dayjs()]
                       }
                     ]}
                   />
@@ -2560,10 +2588,10 @@ useEffect(() => {
               </Col>
             </Row>
             
-            {/* 添加仓位控制部分 */}
+            {/* 添加仓位控制部分 - 优化布局 */}
             <Divider orientation="left">仓位控制</Divider>
-            <Row gutter={24}>
-              <Col span={6}>
+            <Row gutter={16}>
+              <Col span={8}>
                 <Form.Item label="仓位模式">
                   <Select
                     value={positionMode}
@@ -2576,28 +2604,25 @@ useEffect(() => {
                   </Select>
                 </Form.Item>
               </Col>
-              <Col span={18}>
+              <Col span={16}>
                 {renderPositionModeOptions()}
               </Col>
             </Row>
             
-            {/* 添加仓位说明卡片 */}
-            <Row style={{ marginBottom: 16 }}>
-              <Col span={24}>
-                <Card 
-                  size="small" 
-                  title="仓位管理说明" 
-                  bordered={false} 
-                  style={{ background: '#f5f5f5' }}
-                >
-                  <div>
-                    <p><b>固定比例模式：</b> 每次买入信号都使用相同的资金比例进行交易，适合稳定策略。</p>
-                    <p><b>动态比例模式：</b> 根据信号强度动态决定买入资金比例，信号越强使用的资金越多，适合趋势策略。</p>
-                    <p><b>分批建仓模式：</b> 按顺序分批买入，每次买入使用不同的资金比例，适合价格波动大的品种。</p>
-                  </div>
-                </Card>
-              </Col>
-            </Row>
+            {/* 简化的仓位说明 */}
+            <Alert
+              message="仓位模式说明"
+              description={
+                positionMode === 'fixed' ? 
+                  "每次买入信号都使用相同比例的资金进行交易，适合稳定策略。" :
+                positionMode === 'dynamic' ? 
+                  "根据信号强度动态决定买入资金比例，信号越强使用的资金越多，适合趋势策略。" :
+                  "按顺序分批买入，每次买入使用不同的资金比例，适合价格波动大的品种。"
+              }
+              type="info"
+              showIcon
+              style={{ marginBottom: 16 }}
+            />
             
             {selectedStock && (
               <Alert
@@ -2874,55 +2899,94 @@ useEffect(() => {
         open={showParametersModal}
         onOk={handleSaveParameters}
         onCancel={() => setShowParametersModal(false)}
-        width={600}
+        width={800}
       >
         <Alert
-          message="当前策略: MA交叉策略"
-          description="移动平均线交叉策略，通过短期和长期均线的交叉信号进行买卖决策"
+          message={`当前策略: ${currentStrategyInfo?.name || selectedStrategyName}`}
+          description={currentStrategyInfo?.description || "策略参数配置"}
           type="info"
           showIcon
           style={{ marginBottom: '16px' }}
         />
         
         <Form layout="vertical">
-          <Row gutter={16}>
-            <Col span={12}>
-              <Form.Item label="短期均线周期 (天)">
-                <InputNumber
-                  value={strategyParameters.short_window || 5}
-                  onChange={(value) => setStrategyParameters(prev => ({ ...prev, short_window: value }))}
-                  min={1}
-                  max={50}
-                  style={{ width: '100%' }}
-                />
-              </Form.Item>
-            </Col>
-            <Col span={12}>
-              <Form.Item label="长期均线周期 (天)">
-                <InputNumber
-                  value={strategyParameters.long_window || 20}
-                  onChange={(value) => setStrategyParameters(prev => ({ ...prev, long_window: value }))}
-                  min={5}
-                  max={200}
-                  style={{ width: '100%' }}
-                />
-              </Form.Item>
-            </Col>
-          </Row>
+          {parameterSpaces.length > 0 ? (
+            <Row gutter={16}>
+              {parameterSpaces.map((param, index) => (
+                <Col span={12} key={param.parameter_name}>
+                  <Form.Item 
+                    label={`${param.parameter_name}${param.description ? ` (${param.description})` : ''}`}
+                    help={param.description}
+                  >
+                    {param.parameter_type === 'int' ? (
+                      <InputNumber
+                        value={strategyParameters[param.parameter_name] || param.min_value}
+                        onChange={(value) => setStrategyParameters(prev => ({ 
+                          ...prev, 
+                          [param.parameter_name]: value 
+                        }))}
+                        min={param.min_value}
+                        max={param.max_value}
+                        step={param.step_size}
+                        style={{ width: '100%' }}
+                      />
+                    ) : param.parameter_type === 'float' ? (
+                      <InputNumber
+                        value={strategyParameters[param.parameter_name] || param.min_value}
+                        onChange={(value) => setStrategyParameters(prev => ({ 
+                          ...prev, 
+                          [param.parameter_name]: value 
+                        }))}
+                        min={param.min_value}
+                        max={param.max_value}
+                        step={param.step_size}
+                        precision={2}
+                        style={{ width: '100%' }}
+                      />
+                    ) : (
+                      <Input
+                        value={strategyParameters[param.parameter_name] || ''}
+                        onChange={(e) => setStrategyParameters(prev => ({ 
+                          ...prev, 
+                          [param.parameter_name]: e.target.value 
+                        }))}
+                        placeholder={`请输入${param.parameter_name}`}
+                      />
+                    )}
+                  </Form.Item>
+                </Col>
+              ))}
+            </Row>
+          ) : (
+            <Alert
+              message="暂无参数配置"
+              description="该策略暂未配置参数空间，将使用默认参数进行回测"
+              type="warning"
+              showIcon
+            />
+          )}
           
-          <Alert
-            message="参数说明"
-            description={
-              <div>
-                <p><strong>短期均线</strong>: 反应价格变化的敏感度，值越小越敏感，建议范围 3-15</p>
-                <p><strong>长期均线</strong>: 趋势判断的基准线，值越大越稳定，建议范围 10-60</p>
-                <p><strong>交叉信号</strong>: 短期均线上穿长期均线时买入，下穿时卖出</p>
-              </div>
-            }
-            type="info"
-            showIcon
-            style={{ marginBottom: '16px' }}
-          />
+          {parameterSpaces.length > 0 && (
+            <Alert
+              message="参数说明"
+              description={
+                <div>
+                  {parameterSpaces.map((param, index) => (
+                    <p key={index}>
+                      <strong>{param.parameter_name}：</strong>
+                      {param.description}
+                      {param.parameter_type === 'int' || param.parameter_type === 'float' ? 
+                        ` (范围: ${param.min_value} - ${param.max_value}, 步长: ${param.step_size})` : ''
+                      }
+                    </p>
+                  ))}
+                </div>
+              }
+              type="info"
+              showIcon
+              style={{ marginBottom: '16px' }}
+            />
+          )}
           
           <Space>
             <Button onClick={handleResetParameters}>
@@ -2933,6 +2997,110 @@ useEffect(() => {
             </Button>
           </Space>
         </Form>
+      </Modal>
+
+      {/* 优化结果选择模态框 */}
+      <Modal
+        title="选择优化结果"
+        open={showOptimizationResultsModal}
+        onCancel={() => setShowOptimizationResultsModal(false)}
+        width={800}
+        footer={null}
+      >
+        <Alert
+          message="选择要导入的优化结果"
+          description="以下是从参数优化中获得的最佳参数配置，按优化得分排序"
+          type="info"
+          showIcon
+          style={{ marginBottom: 16 }}
+        />
+        
+        <div style={{ maxHeight: 400, overflowY: 'auto' }}>
+          {optimizationResults.map((result, index) => (
+            <Card 
+              key={result.job_id} 
+              size="small" 
+              style={{ marginBottom: 8 }}
+              hoverable
+              onClick={() => handleSelectOptimizationResult(result)}
+            >
+              <Row gutter={16} align="middle">
+                <Col span={16}>
+                  <div>
+                    <strong>{result.job_name}</strong>
+                    <div style={{ fontSize: '12px', color: '#666', marginTop: 4 }}>
+                      {result.description && `${result.description} • `}
+                      完成时间: {result.completed_at ? new Date(result.completed_at).toLocaleString() : '未知'}
+                    </div>
+                  </div>
+                </Col>
+                <Col span={4}>
+                  <div style={{ textAlign: 'center' }}>
+                    <div style={{ fontSize: '14px', fontWeight: 'bold', color: '#1890ff' }}>
+                      {result.best_score?.toFixed(4)}
+                    </div>
+                    <div style={{ fontSize: '12px', color: '#666' }}>
+                      {result.objective_function}
+                    </div>
+                  </div>
+                </Col>
+                <Col span={4}>
+                  <div style={{ textAlign: 'center' }}>
+                    <div style={{ fontSize: '12px', color: '#666' }}>
+                      试验次数: {result.total_trials}
+                    </div>
+                  </div>
+                </Col>
+              </Row>
+              
+              {/* 显示关键参数 */}
+              <div style={{ marginTop: 8, fontSize: '12px' }}>
+                <strong>关键参数:</strong>
+                <div style={{ marginTop: 4, maxHeight: '40px', overflow: 'hidden' }}>
+                  {Object.entries(result.best_parameters || {}).slice(0, 3).map(([key, value]) => (
+                    <Tag 
+                      key={key} 
+                      style={{ 
+                        margin: '1px 2px 1px 0', 
+                        fontSize: '10px',
+                        padding: '1px 4px',
+                        lineHeight: '16px'
+                      }}
+                    >
+                      {key === 'short_window' ? '短期' : 
+                       key === 'long_window' ? '长期' : 
+                       key === 'min_reversal_points' ? '反转点' :
+                       key === 'lookback_period' ? '回望期' :
+                       key === 'signal_strength_threshold' ? '信号阈值' :
+                       key === 'batch_count' ? '批次数' :
+                       key === 'stop_loss_ratio' ? '止损' :
+                       key === 'take_profit_ratio' ? '止盈' :
+                       key}: {typeof value === 'number' ? value.toFixed(1) : String(value)}
+                    </Tag>
+                  ))}
+                  {Object.keys(result.best_parameters || {}).length > 3 && (
+                    <Tag 
+                      style={{ 
+                        margin: '1px 2px 1px 0', 
+                        fontSize: '10px',
+                        padding: '1px 4px',
+                        lineHeight: '16px'
+                      }}
+                    >
+                      +{Object.keys(result.best_parameters || {}).length - 3}个
+                    </Tag>
+                  )}
+                </div>
+              </div>
+            </Card>
+          ))}
+        </div>
+        
+        {optimizationResults.length === 0 && (
+          <div style={{ textAlign: 'center', padding: '40px 0', color: '#999' }}>
+            暂无优化结果
+          </div>
+        )}
       </Modal>
     </div>
   );
