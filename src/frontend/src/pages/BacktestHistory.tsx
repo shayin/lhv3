@@ -557,16 +557,29 @@ const BacktestHistory: React.FC = () => {
       },
     },
     {
-      title: '交易次数',
-      key: 'trade_count',
-      width: 80,
+      title: '最近一次交易时间',
+      key: 'last_trade_time',
+      width: 120,
       align: 'center',
       render: (_, record) => {
-        const tradeCount = record.trade_records?.length || 0;
+        const tradeRecords = record.trade_records || [];
+        if (tradeRecords.length === 0) {
+          return <Text style={{ color: '#999' }}>-</Text>;
+        }
+        
+        // 获取最后一次交易的时间
+        const lastTrade = tradeRecords[tradeRecords.length - 1];
+        const lastTradeDate = lastTrade?.date;
+        
+        if (!lastTradeDate) {
+          return <Text style={{ color: '#999' }}>-</Text>;
+        }
+        
         return (
-          <Tag color={tradeCount > 0 ? 'blue' : 'default'}>
-            {tradeCount}
-          </Tag>
+          <div style={{ fontSize: '12px', lineHeight: '1.4' }}>
+            <div>{dayjs(lastTradeDate).format('MM-DD')}</div>
+            <div style={{ color: '#999' }}>{dayjs(lastTradeDate).format('HH:mm')}</div>
+          </div>
         );
       },
     },
@@ -1908,8 +1921,19 @@ const BacktestHistory: React.FC = () => {
                   </Col>
                   <Col span={6}>
                     <Statistic
-                      title={<span>交易次数 <Tooltip title="策略在回测期间的总交易次数"><InfoCircleOutlined style={{ fontSize: 14, color: '#aaa' }} /></Tooltip></span>}
-                      value={selectedBacktest.trade_records?.length || 0}
+                      title={<span>最近一次交易时间 <Tooltip title="最后一次交易的时间"><InfoCircleOutlined style={{ fontSize: 14, color: '#aaa' }} /></Tooltip></span>}
+                      value={(() => {
+                        const tradeRecords = selectedBacktest.trade_records || [];
+                        if (tradeRecords.length === 0) {
+                          return '-';
+                        }
+                        const lastTrade = tradeRecords[tradeRecords.length - 1];
+                        const lastTradeDate = lastTrade?.date;
+                        if (!lastTradeDate) {
+                          return '-';
+                        }
+                        return dayjs(lastTradeDate).format('MM-DD HH:mm');
+                      })()}
                     />
                   </Col>
                 </Row>
