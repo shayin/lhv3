@@ -107,6 +107,7 @@ const BacktestHistory: React.FC = () => {
   const [chartKey, setChartKey] = useState(0);
   const equityChartRef = useRef<any>(null);
   const klineChartRef = useRef<any>(null);
+  const [batchUpdateLoading, setBatchUpdateLoading] = useState(false);
 
   // 交易记录列定义 - 直接复用单次回测分析的代码
   const tradeColumns: ColumnsType<any> = [
@@ -247,6 +248,92 @@ const BacktestHistory: React.FC = () => {
     } finally {
       setLoading(false);
     }
+  };
+
+  // 一键更新到最新K线
+  const handleBatchUpdateToLatest = async () => {
+    if (backtestList.length === 0) {
+      message.warning('没有可更新的回测记录');
+      return;
+    }
+
+    Modal.confirm({
+      title: '批量更新到最新K线',
+      content: `确定要将所有 ${backtestList.length} 个回测记录更新到最新的K线日期吗？此操作可能需要较长时间。`,
+      okText: '确定更新',
+      cancelText: '取消',
+      onOk: async () => {
+        setBatchUpdateLoading(true);
+        let successCount = 0;
+        let failedCount = 0;
+        const failedItems: any[] = [];
+
+        try {
+          // 批量调用单次更新API
+          for (const backtest of backtestList) {
+            try {
+              const response = await axios.post(`/api/backtest/${backtest.id}/update`, {
+                update_to_date: null  // null表示更新到最新日期
+              });
+              
+              if (response.data.status === 'success') {
+                successCount++;
+                console.log(`成功更新回测: ${backtest.name}`);
+              } else {
+                failedCount++;
+                failedItems.push({
+                  name: backtest.name,
+                  error: response.data.message || '更新失败'
+                });
+                console.error(`更新回测失败: ${backtest.name}`, response.data.message);
+              }
+            } catch (error: any) {
+              failedCount++;
+              failedItems.push({
+                name: backtest.name,
+                error: error.response?.data?.detail || error.message || '网络错误'
+              });
+              console.error(`更新回测失败: ${backtest.name}`, error);
+            }
+          }
+
+          // 显示结果
+          message.success(`批量更新完成！成功更新 ${successCount} 个回测，失败 ${failedCount} 个`);
+          
+          // 刷新列表
+          fetchBacktestList();
+          
+          // 显示详细结果
+          if (failedCount > 0) {
+            Modal.info({
+              title: '更新结果详情',
+              content: (
+                <div>
+                  <p>成功更新: {successCount} 个</p>
+                  <p>更新失败: {failedCount} 个</p>
+                  {failedItems.length > 0 && (
+                    <div>
+                      <p>失败项目:</p>
+                      <ul>
+                        {failedItems.map((item: any, index: number) => (
+                          <li key={index}>{item.name}: {item.error}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                </div>
+              ),
+              width: 500
+            });
+          }
+        } catch (error: any) {
+          console.error('批量更新失败:', error);
+          message.error('批量更新失败，请重试');
+        } finally {
+          setBatchUpdateLoading(false);
+        }
+      }
+    });
   };
 
   // 获取回测详情
@@ -492,18 +579,6 @@ const BacktestHistory: React.FC = () => {
       ),
     },
     {
-      title: '初始资金',
-      dataIndex: 'initial_capital',
-      key: 'initial_capital',
-      width: 100,
-      align: 'right',
-      render: (value: number) => (
-        <Text style={{ fontWeight: 'bold', color: '#52c41a' }}>
-          ${(value / 1000).toFixed(0)}K
-        </Text>
-      ),
-    },
-    {
       title: '状态',
       dataIndex: 'status',
       key: 'status',
@@ -559,7 +634,7 @@ const BacktestHistory: React.FC = () => {
     {
       title: '最近一次交易时间',
       key: 'last_trade_time',
-      width: 120,
+      width: 160,
       align: 'center',
       render: (_, record) => {
         const tradeRecords = record.trade_records || [];
@@ -567,18 +642,31 @@ const BacktestHistory: React.FC = () => {
           return <Text style={{ color: '#999' }}>-</Text>;
         }
         
-        // 获取最后一次交易的时间
+        // 获取最后一次交易的信息
         const lastTrade = tradeRecords[tradeRecords.length - 1];
         const lastTradeDate = lastTrade?.date;
+        const lastTradeAction = lastTrade?.action;
+        const lastTradePrice = lastTrade?.price;
         
         if (!lastTradeDate) {
           return <Text style={{ color: '#999' }}>-</Text>;
         }
         
+        // 确定交易方向的显示文本和颜色
+        const actionText = lastTradeAction === 'BUY' ? '买入' : lastTradeAction === 'SELL' ? '卖出' : lastTradeAction || '未知';
+        const actionColor = lastTradeAction === 'BUY' ? '#ff4d4f' : lastTradeAction === 'SELL' ? '#52c41a' : '#999';
+        
         return (
           <div style={{ fontSize: '12px', lineHeight: '1.4' }}>
-            <div>{dayjs(lastTradeDate).format('MM-DD')}</div>
-            <div style={{ color: '#999' }}>{dayjs(lastTradeDate).format('HH:mm')}</div>
+            <div style={{ fontWeight: 'bold' }}>{dayjs(lastTradeDate).format('MM-DD')}</div>
+            <div style={{ color: actionColor, fontWeight: 'bold', marginTop: '2px' }}>
+              {actionText}
+            </div>
+            {lastTradePrice && (
+              <div style={{ color: '#666', fontSize: '11px', marginTop: '1px' }}>
+                ${parseFloat(lastTradePrice).toFixed(2)}
+              </div>
+            )}
           </div>
         );
       },
@@ -1780,13 +1868,23 @@ const BacktestHistory: React.FC = () => {
           </Space>
         }
         extra={
-          <Button
-            icon={<ReloadOutlined />}
-            onClick={fetchBacktestList}
-            loading={loading}
-          >
-            刷新
-          </Button>
+          <Space>
+            <Button
+              icon={<SyncOutlined />}
+              onClick={handleBatchUpdateToLatest}
+              loading={batchUpdateLoading}
+              type="primary"
+            >
+              一键更新到最新K线
+            </Button>
+            <Button
+              icon={<ReloadOutlined />}
+              onClick={fetchBacktestList}
+              loading={loading}
+            >
+              刷新
+            </Button>
+          </Space>
         }
       >
         <Table
@@ -1921,7 +2019,7 @@ const BacktestHistory: React.FC = () => {
                   </Col>
                   <Col span={6}>
                     <Statistic
-                      title={<span>最近一次交易时间 <Tooltip title="最后一次交易的时间"><InfoCircleOutlined style={{ fontSize: 14, color: '#aaa' }} /></Tooltip></span>}
+                      title={<span>最近一次交易时间 <Tooltip title="最后一次交易的时间和方向"><InfoCircleOutlined style={{ fontSize: 14, color: '#aaa' }} /></Tooltip></span>}
                       value={(() => {
                         const tradeRecords = selectedBacktest.trade_records || [];
                         if (tradeRecords.length === 0) {
@@ -1929,10 +2027,14 @@ const BacktestHistory: React.FC = () => {
                         }
                         const lastTrade = tradeRecords[tradeRecords.length - 1];
                         const lastTradeDate = lastTrade?.date;
+                        const lastTradeAction = lastTrade?.action;
+                        const lastTradePrice = lastTrade?.price;
                         if (!lastTradeDate) {
                           return '-';
                         }
-                        return dayjs(lastTradeDate).format('MM-DD HH:mm');
+                        const actionText = lastTradeAction === 'BUY' ? '买入' : lastTradeAction === 'SELL' ? '卖出' : lastTradeAction || '未知';
+                        const priceText = lastTradePrice ? ` @ $${parseFloat(lastTradePrice).toFixed(2)}` : '';
+                        return `${dayjs(lastTradeDate).format('MM-DD')} (${actionText}${priceText})`;
                       })()}
                     />
                   </Col>

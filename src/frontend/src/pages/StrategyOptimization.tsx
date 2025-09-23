@@ -669,48 +669,63 @@ const StrategyOptimization: React.FC = () => {
       key: 'action',
       width: 100,
       align: 'center',
-      render: (_, record: OptimizationJob) => (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-          <Button
-            type="link"
-            icon={<EyeOutlined />}
-            onClick={() => handleViewJobDetail(record)}
-            size="small"
-            disabled={record.status !== 'completed'}
-            style={{ padding: '2px 8px', height: 'auto', fontSize: '12px' }}
-          >
-            查看回测
-          </Button>
-          <Button
-            type="link"
-            onClick={() => handleViewTrials(record)}
-            size="small"
-            disabled={record.status !== 'completed'}
-            style={{ color: '#1890ff', padding: '2px 8px', height: 'auto', fontSize: '12px' }}
-          >
-            其他回测
-          </Button>
-          <Popconfirm
-            title="确认删除"
-            description={`确定要删除优化任务 "${record.name}" 吗？此操作不可恢复。`}
-            onConfirm={() => handleDeleteJob(record)}
-            okText="确定"
-            cancelText="取消"
-            disabled={record.status === 'running'}
-            placement="top"
-          >
-            <Button 
-              danger
+      render: (_, record: OptimizationJob) => {
+        // 判断是否为异常状态：运行中但创建时间超过1小时
+        const isAbnormal = record.status === 'running' && 
+          dayjs().diff(dayjs(record.created_at), 'hour') >= 1;
+        
+        return (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+            <Button
+              type="link"
+              icon={<EyeOutlined />}
+              onClick={() => handleViewJobDetail(record)}
               size="small"
-              disabled={record.status === 'running'}
-              icon={<DeleteOutlined />}
+              disabled={record.status !== 'completed'}
               style={{ padding: '2px 8px', height: 'auto', fontSize: '12px' }}
             >
-              删除
+              查看回测
             </Button>
-          </Popconfirm>
-        </div>
-      )
+            <Button
+              type="link"
+              onClick={() => handleViewTrials(record)}
+              size="small"
+              disabled={record.status !== 'completed'}
+              style={{ color: '#1890ff', padding: '2px 8px', height: 'auto', fontSize: '12px' }}
+            >
+              其他回测
+            </Button>
+            <Popconfirm
+              title="确认删除"
+              description={
+                isAbnormal 
+                  ? `检测到异常状态，确定要删除优化任务 "${record.name}" 吗？此操作不可恢复。`
+                  : `确定要删除优化任务 "${record.name}" 吗？此操作不可恢复。`
+              }
+              onConfirm={() => handleDeleteJob(record)}
+              okText="确定"
+              cancelText="取消"
+              disabled={record.status === 'running' && !isAbnormal}
+              placement="top"
+            >
+              <Button 
+                danger
+                size="small"
+                disabled={record.status === 'running' && !isAbnormal}
+                icon={<DeleteOutlined />}
+                style={{ 
+                  padding: '2px 8px', 
+                  height: 'auto', 
+                  fontSize: '12px',
+                  ...(isAbnormal && { borderColor: '#ff7875', color: '#ff7875' })
+                }}
+              >
+                {isAbnormal ? '强制删除' : '删除'}
+              </Button>
+            </Popconfirm>
+          </div>
+        );
+      }
     }
   ];
 
