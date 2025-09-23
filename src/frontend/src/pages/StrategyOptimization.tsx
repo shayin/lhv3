@@ -305,15 +305,20 @@ const StrategyOptimization: React.FC = () => {
   };
 
   // 删除优化任务
-  const handleDeleteJob = async (job: OptimizationJob) => {
+  const handleDeleteJob = async (job: OptimizationJob, force: boolean = false) => {
     try {
-      // 检查任务状态
-      if (job.status === 'running') {
+      // 检查任务状态（非强制删除时）
+      if (job.status === 'running' && !force) {
         message.error('运行中的任务不能删除，请先停止任务');
         return;
       }
 
-      const response = await axios.delete(`/api/optimization/jobs/${job.id}`);
+      // 构建删除URL，如果是强制删除则添加force参数
+      const deleteUrl = force 
+        ? `/api/optimization/jobs/${job.id}?force=true`
+        : `/api/optimization/jobs/${job.id}`;
+
+      const response = await axios.delete(deleteUrl);
       
       if (response.data && response.data.status === 'success') {
         message.success(response.data.message || '删除成功');
@@ -702,7 +707,7 @@ const StrategyOptimization: React.FC = () => {
                   ? `检测到异常状态，确定要删除优化任务 "${record.name}" 吗？此操作不可恢复。`
                   : `确定要删除优化任务 "${record.name}" 吗？此操作不可恢复。`
               }
-              onConfirm={() => handleDeleteJob(record)}
+              onConfirm={() => handleDeleteJob(record, isAbnormal)}
               okText="确定"
               cancelText="取消"
               disabled={record.status === 'running' && !isAbnormal}

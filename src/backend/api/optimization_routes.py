@@ -410,6 +410,7 @@ async def get_best_performance(
 @router.delete("/jobs/{job_id}")
 async def delete_optimization_job(
     job_id: int,
+    force: bool = Query(False, description="是否强制删除运行中的任务"),
     db: Session = Depends(get_db)
 ):
     """删除优化任务"""
@@ -419,9 +420,13 @@ async def delete_optimization_job(
         if not job:
             raise HTTPException(status_code=404, detail="优化任务不存在")
         
-        # 检查任务状态，运行中的任务不能删除
-        if job.status == 'running':
+        # 检查任务状态，运行中的任务不能删除（除非强制删除）
+        if job.status == 'running' and not force:
             raise HTTPException(status_code=400, detail="运行中的任务不能删除，请先停止任务")
+        
+        # 如果是强制删除运行中的任务，记录日志
+        if job.status == 'running' and force:
+            logger.warning(f"强制删除运行中的优化任务: ID={job_id}, 名称={job.name}")
         
         logger.info(f"删除优化任务: ID={job_id}, 名称={job.name}")
         
