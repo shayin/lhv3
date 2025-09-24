@@ -1,7 +1,7 @@
 """
 AkShare 数据抓取器
 
-使用 akshare 库抓取A股和美股数据
+使用 akshare 库抓取A股、美股和港股数据
 """
 
 import pandas as pd
@@ -16,7 +16,7 @@ from ..data_fetcher import DataFetcher
 logger = logging.getLogger(__name__)
 
 class AkshareDataFetcher(DataFetcher):
-    """AkShare 数据抓取器，支持A股和美股"""
+    """AkShare 数据抓取器，支持A股、美股和港股"""
     
     def __init__(self, base_path: str = None):
         super().__init__("akshare", base_path)
@@ -73,12 +73,17 @@ class AkshareDataFetcher(DataFetcher):
         # 美股代码通常是字母组成，A股是数字
         return bool(re.match(r'^[A-Z]+$', symbol.upper()))
     
+    def _is_hk_stock(self, symbol: str) -> bool:
+        """判断是否为港股代码"""
+        # 港股代码通常是5位数字，以0开头
+        return bool(re.match(r'^0\d{4}$', symbol))
+    
     def fetch_stock_data(self, symbol: str, start_date: str = None, end_date: str = None) -> pd.DataFrame:
         """
-        从AkShare抓取股票数据（支持A股和美股）
+        从AkShare抓取股票数据（支持A股、美股和港股）
         
         Args:
-            symbol: 股票代码（A股：6位数字，美股：字母代码）
+            symbol: 股票代码（A股：6位数字，美股：字母代码，港股：5位数字以0开头）
             start_date: 开始日期，格式 YYYY-MM-DD
             end_date: 结束日期，格式 YYYY-MM-DD
             
@@ -99,9 +104,11 @@ class AkshareDataFetcher(DataFetcher):
             
             logger.info(f"从AkShare抓取数据: {symbol}, 日期范围: {start_date} 至 {end_date}")
             
-            # 判断是A股还是美股
+            # 判断是A股、美股还是港股
             if self._is_us_stock(symbol):
                 return self._fetch_us_stock_data(symbol, start_date, end_date)
+            elif self._is_hk_stock(symbol):
+                return self._fetch_hk_stock_data(symbol, start_date, end_date)
             else:
                 return self._fetch_a_stock_data(symbol, start_date, end_date)
                 
@@ -179,6 +186,136 @@ class AkshareDataFetcher(DataFetcher):
             
         except Exception as e:
             logger.error(f"抓取美股数据失败: {symbol}, 错误: {e}")
+            return pd.DataFrame()
+    
+    def _fetch_hk_stock_data(self, symbol: str, start_date: str, end_date: str) -> pd.DataFrame:
+        """抓取港股数据"""
+        try:
+            # 尝试多种港股数据抓取方法
+            stock_data = None
+            
+            # 方法1: 使用 stock_hk_hist_min_em (修复参数问题)
+            try:
+                logger.info(f"尝试使用 stock_hk_hist_min_em 抓取港股数据: {symbol}")
+                # 使用正确的参数调用
+                stock_data = ak.stock_hk_hist_min_em(symbol=symbol, period="daily", start_date=start_date, end_date=end_date, adjust="")
+                if stock_data is not None and not stock_data.empty:
+                    logger.info(f"使用 stock_hk_hist_min_em 成功获取港股数据: {symbol}")
+                else:
+                    logger.warning(f"stock_hk_hist_min_em 返回空数据: {symbol}")
+                    stock_data = None
+            except Exception as e:
+                logger.warning(f"stock_hk_hist_min_em 失败: {e}")
+                stock_data = None
+            
+            # 方法2: 使用 stock_hk_hist (东方财富历史数据)
+            if stock_data is None or stock_data.empty:
+                try:
+                    logger.info(f"尝试使用 stock_hk_hist 抓取港股数据: {symbol}")
+                    stock_data = ak.stock_hk_hist(symbol=symbol, start_date=start_date, end_date=end_date, adjust="")
+                    if stock_data is not None and not stock_data.empty:
+                        logger.info(f"使用 stock_hk_hist 成功获取港股数据: {symbol}")
+                    else:
+                        logger.warning(f"stock_hk_hist 返回空数据: {symbol}")
+                        stock_data = None
+                except Exception as e:
+                    logger.warning(f"stock_hk_hist 失败: {e}")
+                    stock_data = None
+            
+            # 方法3: 使用 stock_hk_spot_em (最后尝试 - 仅用于获取当前快照)
+            if stock_data is None or stock_data.empty:
+                try:
+                    logger.info(f"尝试使用 stock_hk_spot_em 抓取港股数据: {symbol}")
+                    stock_data = ak.stock_hk_spot_em()
+                    if stock_data is not None and not stock_data.empty:
+                        # 过滤指定股票
+                        stock_data = stock_data[stock_data['代码'] == symbol]
+                        if stock_data.empty:
+                            logger.warning(f"stock_hk_spot_em 未找到股票 {symbol}")
+                            stock_data = None
+                        else:
+                            logger.warning(f"stock_hk_spot_em 只返回当前快照数据，不是历史数据: {symbol}")
+                            stock_data = None  # 不使用快照数据，因为我们需要历史数据
+                except Exception as e:
+                    logger.warning(f"stock_hk_spot_em 失败: {e}")
+                    stock_data = None
+            
+            
+            if stock_data is None or stock_data.empty:
+                logger.warning(f"所有方法都未能获取港股数据: {symbol}")
+                return pd.DataFrame()
+            
+            # 检查数据格式
+            logger.info(f"港股数据列名: {list(stock_data.columns)}")
+            logger.info(f"港股数据形状: {stock_data.shape}")
+            
+            # 标准化数据格式
+            data = self._standardize_hk_data(stock_data, symbol)
+            
+            if not data.empty:
+                logger.info(f"成功获取港股数据: {symbol}, 行数: {len(data)}")
+                return data
+            else:
+                logger.error(f"港股数据标准化失败: {symbol}")
+                return pd.DataFrame()
+            
+        except Exception as e:
+            logger.error(f"抓取港股数据失败: {symbol}, 错误: {e}")
+            return pd.DataFrame()
+    
+    def _standardize_hk_data(self, stock_data: pd.DataFrame, symbol: str) -> pd.DataFrame:
+        """标准化港股数据格式"""
+        try:
+            # 尝试不同的列名映射
+            date_col = None
+            open_col = None
+            high_col = None
+            low_col = None
+            close_col = None
+            volume_col = None
+            
+            for col in stock_data.columns:
+                col_lower = col.lower()
+                if '日期' in col or '时间' in col or 'date' in col_lower or 'time' in col_lower:
+                    date_col = col
+                elif '开盘' in col or '今开' in col or 'open' in col_lower:
+                    open_col = col
+                elif '最高' in col or 'high' in col_lower:
+                    high_col = col
+                elif '最低' in col or 'low' in col_lower:
+                    low_col = col
+                elif '收盘' in col or '最新价' in col or 'close' in col_lower:
+                    close_col = col
+                elif '成交量' in col or 'volume' in col_lower:
+                    volume_col = col
+            
+            if open_col and high_col and low_col and close_col:
+                # 如果没有日期列，使用当前日期（用于快照数据）
+                if date_col:
+                    dates = pd.to_datetime(stock_data[date_col]).dt.strftime('%Y-%m-%d')
+                else:
+                    # 对于快照数据，使用当前日期
+                    dates = [datetime.now().strftime('%Y-%m-%d')] * len(stock_data)
+                
+                data = pd.DataFrame({
+                    'date': dates,
+                    'open': pd.to_numeric(stock_data[open_col], errors='coerce').round(2),
+                    'high': pd.to_numeric(stock_data[high_col], errors='coerce').round(2),
+                    'low': pd.to_numeric(stock_data[low_col], errors='coerce').round(2),
+                    'close': pd.to_numeric(stock_data[close_col], errors='coerce').round(2),
+                    'volume': pd.to_numeric(stock_data[volume_col], errors='coerce').astype(int) if volume_col else 0,
+                    'adj_close': pd.to_numeric(stock_data[close_col], errors='coerce').round(2)
+                })
+                
+                # 删除包含NaN的行
+                data = data.dropna()
+                return data
+            else:
+                logger.error(f"无法识别港股数据列名: {list(stock_data.columns)}")
+                return pd.DataFrame()
+                
+        except Exception as e:
+            logger.error(f"标准化港股数据失败: {e}")
             return pd.DataFrame()
     
     def get_stock_list(self) -> List[Dict[str, str]]:

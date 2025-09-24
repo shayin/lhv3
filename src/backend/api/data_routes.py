@@ -637,7 +637,18 @@ async def fetch_stock_data(
             
             # 清除该股票的现有数据（替换数据）
             deleted_count = db.query(StockData).filter(StockData.stock_id == stock.id).delete()
+            db.commit()  # 确保删除操作提交
             logger.info(f"清除现有数据: {deleted_count} 条记录")
+            
+            # 检查数据中是否有重复日期
+            original_count = len(processed_df)
+            duplicate_count = processed_df.duplicated(subset=['date']).sum()
+            if duplicate_count > 0:
+                logger.warning(f"发现重复日期数据，将去重处理: {duplicate_count} 条重复记录")
+                processed_df = processed_df.drop_duplicates(subset=['date'], keep='last')
+                logger.info(f"去重后数据行数: {len(processed_df)} (原始: {original_count})")
+            else:
+                logger.info(f"数据无重复日期，保持原始行数: {original_count}")
             
             # 导入新数据
             data_records = []
@@ -655,8 +666,13 @@ async def fetch_stock_data(
                 data_records.append(stock_data)
             
             # 批量插入数据
-            db.bulk_save_objects(data_records)
-            db.commit()
+            try:
+                db.bulk_save_objects(data_records)
+                db.commit()
+            except Exception as e:
+                logger.error(f"批量插入数据失败: {str(e)}")
+                db.rollback()
+                raise e
             
             # 更新股票的统计信息（总记录数、开始日期、结束日期）
             update_stock_statistics(db, stock.id)
