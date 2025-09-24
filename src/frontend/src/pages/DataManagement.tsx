@@ -14,6 +14,7 @@ import type { ColumnsType } from 'antd/es/table';
 import axios from 'axios';
 import ReactECharts from 'echarts-for-react';
 import { fetchStockList, fetchDataSources, fetchChartData, updateAllStocksData, Stock, DataSource } from '../services/apiService';
+import { PaginationCookie } from '../utils/cookie';
 import dayjs from 'dayjs';
 
 const { Title, Text } = Typography;
@@ -127,10 +128,10 @@ const DataManagement: React.FC = () => {
   const [fetchLoading, setFetchLoading] = useState(false); // 新增：抓取加载状态
   const [updateAllLoading, setUpdateAllLoading] = useState(false); // 新增：一键更新加载状态
   
-  // 分页相关状态
+  // 分页相关状态 - 从cookie读取设置
   const [pagination, setPagination] = useState({
-    current: 1,
-    pageSize: 15,
+    current: PaginationCookie.getCurrentPage(),
+    pageSize: PaginationCookie.getPageSize(),
     total: 0,
     showSizeChanger: true,
     showQuickJumper: true,
@@ -152,7 +153,7 @@ const DataManagement: React.FC = () => {
   }, []);
 
   // 获取数据列表
-  const fetchList = async (page: number = 1, pageSize: number = 15) => {
+  const fetchList = async (page: number = PaginationCookie.getCurrentPage(), pageSize: number = PaginationCookie.getPageSize()) => {
     setLoading(true);
     try {
       const stocks = await fetchStockList();
@@ -215,6 +216,11 @@ const DataManagement: React.FC = () => {
   // 分页处理函数
   const handleTableChange = (pagination: any) => {
     const { current, pageSize } = pagination;
+    
+    // 保存分页设置到cookie
+    PaginationCookie.setCurrentPage(current);
+    PaginationCookie.setPageSize(pageSize);
+    
     fetchList(current, pageSize);
   };
 

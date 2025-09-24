@@ -5,6 +5,7 @@ import { useNavigate } from 'react-router-dom';
 import type { ColumnsType } from 'antd/es/table';
 import axios from 'axios';
 import dayjs from 'dayjs';
+import { PaginationCookie } from '../utils/cookie';
 import ReactECharts from 'echarts-for-react';
 import * as echarts from 'echarts/core';
 import { LineChart } from 'echarts/charts';
@@ -1895,12 +1896,19 @@ const BacktestHistory: React.FC = () => {
           size="small"
           bordered
           pagination={{
-            pageSize: 15,
+            pageSize: PaginationCookie.getPageSize(15),
             showSizeChanger: true,
             showQuickJumper: true,
             showTotal: (total, range) => `第 ${range[0]}-${range[1]} 条，共 ${total} 条`,
             pageSizeOptions: ['10', '15', '20', '50'],
             size: 'small',
+            onChange: (page, pageSize) => {
+              PaginationCookie.setCurrentPage(page);
+              PaginationCookie.setPageSize(pageSize || 15);
+            },
+            onShowSizeChange: (current, size) => {
+              PaginationCookie.setPageSize(size);
+            }
           }}
           scroll={{ 
             x: 1550,

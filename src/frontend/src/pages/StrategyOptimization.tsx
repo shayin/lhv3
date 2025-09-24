@@ -4,6 +4,7 @@ import { PlayCircleOutlined, PlusOutlined, DeleteOutlined, SettingOutlined, EyeO
 import type { ColumnsType } from 'antd/es/table';
 import axios from 'axios';
 import dayjs from 'dayjs';
+import { PaginationCookie } from '../utils/cookie';
 
 const { Title, Text } = Typography;
 const { Option } = Select;
@@ -821,11 +822,18 @@ const StrategyOptimization: React.FC = () => {
             y: 'calc(100vh - 320px)'
           }}
           pagination={{
-            pageSize: 20,
+            pageSize: PaginationCookie.getPageSize(20),
             showSizeChanger: true,
             showQuickJumper: true,
             showTotal: (total) => `共 ${total} 条记录`,
-            size: 'small'
+            size: 'small',
+            onChange: (page, pageSize) => {
+              PaginationCookie.setCurrentPage(page);
+              PaginationCookie.setPageSize(pageSize || 20);
+            },
+            onShowSizeChange: (current, size) => {
+              PaginationCookie.setPageSize(size);
+            }
           }}
           style={{ flex: 1 }}
         />

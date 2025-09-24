@@ -4,6 +4,7 @@ import { EyeOutlined, DeleteOutlined, ReloadOutlined, HistoryOutlined, SyncOutli
 import type { ColumnsType } from 'antd/es/table';
 import axios from 'axios';
 import dayjs from 'dayjs';
+import { PaginationCookie } from '../utils/cookie';
 import ReactECharts from 'echarts-for-react';
 import * as echarts from 'echarts/core';
 import { LineChart } from 'echarts/charts';
@@ -317,10 +318,17 @@ const BacktestHistoryDetail: React.FC = () => {
           rowKey="id"
           loading={loading}
           pagination={{
-            pageSize: 20,
+            pageSize: PaginationCookie.getPageSize(20),
             showSizeChanger: true,
             showQuickJumper: true,
             showTotal: (total, range) => `第 ${range[0]}-${range[1]} 条，共 ${total} 条`,
+            onChange: (page, pageSize) => {
+              PaginationCookie.setCurrentPage(page);
+              PaginationCookie.setPageSize(pageSize || 20);
+            },
+            onShowSizeChange: (current, size) => {
+              PaginationCookie.setPageSize(size);
+            }
           }}
           scroll={{ x: 1200 }}
         />
