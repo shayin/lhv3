@@ -1976,7 +1976,7 @@ const BacktestHistory: React.FC = () => {
                       valueStyle={{ color: '#ff4d4f' }}  // 修改为红色
                       suffix="%"
                     />
-                  </Col>
+                  </Col> 
                   <Col span={6}>
                     <Statistic
                       title={<span>夏普比率 <Tooltip title="风险调整后的收益指标"><InfoCircleOutlined style={{ fontSize: 14, color: '#aaa' }} /></Tooltip></span>}
