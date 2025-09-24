@@ -36,6 +36,12 @@ data/processed/
 *.h5
 *.pickle
 
+# 🚨 重要：数据库备份文件夹 - 严禁修改
+data/backup/
+data/backup/**
+*.db.backup
+*.db.bak
+
 # 敏感信息和配置
 .env
 .env.local
