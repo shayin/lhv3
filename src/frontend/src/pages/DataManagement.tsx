@@ -127,6 +127,18 @@ const DataManagement: React.FC = () => {
   const [fetchLoading, setFetchLoading] = useState(false); // 新增：抓取加载状态
   const [updateAllLoading, setUpdateAllLoading] = useState(false); // 新增：一键更新加载状态
   
+  // 分页相关状态
+  const [pagination, setPagination] = useState({
+    current: 1,
+    pageSize: 15,
+    total: 0,
+    showSizeChanger: true,
+    showQuickJumper: true,
+    showTotal: (total: number, range: [number, number]) => 
+      `第 ${range[0]}-${range[1]} 条，共 ${total} 条`,
+    pageSizeOptions: ['10', '15', '20', '50', '100'],
+  });
+  
   // K线图相关状态
   const [chartVisible, setChartVisible] = useState<boolean>(false);
   const [currentStock, setCurrentStock] = useState<DataItem | null>(null);
@@ -140,7 +152,7 @@ const DataManagement: React.FC = () => {
   }, []);
 
   // 获取数据列表
-  const fetchList = async () => {
+  const fetchList = async (page: number = 1, pageSize: number = 15) => {
     setLoading(true);
     try {
       const stocks = await fetchStockList();
@@ -157,6 +169,14 @@ const DataManagement: React.FC = () => {
         last_updated: stock.last_updated ? new Date(stock.last_updated).toLocaleString() : '未知',
         first_date: stock.first_date || undefined,
         last_date: stock.last_date || undefined
+      }));
+      
+      // 更新分页状态
+      setPagination(prev => ({
+        ...prev,
+        current: page,
+        pageSize: pageSize,
+        total: formattedData.length,
       }));
       
       setDataList(formattedData);
@@ -190,6 +210,12 @@ const DataManagement: React.FC = () => {
       console.error('获取数据源列表失败:', error);
       message.error('获取数据源列表失败');
     }
+  };
+
+  // 分页处理函数
+  const handleTableChange = (pagination: any) => {
+    const { current, pageSize } = pagination;
+    fetchList(current, pageSize);
   };
 
   // 处理数据下载
@@ -671,7 +697,7 @@ const DataManagement: React.FC = () => {
               </Button>
               <Button 
                 icon={<SyncOutlined />} 
-                onClick={fetchList}
+                onClick={() => fetchList(pagination.current, pagination.pageSize)}
               >
                 刷新列表
               </Button>
@@ -695,7 +721,8 @@ const DataManagement: React.FC = () => {
             rowKey="id" 
             bordered 
             size="middle"
-            pagination={{ pageSize: 10 }}
+            pagination={pagination}
+            onChange={handleTableChange}
           />
         </Spin>
       </Card>

@@ -602,7 +602,7 @@ const BacktestHistory: React.FC = () => {
       render: (_, record) => {
         const returnValue = record.performance_metrics?.annual_return;
         if (returnValue !== undefined) {
-          const color = returnValue >= 0 ? '#52c41a' : '#ff4d4f';
+          const color = returnValue >= 0 ? '#ff4d4f' : '#52c41a';  // 上涨红色，下跌绿色
           const displayValue = returnValue * 100;
           return (
             <Text style={{ color, fontWeight: 'bold' }}>
@@ -1964,7 +1964,7 @@ const BacktestHistory: React.FC = () => {
                       title={<span>年化收益率 <Tooltip title="策略的年化收益率"><InfoCircleOutlined style={{ fontSize: 14, color: '#aaa' }} /></Tooltip></span>}
                       value={(selectedBacktest.performance_metrics.annual_return || 0) * 100}
                       precision={2}
-                      valueStyle={{ color: '#3f8600' }}  // 年化收益率统一显示为绿色
+                      valueStyle={{ color: (selectedBacktest.performance_metrics.annual_return || 0) >= 0 ? '#ff4d4f' : '#52c41a' }}  // 上涨红色，下跌绿色
                       suffix="%"
                     />
                   </Col>
@@ -1973,7 +1973,7 @@ const BacktestHistory: React.FC = () => {
                       title={<span>最大回撤 <Tooltip title="策略的最大回撤幅度"><InfoCircleOutlined style={{ fontSize: 14, color: '#aaa' }} /></Tooltip></span>}
                       value={selectedBacktest.performance_metrics.max_drawdown * 100}
                       precision={2}
-                      valueStyle={{ color: '#3f8600' }}  // 修改为绿色
+                      valueStyle={{ color: '#ff4d4f' }}  // 修改为红色
                       suffix="%"
                     />
                   </Col>
