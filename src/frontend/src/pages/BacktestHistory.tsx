@@ -270,10 +270,10 @@ const BacktestHistory: React.FC = () => {
         const failedItems: any[] = [];
 
         try {
-          // 批量调用单次更新API
+          // 批量调用单次更新API - 使用正确的backtest-status API
           for (const backtest of backtestList) {
             try {
-              const response = await axios.post(`/api/backtest/${backtest.id}/update`, {
+              const response = await axios.post(`/api/backtest-status/${backtest.id}/update`, {
                 update_to_date: null  // null表示更新到最新日期
               });
               
