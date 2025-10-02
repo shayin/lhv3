@@ -7,3 +7,4 @@ data/raw/
 backtesting.db
 data/backup/
 src/frontend/node_modules/
+data/scan_results
