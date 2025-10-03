@@ -24,40 +24,43 @@ class StrategyOptimizer:
         self.config = job.optimization_config
         self.objective_function = job.objective_function
         
-    async def optimize(self) -> Tuple[Optional[Dict[str, Any]], Optional[float]]:
-        """执行参数优化"""
+    def optimize(self) -> Tuple[Optional[Dict[str, Any]], Optional[float]]:
+        """执行参数优化（同步）
+
+        注意：Optuna 的 study.optimize 是阻塞的，我们在外部应将此方法放入线程执行以避免阻塞事件循环。
+        """
         try:
             # 创建Optuna研究
             study = optuna.create_study(
                 direction='maximize' if self._is_maximize_objective() else 'minimize',
                 study_name=f"optimization_job_{self.job.id}"
             )
-            
+
             # 设置优化参数
             n_trials = self.config.get('n_trials', 100)
             timeout = self.config.get('timeout', 3600)
-            
+
             logger.info(f"开始优化，试验次数: {n_trials}, 超时时间: {timeout}秒")
-            
-            # 执行优化
+
+            # 执行优化（阻塞）
             study.optimize(
                 self._objective_function,
                 n_trials=n_trials,
                 timeout=timeout,
                 callbacks=[self._trial_callback]
             )
-            
+
             # 获取最优结果
             if study.best_trial:
                 best_params = study.best_trial.params
                 best_score = study.best_trial.value
-                
+
                 logger.info(f"优化完成，最优参数: {best_params}, 最优得分: {best_score}")
                 return best_params, best_score
             else:
                 logger.warning("优化未找到有效结果")
                 return None, None
-                
+
         except Exception as e:
             logger.error(f"优化过程中发生错误: {str(e)}")
             raise e
@@ -224,8 +227,8 @@ class MultiObjectiveOptimizer(StrategyOptimizer):
         super().__init__(db, job)
         self.objectives = objectives
     
-    async def optimize(self) -> Tuple[Optional[List[Dict[str, Any]]], Optional[List[float]]]:
-        """执行多目标优化"""
+    def optimize(self) -> Tuple[Optional[List[Dict[str, Any]]], Optional[List[float]]]:
+        """执行多目标优化（同步实现）"""
         try:
             # 创建多目标优化研究
             study = optuna.create_study(
@@ -233,28 +236,28 @@ class MultiObjectiveOptimizer(StrategyOptimizer):
                           for obj in self.objectives],
                 study_name=f"multi_objective_job_{self.job.id}"
             )
-            
+
             n_trials = self.config.get('n_trials', 100)
             timeout = self.config.get('timeout', 3600)
-            
-            # 执行优化
+
+            # 执行优化（阻塞）
             study.optimize(
                 self._multi_objective_function,
                 n_trials=n_trials,
                 timeout=timeout,
                 callbacks=[self._trial_callback]
             )
-            
+
             # 获取帕累托最优解
             if study.best_trials:
                 best_params_list = [trial.params for trial in study.best_trials]
                 best_scores_list = [trial.values for trial in study.best_trials]
-                
+
                 logger.info(f"多目标优化完成，找到{len(best_params_list)}个帕累托最优解")
                 return best_params_list, best_scores_list
             else:
                 return None, None
-                
+
         except Exception as e:
             logger.error(f"多目标优化过程中发生错误: {str(e)}")
             raise e

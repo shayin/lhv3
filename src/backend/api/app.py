@@ -709,7 +709,7 @@ async def test_strategy(
         )
         
         return result
-    
+
     except ValueError as ve:
         logger.error(f"参数错误: {str(ve)}")
         return {
@@ -726,6 +726,17 @@ async def test_strategy(
             "data": None
         }
 
+
+# 兼容旧前端：某些前端版本调用 /api/strategies/backtest
+# 将请求转发到现有的 test_strategy 实现，保持行为一致
+@app.post("/api/strategies/backtest")
+async def backtest_strategy_alias(
+    data: Dict[str, Any],
+    db: Session = Depends(get_db)
+):
+    """兼容接口：转发到 /api/strategies/test 的实现"""
+    # 直接复用已有实现
+    return await test_strategy(data, db)
 
 # 导出报告API
 @app.post("/api/backtest/report")

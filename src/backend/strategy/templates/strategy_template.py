@@ -128,3 +128,16 @@ class StrategyTemplate:
             errors.append("必须实现generate_signals方法")
         
         return errors 
+
+    def suggest_position_size(self, signal: float, row: Optional[pd.Series] = None) -> Optional[float]:
+        """
+        可选接口：策略可以覆盖此方法来建议本次交易应该使用的仓位比例（0-1）。
+
+        Args:
+            signal: 交易信号值（例如 1 或 -1）
+            row: 信号行（pandas.Series），包含信号发生时的指标与上下文
+
+        Returns:
+            float | None: 返回建议的仓位比例（0-1），若返回 None 则使用回测引擎的默认计算
+        """
+        return None

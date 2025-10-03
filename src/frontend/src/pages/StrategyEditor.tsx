@@ -134,6 +134,7 @@ class MyStrategy(StrategyTemplate):
         form.setFieldsValue({
           name: data.name,
           description: data.description,
+          parameters: data.parameters || {},
         });
         setStrategyCode(data.code || defaultStrategyCode);
         setStrategyTemplate(data.template || '');
@@ -151,11 +152,13 @@ class MyStrategy(StrategyTemplate):
       const values = await form.validateFields();
       
       setLoading(true);
+      // 从表单中提取 parameters 子字段（例如前端新增的 batch 参数）
+      const formParameters = (values.parameters && typeof values.parameters === 'object') ? values.parameters : {};
       const strategyData = {
         name: values.name,
         description: values.description,
         code: strategyCode,
-        parameters: {},
+        parameters: formParameters,
         template: strategyTemplate,
       };
       
@@ -188,7 +191,10 @@ class MyStrategy(StrategyTemplate):
   const handleTest = async () => {
     setTestLoading(true);
     try {
-      const result = await testStrategy(strategyCode);
+      // 从表单获取 parameters 字段（包括分批参数），如果没有则为空对象
+      const fv = form.getFieldsValue();
+      const testParams = (fv.parameters && typeof fv.parameters === 'object') ? fv.parameters : {};
+      const result = await testStrategy(strategyCode, [], testParams);
       
       if (result && !result.error) {
         Modal.success({
@@ -283,6 +289,36 @@ class MyStrategy(StrategyTemplate):
                       name="description"
                     >
                       <TextArea rows={1} placeholder="请输入策略描述" />
+                    </Form.Item>
+                  </Col>
+                </Row>
+                
+                <Row gutter={16}>
+                  <Col span={8}>
+                    <Form.Item
+                      label="分批建仓批次数 (batch_count)"
+                      name={["parameters","batch_count"]}
+                      initialValue={1}
+                    >
+                      <Input type="number" min={1} />
+                    </Form.Item>
+                  </Col>
+                  <Col span={8}>
+                    <Form.Item
+                      label="批次间隔条数 (batch_interval_bars)"
+                      name={["parameters","batch_interval_bars"]}
+                      initialValue={1}
+                    >
+                      <Input type="number" min={1} />
+                    </Form.Item>
+                  </Col>
+                  <Col span={8}>
+                    <Form.Item
+                      label="批次权重 (batch_weights)"
+                      name={["parameters","batch_weights"]}
+                      tooltip="可输入逗号分隔的数字，例如: 0.5,0.3,0.2（若为空则均分）"
+                    >
+                      <Input placeholder="例如: 0.5,0.3,0.2 或 留空" />
                     </Form.Item>
                   </Col>
                 </Row>

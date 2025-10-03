@@ -511,26 +511,56 @@ def load_strategy_from_code(code: str, data: pd.DataFrame = None, parameters: Di
         # 查找策略类
         strategy_class = None
         
-        # 如果没有在globals_dict中提供StrategyTemplate，则导入
+        # 导入所有可能的基类
+        base_classes = []
+        
+        # 尝试导入StrategyTemplate
         if 'StrategyTemplate' not in module.__dict__:
             try:
                 from ..strategy.templates.strategy_template import StrategyTemplate
                 module.__dict__['StrategyTemplate'] = StrategyTemplate
+                base_classes.append(StrategyTemplate)
             except ImportError:
-                # 备用导入方式
-                import src.backend.strategy.templates.strategy_template
-                module.__dict__['StrategyTemplate'] = src.backend.strategy.templates.strategy_template.StrategyTemplate
+                try:
+                    # 备用导入方式
+                    import src.backend.strategy.templates.strategy_template
+                    StrategyTemplate = src.backend.strategy.templates.strategy_template.StrategyTemplate
+                    module.__dict__['StrategyTemplate'] = StrategyTemplate
+                    base_classes.append(StrategyTemplate)
+                except ImportError:
+                    logger.warning("无法导入StrategyTemplate")
+        else:
+            base_classes.append(module.__dict__['StrategyTemplate'])
         
-        # 获取StrategyTemplate类的引用
-        StrategyTemplate = module.__dict__['StrategyTemplate']
+        # 尝试导入StrategyBase
+        if 'StrategyBase' not in module.__dict__:
+            try:
+                from ..strategy.base.strategy_base import StrategyBase
+                module.__dict__['StrategyBase'] = StrategyBase
+                base_classes.append(StrategyBase)
+            except ImportError:
+                try:
+                    # 备用导入方式
+                    import src.backend.strategy.base.strategy_base
+                    StrategyBase = src.backend.strategy.base.strategy_base.StrategyBase
+                    module.__dict__['StrategyBase'] = StrategyBase
+                    base_classes.append(StrategyBase)
+                except ImportError:
+                    logger.warning("无法导入StrategyBase")
+        else:
+            base_classes.append(module.__dict__['StrategyBase'])
         
+        # 查找继承自任一基类的策略类
         for name, obj in module.__dict__.items():
-            if (isinstance(obj, type) and 
-                obj is not StrategyTemplate and 
-                issubclass(obj, StrategyTemplate)):
-                strategy_class = obj
-                logger.debug(f"找到策略类: {name}")
-                break
+            if isinstance(obj, type):
+                # 检查是否继承自任何一个基类
+                for base_class in base_classes:
+                    if obj is not base_class and issubclass(obj, base_class):
+                        strategy_class = obj
+                        logger.debug(f"找到策略类: {name}, 继承自: {base_class.__name__}")
+                        break
+                if strategy_class:
+                    break
         
         if strategy_class is None:
             error_msg = "未找到策略类"
@@ -557,6 +587,15 @@ def preprocess_strategy_code(code: str) -> str:
     Returns:
         处理后的策略代码
     """
+    # 确保 code 为字符串（有时从数据库读取为 bytes）
+    if code is None:
+        return ""
+    if isinstance(code, (bytes, bytearray)):
+        try:
+            code = code.decode('utf-8')
+        except Exception:
+            code = code.decode('latin-1')
+
     # 替换相对导入为绝对导入
     import re
     
@@ -714,4 +753,4 @@ async def backtest_strategy(request: Request, db: Session = Depends(get_db)):
             "status": "error",
             "message": f"回测策略失败: {str(e)}",
             "data": None
-        } 
+        }

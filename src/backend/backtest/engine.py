@@ -564,11 +564,31 @@ class BacktestEngine:
                 logger.debug(f"日期: {date}, 价格: {price}, 信号: {signal}, 当前持仓: {self.position}")
             
             # 根据信号执行交易
-            if signal == 1 and self.position == 0:  # 买入信号且当前无持仓
+            if signal == 1:  # 买入信号（支持分批建仓，移除持仓限制）
                 logger.info(f"检测到买入信号: 日期={date}, 价格={price}, 信号值={signal}, 触发原因={trigger_reason}")
                 
                 # 计算本次买入使用的仓位比例
-                position_size = self._calculate_position_size(signal, row)
+                # 优先使用信号行提供的 position_size（若存在且大于0）
+                position_size = None
+                try:
+                    sig_pos = float(row.get('position_size')) if 'position_size' in row and row.get('position_size') is not None else None
+                    if sig_pos and sig_pos > 0:
+                        position_size = sig_pos
+                except Exception:
+                    position_size = None
+
+                # 其次询问策略是否建议特定仓位
+                if position_size is None and self.strategy is not None and hasattr(self.strategy, 'suggest_position_size'):
+                    try:
+                        suggested = self.strategy.suggest_position_size(signal, row)
+                        if suggested is not None:
+                            position_size = suggested
+                    except Exception as e:
+                        logger.debug(f"调用策略suggest_position_size失败: {e}")
+
+                # 最后使用引擎默认计算
+                if position_size is None:
+                    position_size = self._calculate_position_size(signal, row)
                 
                 # 计算可买数量
                 # 考虑手续费后的最大可买股数
@@ -595,9 +615,18 @@ class BacktestEngine:
                 
                 if total_cost <= self.capital and shares > 0:
                     self.capital -= total_cost
-                    self.position = shares
-                    self.position_avg_price = execution_price
-                    self.position_value = shares * price
+                    # 分批建仓：累加持仓而不是覆盖
+                    self.position += shares  # 改为累加持仓
+                    # 重新计算平均成本
+                    if self.position_avg_price == 0:
+                        self.position_avg_price = execution_price
+                    else:
+                        # 加权平均成本计算
+                        total_cost_before = (self.position - shares) * self.position_avg_price
+                        total_cost_after = total_cost_before + cost
+                        self.position_avg_price = total_cost_after / self.position
+                    
+                    self.position_value = self.position * price
                     
                     # 更新可用资金和已分配资金
                     self.available_capital = self.capital
@@ -612,6 +641,9 @@ class BacktestEngine:
                     entry_price = execution_price
                     entry_date = date
                     
+                    # 计算累计仓位比例（基于初始资金）
+                    cumulative_position_ratio = self.position_value / self.initial_capital
+                    
                     trade = {
                         "date": date,
                         "action": "BUY",
@@ -624,7 +656,9 @@ class BacktestEngine:
                         "before_equity": before_equity,
                         "after_equity": self.capital + self.position_value,
                         "trigger_reason": trigger_reason,
-                        "position_size": position_size,  # 添加仓位比例
+                        "position_size": position_size,  # 单次交易仓位比例
+                        "cumulative_position_ratio": cumulative_position_ratio,  # 累计仓位比例
+                        "total_shares": self.position,  # 累计持股数量
                         "available_capital": self.available_capital,
                         "allocated_capital": self.allocated_capital
                     }
@@ -638,10 +672,36 @@ class BacktestEngine:
             elif signal == -1 and self.position > 0:  # 卖出信号且当前有持仓
                 logger.info(f"检测到卖出信号: 日期={date}, 价格={price}, 信号值={signal}, 触发原因={trigger_reason}")
                 
-                # 执行卖出
+                # 计算本次卖出的仓位比例
+                position_size = None
+                try:
+                    sig_pos = float(row.get('position_size')) if 'position_size' in row and row.get('position_size') is not None else None
+                    if sig_pos and sig_pos > 0:
+                        position_size = sig_pos
+                except Exception:
+                    position_size = None
+
+                # 其次询问策略是否建议特定仓位
+                if position_size is None and self.strategy is not None and hasattr(self.strategy, 'suggest_position_size'):
+                    try:
+                        suggested = self.strategy.suggest_position_size(signal, row)
+                        if suggested is not None:
+                            position_size = suggested
+                    except Exception as e:
+                        logger.debug(f"调用策略suggest_position_size失败: {e}")
+
+                # 默认全部卖出
+                if position_size is None:
+                    position_size = 1.0
+                
+                # 执行分批卖出
                 actual_slippage_rate = self.slippage_rate / 100 if self.slippage_rate > 0.01 else self.slippage_rate
                 execution_price = price * (1 - actual_slippage_rate)  # 考虑滑点
-                shares = self.position
+                
+                # 计算要卖出的股数（基于仓位比例）
+                shares_to_sell = int(self.position * position_size)
+                shares = min(shares_to_sell, self.position)  # 确保不超过持仓
+                
                 revenue = shares * execution_price
                 actual_commission_rate = self.commission_rate / 100 if self.commission_rate > 0.01 else self.commission_rate
                 commission_fee = revenue * actual_commission_rate
@@ -658,17 +718,15 @@ class BacktestEngine:
                 else:
                     holding_days = 0
                 
-                # 获取本次交易的仓位比例（从买入交易记录中获取）
-                position_size = 1.0  # 默认值
-                for trade in reversed(self.results['trades']):
-                    if trade['action'] == 'BUY':
-                        position_size = trade.get('position_size', 1.0)
-                        break
-                
                 self.capital += net_revenue
-                self.position = 0
-                self.position_value = 0
-                self.position_avg_price = 0
+                # 分批减仓：减少持仓而不是清零
+                self.position -= shares
+                if self.position <= 0:
+                    self.position = 0
+                    self.position_value = 0
+                    self.position_avg_price = 0
+                else:
+                    self.position_value = self.position * price
                 
                 # 更新可用资金和已分配资金
                 self.available_capital = self.capital
@@ -680,6 +738,9 @@ class BacktestEngine:
                     logger.info("分批建仓重置为第1阶段")
                 
                 # 记录卖出交易
+                # 计算卖出后的累计仓位比例
+                cumulative_position_ratio = self.position_value / self.initial_capital if self.position > 0 else 0.0
+                
                 trade = {
                     "date": date,
                     "action": "SELL",
@@ -697,7 +758,9 @@ class BacktestEngine:
                     "before_equity": before_equity,
                     "after_equity": self.capital,
                     "trigger_reason": trigger_reason,
-                    "position_size": position_size,  # 添加仓位比例
+                    "position_size": position_size,  # 单次交易仓位比例
+                    "cumulative_position_ratio": cumulative_position_ratio,  # 累计仓位比例
+                    "total_shares": self.position,  # 剩余持股数量
                     "available_capital": self.available_capital,
                     "allocated_capital": self.allocated_capital
                 }
@@ -958,4 +1021,4 @@ class BacktestEngine:
         
         logger.info(f"性能指标计算完成: 总收益率={self.results['performance']['total_return']:.2%}, 年化收益率={self.results['performance']['annual_return']:.2%}, 最大回撤={self.results['performance']['max_drawdown']:.2%}")
         if total_sell_trades > 0:
-            logger.info(f"交易统计: 总交易次数={total_sell_trades}, 盈利交易={len(win_trades)}, 亏损交易={len(lose_trades)}, 胜率={self.results['performance']['win_rate']:.2%}, 盈亏比={self.results['performance']['profit_factor']:.2f}") 
+            logger.info(f"交易统计: 总交易次数={total_sell_trades}, 盈利交易={len(win_trades)}, 亏损交易={len(lose_trades)}, 胜率={self.results['performance']['win_rate']:.2%}, 盈亏比={self.results['performance']['profit_factor']:.2f}")

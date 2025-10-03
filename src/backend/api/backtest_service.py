@@ -388,12 +388,23 @@ class BacktestService:
                         'np': __import__('numpy')
                     }
                     
+                    # 确保 db_strategy.code 为字符串（有时 DB 存储为 bytes）
+                    code_content = db_strategy.code
+                    if code_content is None:
+                        code_content = ""
+                    if isinstance(code_content, (bytes, bytearray)):
+                        try:
+                            code_content = code_content.decode('utf-8')
+                        except Exception:
+                            code_content = code_content.decode('latin-1')
+
                     # 输出策略代码前几行进行调试
-                    code_preview = "\n".join(db_strategy.code.split("\n")[:5])
+                    code_preview = "\n".join(str(code_content).split("\n")[:5])
                     logger.debug(f"策略代码预览:\n{code_preview}")
+                    logger.debug(f"策略代码类型: {type(code_content)}")
                     
                     # 从代码加载策略
-                    strategy_instance = load_strategy_from_code(db_strategy.code, data, parameters, globals_dict)
+                    strategy_instance = load_strategy_from_code(code_content, data, parameters, globals_dict)
                     return strategy_instance
                 except ImportError as ie:
                     logger.error(f"导入策略模板模块失败: {str(ie)}")

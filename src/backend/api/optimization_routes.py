@@ -1,56 +1,58 @@
+"""Optimization-related API routes.
+
+This module provides endpoints to manage parameter spaces and optimization jobs.
+
+Key points:
+- Create an OptimizationJob in the request handler, then run the blocking optimization
+    in a background thread so the HTTP request returns immediately.
+- The background worker creates its own DB session (SessionLocal) and updates job
+    records as it progresses or fails.
 """
-参数优化相关的API路由
-"""
+
 import logging
 import asyncio
 from typing import List, Dict, Any, Optional
-from datetime import datetime, timedelta
+from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, Query
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 
 from ..models import (
-    get_db, Strategy, StrategyParameterSpace, ParameterSet, 
-    ParameterSetPerformance, OptimizationJob, OptimizationTrial
+    get_db, Strategy, StrategyParameterSpace, ParameterSet, ParameterSetPerformance, OptimizationJob, OptimizationTrial
 )
-from .backtest_service import BacktestService
+from ..models.base import SessionLocal
 
 logger = logging.getLogger(__name__)
-
 router = APIRouter(prefix="/api/optimization", tags=["optimization"])
 
-# 请求和响应模型
+
 class ParameterSpaceRequest(BaseModel):
     parameter_name: str
-    parameter_type: str  # 'int', 'float', 'choice'
+    parameter_type: str
     min_value: Optional[float] = None
     max_value: Optional[float] = None
     step_size: Optional[float] = None
     choices: Optional[List[Any]] = None
     description: Optional[str] = None
 
+
 class OptimizationRequest(BaseModel):
     strategy_id: int
     name: str
     description: Optional[str] = None
     parameter_spaces: List[ParameterSpaceRequest]
-    objective_function: str = 'sharpe_ratio'  # 'sharpe_ratio', 'total_return', 'max_drawdown'
+    objective_function: str = 'sharpe_ratio'
     n_trials: int = 100
-    timeout: Optional[int] = 3600  # 超时时间(秒)
-    backtest_config: Dict[str, Any]  # 回测配置
+    timeout: Optional[int] = 3600
+    backtest_config: Dict[str, Any]
+
 
 class ParameterSetRequest(BaseModel):
     strategy_id: int
     name: str
     description: Optional[str] = None
     parameters: Dict[str, Any]
-    status: str = 'active'
-
-class ParameterSetUpdateRequest(BaseModel):
-    name: Optional[str] = None
-    description: Optional[str] = None
-    parameters: Optional[Dict[str, Any]] = None
-    status: Optional[str] = None
+    status: Optional[str] = 'active'
 
 
 @router.get("/strategies/{strategy_id}/parameter-spaces")
@@ -58,28 +60,236 @@ async def get_parameter_spaces(
     strategy_id: int,
     db: Session = Depends(get_db)
 ):
-    """获取策略的参数空间定义"""
     try:
         spaces = db.query(StrategyParameterSpace).filter(
             StrategyParameterSpace.strategy_id == strategy_id
         ).all()
-        
-        return {
-            "status": "success",
-            "data": [
+        return {"status": "success", "data": [
+            {
+                "id": s.id,
+                "parameter_name": s.parameter_name,
+                "parameter_type": s.parameter_type,
+                "min_value": s.min_value,
+                "max_value": s.max_value,
+                "step_size": s.step_size,
+                "choices": s.choices,
+                "description": s.description
+            } for s in spaces
+        ]}
+    except Exception as e:
+        logger.exception("Failed to get parameter spaces")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/strategies/{strategy_id}/parameter-spaces")
+async def create_parameter_spaces(
+    strategy_id: int,
+    spaces: List[ParameterSpaceRequest],
+    db: Session = Depends(get_db)
+):
+    try:
+        strategy = db.query(Strategy).filter(Strategy.id == strategy_id).first()
+        if not strategy:
+            raise HTTPException(status_code=404, detail="Strategy not found")
+        # remove existing spaces
+        db.query(StrategyParameterSpace).filter(StrategyParameterSpace.strategy_id == strategy_id).delete()
+        for sp in spaces:
+            rec = StrategyParameterSpace(
+                strategy_id=strategy_id,
+                parameter_name=sp.parameter_name,
+                parameter_type=sp.parameter_type,
+                min_value=sp.min_value,
+                max_value=sp.max_value,
+                step_size=sp.step_size,
+                choices=sp.choices,
+                description=sp.description
+            )
+            db.add(rec)
+        db.commit()
+        return {"status": "success", "message": f"created {len(spaces)} parameter spaces"}
+    except Exception as e:
+        db.rollback()
+        logger.exception("Failed to create parameter spaces")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/optimize")
+async def start_optimization(
+    request: OptimizationRequest,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db)
+):
+    try:
+        strategy = db.query(Strategy).filter(Strategy.id == request.strategy_id).first()
+        if not strategy:
+            raise HTTPException(status_code=404, detail="Strategy not found")
+
+        job = OptimizationJob(
+            strategy_id=request.strategy_id,
+            name=request.name,
+            description=request.description,
+            optimization_config={
+                "parameter_spaces": [s.dict() for s in request.parameter_spaces],
+                "objective_function": request.objective_function,
+                "n_trials": request.n_trials,
+                "timeout": request.timeout,
+                "backtest_config": request.backtest_config
+            },
+            objective_function=request.objective_function,
+            total_trials=request.n_trials,
+            status='running',
+            started_at=datetime.utcnow()
+        )
+        db.add(job)
+        db.commit()
+        db.refresh(job)
+
+        # schedule the blocking optimization to run in a thread
+        background_tasks.add_task(asyncio.to_thread, _run_optimization_worker, job.id)
+
+        return {"status": "success", "data": {"job_id": job.id, "message": "optimization started"}}
+    except Exception as e:
+        db.rollback()
+        logger.exception("Failed to start optimization")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+def _run_optimization_worker(job_id: int):
+    """Worker that runs inside a separate thread. It must create its own DB session."""
+    db = None
+    try:
+        from ..optimization.optimizer import StrategyOptimizer
+        db = SessionLocal()
+        job = db.query(OptimizationJob).filter(OptimizationJob.id == job_id).first()
+        if not job:
+            logger.error(f"Job {job_id} not found")
+            return
+
+        logger.info(f"Starting optimization job {job.id} in background thread")
+        optimizer = StrategyOptimizer(db, job)
+        best_params, best_score = optimizer.optimize()
+
+        job = db.query(OptimizationJob).filter(OptimizationJob.id == job_id).first()
+        job.status = 'completed'
+        job.best_parameters = best_params
+        job.best_score = best_score
+        job.completed_at = datetime.utcnow()
+        job.progress = 100.0
+        db.commit()
+
+        if best_params:
+            ps = ParameterSet(
+                strategy_id=job.strategy_id,
+                name=f"{job.name}_best",
+                description=f"Best params from optimization {job.name}",
+                parameters=best_params,
+                optimization_job_id=job.id,
+                status='active'
+            )
+            db.add(ps)
+            db.commit()
+
+        logger.info(f"Optimization job {job.id} finished with score {best_score}")
+    except Exception as e:
+        logger.exception(f"Optimization job {job_id} failed: {e}")
+        try:
+            if db is None:
+                db = SessionLocal()
+            job = db.query(OptimizationJob).filter(OptimizationJob.id == job_id).first()
+            if job:
+                job.status = 'failed'
+                job.error_message = str(e)
+                job.completed_at = datetime.utcnow()
+                db.commit()
+        finally:
+            if db:
+                db.close()
+
+
+@router.get("/jobs/{job_id}")
+async def get_optimization_job(job_id: int, db: Session = Depends(get_db)):
+    try:
+        job = db.query(OptimizationJob).filter(OptimizationJob.id == job_id).first()
+        if not job:
+            raise HTTPException(status_code=404, detail="Job not found")
+        return {"status": "success", "data": {
+            "id": job.id,
+            "strategy_id": job.strategy_id,
+            "name": job.name,
+            "description": job.description,
+            "status": job.status,
+            "progress": job.progress,
+            "best_score": job.best_score,
+            "best_parameters": job.best_parameters,
+            "objective_function": job.objective_function,
+            "optimization_config": job.optimization_config,
+            "total_trials": job.total_trials,
+            "completed_trials": job.completed_trials,
+            "created_at": job.created_at.isoformat() if job.created_at else None,
+            "started_at": job.started_at.isoformat() if job.started_at else None,
+            "completed_at": job.completed_at.isoformat() if job.completed_at else None,
+            "error_message": job.error_message
+        }}
+    except Exception as e:
+        logger.exception("Failed to get job")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/jobs")
+async def list_optimization_jobs(
+    strategy_id: Optional[int] = Query(None),
+    status: Optional[str] = Query(None),
+    page: int = Query(1, ge=1),
+    size: int = Query(20, ge=1, le=100),
+    db: Session = Depends(get_db)
+):
+    try:
+        query = db.query(OptimizationJob)
+        if strategy_id:
+            query = query.filter(OptimizationJob.strategy_id == strategy_id)
+        if status:
+            query = query.filter(OptimizationJob.status == status)
+        total = query.count()
+        jobs = query.offset((page - 1) * size).limit(size).all()
+        return {"status": "success", "data": {
+            "total": total,
+            "page": page,
+            "size": size,
+            "jobs": [
                 {
-                    "id": space.id,
-                    "parameter_name": space.parameter_name,
-                    "parameter_type": space.parameter_type,
-                    "min_value": space.min_value,
-                    "max_value": space.max_value,
-                    "step_size": space.step_size,
-                    "choices": space.choices,
-                    "description": space.description
-                }
-                for space in spaces
+                    "id": j.id,
+                    "strategy_id": j.strategy_id,
+                    "name": j.name,
+                    "status": j.status,
+                    "progress": j.progress,
+                    "best_score": j.best_score,
+                    "created_at": j.created_at.isoformat() if j.created_at else None
+                } for j in jobs
             ]
-        }
+        }}
+    except Exception as e:
+        logger.exception("Failed to list jobs")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/jobs/{job_id}/trials")
+async def list_job_trials(job_id: int, db: Session = Depends(get_db)):
+    try:
+        trials = db.query(OptimizationTrial).filter(OptimizationTrial.optimization_job_id == job_id).all()
+        return {"status": "success", "data": [
+            {
+                "id": t.id,
+                "trial_number": t.trial_number,
+                "parameters": t.parameters,
+                "score": t.score,
+                "status": t.status,
+                "created_at": t.created_at.isoformat() if t.created_at else None
+            } for t in trials
+        ]}
+    except Exception as e:
+        logger.exception("Failed to list trials")
+        raise HTTPException(status_code=500, detail=str(e))
+
     except Exception as e:
         logger.error(f"获取参数空间失败: {str(e)}")
         raise HTTPException(status_code=500, detail=f"获取参数空间失败: {str(e)}")
@@ -164,10 +374,10 @@ async def start_optimization(
         db.add(job)
         db.commit()
         db.refresh(job)
-        
-        # 启动后台优化任务
-        background_tasks.add_task(run_optimization, job.id, db)
-        
+
+        # 启动后台优化任务（在独立线程运行，避免阻塞主事件循环或复用请求会话）
+        background_tasks.add_task(run_optimization, job.id)
+
         return {
             "status": "success",
             "data": {
@@ -227,47 +437,38 @@ async def list_optimization_jobs(
     size: int = Query(20, ge=1, le=100),
     db: Session = Depends(get_db)
 ):
-    """获取优化任务列表"""
+    """List optimization jobs with pagination."""
     try:
         query = db.query(OptimizationJob)
-        
-        if strategy_id:
+        if strategy_id is not None:
             query = query.filter(OptimizationJob.strategy_id == strategy_id)
         if status:
             query = query.filter(OptimizationJob.status == status)
-        
+
         total = query.count()
         jobs = query.offset((page - 1) * size).limit(size).all()
-        
-        return {
-            "status": "success",
-            "data": [
-                {
-                    "id": job.id,
-                    "strategy_id": job.strategy_id,
-                    "name": job.name,
-                    "status": job.status,
-                    "progress": job.progress,
-                    "best_score": job.best_score,
-                    "best_parameters": job.best_parameters,
-                    "objective_function": job.objective_function,
-                    "optimization_config": job.optimization_config,  # 添加优化配置
-                    "total_trials": job.total_trials,
-                    "completed_trials": job.completed_trials,
-                    "created_at": job.created_at.isoformat() if job.created_at else None
-                }
-                for job in jobs
-            ],
-            "pagination": {
-                "page": page,
-                "size": size,
-                "total": total,
-                "pages": (total + size - 1) // size
-            }
-        }
+
+        items = []
+        for j in jobs:
+            items.append({
+                "id": j.id,
+                "strategy_id": j.strategy_id,
+                "name": j.name,
+                "status": j.status,
+                "progress": j.progress,
+                "best_score": j.best_score,
+                "created_at": j.created_at.isoformat() if j.created_at else None
+            })
+
+        return {"status": "success", "data": {
+            "total": total,
+            "page": page,
+            "size": size,
+            "jobs": items
+        }}
     except Exception as e:
-        logger.error(f"获取优化任务列表失败: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"获取优化任务列表失败: {str(e)}")
+        logger.exception("Failed to list jobs")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.get("/jobs/{job_id}/trials")
@@ -549,59 +750,65 @@ async def list_parameter_sets(
         raise HTTPException(status_code=500, detail=f"获取参数组列表失败: {str(e)}")
 
 
-async def run_optimization(job_id: int, db: Session):
-    """运行参数优化的后台任务"""
-    try:
-        import optuna
-        from ..optimization.optimizer import StrategyOptimizer
-        
-        # 获取任务信息
-        job = db.query(OptimizationJob).filter(OptimizationJob.id == job_id).first()
-        if not job:
-            logger.error(f"优化任务{job_id}不存在")
-            return
-        
-        logger.info(f"开始执行优化任务: {job.name}")
-        
-        # 创建优化器
-        optimizer = StrategyOptimizer(db, job)
-        
-        # 执行优化
-        best_params, best_score = await optimizer.optimize()
-        
-        # 更新任务状态
-        job.status = 'completed'
-        job.best_parameters = best_params
-        job.best_score = best_score
-        job.completed_at = datetime.utcnow()
-        job.progress = 100.0
-        db.commit()
-        
-        # 创建最优参数组
-        if best_params:
-            parameter_set = ParameterSet(
-                strategy_id=job.strategy_id,
-                name=f"{job.name}_最优参数",
-                description=f"优化任务{job.name}的最优参数组合",
-                parameters=best_params,
-                optimization_job_id=job.id,
-                status='active'
-            )
-            db.add(parameter_set)
-            db.commit()
-            
-            logger.info(f"优化任务{job.name}完成，最优得分: {best_score}")
-        
-    except Exception as e:
-        logger.error(f"优化任务{job_id}执行失败: {str(e)}")
-        
-        # 更新任务状态为失败
-        job = db.query(OptimizationJob).filter(OptimizationJob.id == job_id).first()
-        if job:
-            job.status = 'failed'
-            job.error_message = str(e)
+async def run_optimization(job_id: int):
+    """运行参数优化的后台任务（将实际工作委托到线程，线程内创建独立 DB 会话）"""
+    import optuna
+    from ..optimization.optimizer import StrategyOptimizer
+
+    def _sync_run(job_id_inner: int):
+        db = SessionLocal()
+        try:
+            job = db.query(OptimizationJob).filter(OptimizationJob.id == job_id_inner).first()
+            if not job:
+                logger.error(f"优化任务{job_id_inner}不存在")
+                return
+
+            logger.info(f"开始执行优化任务(线程): {job.name}")
+
+            # 在该线程/会话中创建优化器并执行同步优化（optuna 运行是阻塞的）
+            optimizer = StrategyOptimizer(db, job)
+            best_params, best_score = optimizer.optimize()
+
+            # 更新任务状态
+            job.status = 'completed'
+            job.best_parameters = best_params
+            job.best_score = best_score
             job.completed_at = datetime.utcnow()
+            job.progress = 100.0
             db.commit()
+
+            # 创建最优参数组
+            if best_params:
+                parameter_set = ParameterSet(
+                    strategy_id=job.strategy_id,
+                    name=f"{job.name}_最优参数",
+                    description=f"优化任务{job.name}的最优参数组合",
+                    parameters=best_params,
+                    optimization_job_id=job.id,
+                    status='active'
+                )
+                db.add(parameter_set)
+                db.commit()
+
+                logger.info(f"优化任务{job.name}完成，最优得分: {best_score}")
+
+        except Exception as e:
+            logger.exception(f"优化任务{job_id_inner}执行失败(线程): {str(e)}")
+            # 更新任务状态为失败
+            try:
+                job = db.query(OptimizationJob).filter(OptimizationJob.id == job_id_inner).first()
+                if job:
+                    job.status = 'failed'
+                    job.error_message = str(e)
+                    job.completed_at = datetime.utcnow()
+                    db.commit()
+            except Exception:
+                db.rollback()
+        finally:
+            db.close()
+
+    # 将阻塞型优化任务放入线程执行，避免阻塞事件循环
+    await asyncio.to_thread(_sync_run, job_id)
 
 @router.get("/strategies/{strategy_id}/best-parameters")
 async def get_best_parameters(

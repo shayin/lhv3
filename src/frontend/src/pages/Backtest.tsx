@@ -52,6 +52,8 @@ interface TradeRecord {
   afterEquity: number;  // 交易后总资产
   trigger_reason?: string; // 交易触发原因
   position_size?: number; // 该笔交易使用的仓位百分比
+  cumulative_position_ratio?: number; // 累计仓位比例
+  total_shares?: number; // 累计持股数量
   available_capital?: number; // 交易后的可用资金
   allocated_capital?: number; // 已分配的资金
 }
@@ -345,6 +347,8 @@ const Backtest: React.FC = () => {
             trigger_reason: trade.trigger_reason,
             // 添加仓位相关信息
             position_size: trade.position_size ? (trade.position_size * 100) : 100, // 默认100%
+            cumulative_position_ratio: trade.cumulative_position_ratio ? (trade.cumulative_position_ratio * 100) : 0, // 累计仓位比例
+            total_shares: trade.total_shares || 0, // 累计持股数量
             available_capital: trade.available_capital,
             allocated_capital: trade.allocated_capital
           };
@@ -1253,13 +1257,40 @@ const Backtest: React.FC = () => {
       sorter: (a, b) => a.duration - b.duration,
     },
     {
-      title: '仓位(%)',
+      title: '单次仓位(%)',
       dataIndex: 'position_size',
       key: 'position_size',
       sorter: (a, b) => (a.position_size || 0) - (b.position_size || 0),
       render: (text) => {
         const value = parseFloat(text) || 100;
         return value.toFixed(0) + '%';
+      }
+    },
+    {
+      title: '累计仓位(%)',
+      dataIndex: 'cumulative_position_ratio',
+      key: 'cumulative_position_ratio',
+      sorter: (a, b) => (a.cumulative_position_ratio || 0) - (b.cumulative_position_ratio || 0),
+      render: (text) => {
+        const value = parseFloat(text) || 0;
+        return (
+          <span style={{ 
+            color: value > 100 ? '#ff4d4f' : value > 50 ? '#faad14' : '#52c41a',
+            fontWeight: 'bold'
+          }}>
+            {value.toFixed(1)}%
+          </span>
+        );
+      }
+    },
+    {
+      title: '持股数量',
+      dataIndex: 'total_shares',
+      key: 'total_shares',
+      sorter: (a, b) => (a.total_shares || 0) - (b.total_shares || 0),
+      render: (text) => {
+        const value = parseInt(text) || 0;
+        return value.toLocaleString();
       }
     },
   ];
@@ -3106,4 +3137,4 @@ const Backtest: React.FC = () => {
   );
 };
 
-export default Backtest; 
+export default Backtest;
