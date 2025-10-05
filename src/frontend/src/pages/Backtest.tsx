@@ -2112,14 +2112,15 @@ const Backtest: React.FC = () => {
             <Row gutter={24}>
               <Col span={8}>
                 <Form.Item label="策略选择" required>
-                  <Space.Compact>
+                  <Input.Group compact>
                     <Select
                       value={selectedStrategyName}
                       onChange={(value, option: any) => {
                         handleStrategyChange(Number(option.key));
                       }}
                       placeholder="选择策略"
-                      style={{ width: '70%' }}
+                      style={{ width: 'calc(100% - 80px)' }}
+                      size="middle"
                     >
                       {strategiesList.map(strategy => (
                         <Option 
@@ -2131,14 +2132,16 @@ const Backtest: React.FC = () => {
                       ))}
                     </Select>
                     <Button 
-                      type="default" 
+                      type="primary" 
+                      ghost
                       onClick={handleParametersModal}
-                      style={{ width: '30%' }}
+                      style={{ width: '80px' }}
                       icon={<SettingOutlined />}
+                      size="middle"
                     >
                       参数
                     </Button>
-                  </Space.Compact>
+                  </Input.Group>
                 </Form.Item>
               </Col>
               <Col span={8}>
