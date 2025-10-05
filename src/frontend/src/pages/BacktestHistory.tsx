@@ -87,7 +87,6 @@ interface BacktestDetail {
   initial_capital: number;
   instruments: string[];
   parameters?: any;
-  position_config?: any;
   results?: any;
   equity_curve?: any[];
   trade_records?: any[];
@@ -216,16 +215,6 @@ const BacktestHistory: React.FC = () => {
         return value.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
       }
     },
-    {
-      title: '仓位大小',
-      dataIndex: 'position_size',
-      key: 'position_size',
-      sorter: (a, b) => a.position_size - b.position_size,
-      render: (text) => {
-        const value = parseFloat(text) || 0;
-        return `${(value * 100).toFixed(1)}%`;
-      }
-    }
   ];
   
   // 更新回测相关状态
@@ -538,14 +527,6 @@ const BacktestHistory: React.FC = () => {
                     <span style={{ color: '#1890ff' }}>{key}:</span> {String(value)}
                   </div>
                 ))}
-                {parameters.positionConfig && (
-                  <div>
-                    <div style={{ fontWeight: 'bold', marginTop: '8px', marginBottom: '4px' }}>仓位配置:</div>
-                    <div style={{ fontSize: '12px' }}>
-                      模式: {parameters.positionConfig.mode || 'fixed'}
-                    </div>
-                  </div>
-                )}
               </div>
             } 
             placement="topLeft"

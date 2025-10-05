@@ -51,9 +51,6 @@ interface TradeRecord {
   beforeEquity: number; // 交易前总资产
   afterEquity: number;  // 交易后总资产
   trigger_reason?: string; // 交易触发原因
-  position_size?: number; // 该笔交易使用的仓位百分比
-  cumulative_position_ratio?: number; // 累计仓位比例
-  total_shares?: number; // 累计持股数量
   available_capital?: number; // 交易后的可用资金
   allocated_capital?: number; // 已分配的资金
 }
@@ -105,11 +102,6 @@ const Backtest: React.FC = () => {
   const [currentStrategyInfo, setCurrentStrategyInfo] = useState<any>(null);
   const [showOptimizationResultsModal, setShowOptimizationResultsModal] = useState(false);
   const [optimizationResults, setOptimizationResults] = useState<any[]>([]);
-  // 添加仓位控制相关状态
-  const [positionMode, setPositionMode] = useState<string>('fixed'); // 'fixed', 'dynamic', 'staged'
-  const [defaultPositionSize, setDefaultPositionSize] = useState<number>(100); // 默认100%
-  const [positionSizes, setPositionSizes] = useState<number[]>([25, 25, 25, 25]); // 分批建仓的比例
-  const [dynamicPositionMax, setDynamicPositionMax] = useState<number>(100); // 动态仓位最大值
   
   // 添加保存回测相关状态
   const [saveModalVisible, setSaveModalVisible] = useState(false);
@@ -156,14 +148,6 @@ const Backtest: React.FC = () => {
 
     setSaveLoading(true);
     try {
-      // 构建仓位配置
-      const positionConfig = {
-        mode: positionMode,
-        defaultSize: defaultPositionSize / 100,
-        sizes: positionSizes.map(size => size / 100),
-        dynamicMax: dynamicPositionMax / 100
-      };
-
       // 重新运行回测并保存结果
       const startDate = dateRange[0].format('YYYY-MM-DD');
       const endDate = dateRange[1].format('YYYY-MM-DD');
@@ -175,7 +159,6 @@ const Backtest: React.FC = () => {
         endDate,
         initialCapital,
         {
-          positionConfig: positionConfig,
           save_backtest: true, // 启用保存
           backtest_name: backtestName,
           backtest_description: backtestDescription,
@@ -234,14 +217,6 @@ const Backtest: React.FC = () => {
       const startDate = dateRange[0].format('YYYY-MM-DD');
       const endDate = dateRange[1].format('YYYY-MM-DD');
       
-      // 构建仓位配置对象，传递给后端
-      const positionConfig = {
-        mode: positionMode,
-        defaultSize: defaultPositionSize / 100, // 转换为小数
-        sizes: positionSizes.map(size => size / 100), // 转换为小数数组
-        dynamicMax: dynamicPositionMax / 100 // 转换为小数
-      };
-      
       // 使用新的backtestStrategy方法进行回测，确保传入数字类型的策略ID
       const result = await backtestStrategy(
         selectedStrategy, // 已经是number类型
@@ -250,7 +225,6 @@ const Backtest: React.FC = () => {
         endDate,
         initialCapital,
         {
-          positionConfig: positionConfig, // 传递仓位配置
           save_backtest: false, // 暂时不自动保存，等用户手动保存
           parameters: strategyParameters // 添加策略参数
         }, // 参数对象
@@ -345,10 +319,6 @@ const Backtest: React.FC = () => {
             beforeEquity: trade.before_equity,
             afterEquity: trade.after_equity,
             trigger_reason: trade.trigger_reason,
-            // 添加仓位相关信息
-            position_size: trade.position_size ? (trade.position_size * 100) : 100, // 默认100%
-            cumulative_position_ratio: trade.cumulative_position_ratio ? (trade.cumulative_position_ratio * 100) : 0, // 累计仓位比例
-            total_shares: trade.total_shares || 0, // 累计持股数量
             available_capital: trade.available_capital,
             allocated_capital: trade.allocated_capital
           };
@@ -457,12 +427,7 @@ const Backtest: React.FC = () => {
     setHasResults, 
     setBacktestResults, 
     setPerformanceData, 
-    setLoading,
-    // 添加仓位相关依赖
-    positionMode,
-    defaultPositionSize,
-    positionSizes,
-    dynamicPositionMax
+    setLoading
   ]);
   
   // K线图配置
@@ -1255,43 +1220,6 @@ const Backtest: React.FC = () => {
       dataIndex: 'duration',
       key: 'duration',
       sorter: (a, b) => a.duration - b.duration,
-    },
-    {
-      title: '单次仓位(%)',
-      dataIndex: 'position_size',
-      key: 'position_size',
-      sorter: (a, b) => (a.position_size || 0) - (b.position_size || 0),
-      render: (text) => {
-        const value = parseFloat(text) || 100;
-        return value.toFixed(0) + '%';
-      }
-    },
-    {
-      title: '累计仓位(%)',
-      dataIndex: 'cumulative_position_ratio',
-      key: 'cumulative_position_ratio',
-      sorter: (a, b) => (a.cumulative_position_ratio || 0) - (b.cumulative_position_ratio || 0),
-      render: (text) => {
-        const value = parseFloat(text) || 0;
-        return (
-          <span style={{ 
-            color: value > 100 ? '#ff4d4f' : value > 50 ? '#faad14' : '#52c41a',
-            fontWeight: 'bold'
-          }}>
-            {value.toFixed(1)}%
-          </span>
-        );
-      }
-    },
-    {
-      title: '持股数量',
-      dataIndex: 'total_shares',
-      key: 'total_shares',
-      sorter: (a, b) => (a.total_shares || 0) - (b.total_shares || 0),
-      render: (text) => {
-        const value = parseInt(text) || 0;
-        return value.toLocaleString();
-      }
     },
   ];
   
@@ -2173,275 +2101,6 @@ const Backtest: React.FC = () => {
     ];
   };
 
-  // 渲染不同仓位模式的配置选项
-  const renderPositionModeOptions = () => {
-    switch (positionMode) {
-      case 'fixed':
-        return (
-          <>
-            <Form.Item label="固定仓位比例(%)">
-              <Row gutter={16}>
-                <Col span={16}>
-                  <InputNumber
-                    value={defaultPositionSize}
-                    onChange={value => setDefaultPositionSize(Number(value) || 100)}
-                    min={1}
-                    max={100}
-                    style={{ width: '100%' }}
-                  />
-                </Col>
-                <Col span={8}>
-                  <Slider
-                    value={defaultPositionSize}
-                    onChange={value => setDefaultPositionSize(value)}
-                    min={0}
-                    max={100}
-                    step={5}
-                  />
-                </Col>
-              </Row>
-            </Form.Item>
-          </>
-        );
-      
-      case 'dynamic':
-        return (
-          <>
-            <Form.Item label="最大仓位比例(%)">
-              <Row gutter={16}>
-                <Col span={16}>
-                  <InputNumber
-                    value={dynamicPositionMax}
-                    onChange={value => setDynamicPositionMax(Number(value) || 100)}
-                    min={1}
-                    max={100}
-                    style={{ width: '100%' }}
-                  />
-                </Col>
-                <Col span={8}>
-                  <Slider
-                    value={dynamicPositionMax}
-                    onChange={value => setDynamicPositionMax(value)}
-                    min={0}
-                    max={100}
-                    step={5}
-                  />
-                </Col>
-              </Row>
-            </Form.Item>
-          </>
-        );
-      
-      case 'staged':
-        return (
-          <>
-            <Form.Item label="分批建仓比例设置(%)">
-              <Row gutter={8}>
-                {positionSizes.map((size, index) => (
-                  <Col span={6} key={index}>
-                    <div style={{ display: 'flex', alignItems: 'center', marginBottom: '8px' }}>
-                      <span style={{ marginRight: '4px', fontSize: '12px', minWidth: '40px' }}>第{index + 1}批:</span>
-                      <InputNumber
-                        value={size}
-                        onChange={value => {
-                          const newSizes = [...positionSizes];
-                          newSizes[index] = Number(value) || 0;
-                          setPositionSizes(newSizes);
-                        }}
-                        min={0}
-                        max={100}
-                        size="small"
-                        style={{ width: '60px' }}
-                      />
-                      {index > 0 && (
-                        <Button 
-                          type="text" 
-                          danger
-                          size="small"
-                          icon={<MinusCircleOutlined />}
-                          onClick={() => {
-                            const newSizes = positionSizes.filter((_, i) => i !== index);
-                            setPositionSizes(newSizes);
-                          }}
-                        />
-                      )}
-                    </div>
-                  </Col>
-                ))}
-              </Row>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '8px' }}>
-                <div>
-                  <span style={{ fontSize: '12px' }}>总仓位: {positionSizes.reduce((sum, size) => sum + size, 0)}%</span>
-                  {positionSizes.reduce((sum, size) => sum + size, 0) !== 100 && (
-                    <span style={{ color: '#ff4d4f', marginLeft: '8px', fontSize: '12px' }}>
-                      (建议100%)
-                    </span>
-                  )}
-                </div>
-                <div>
-                  {positionSizes.length < 5 && (
-                    <Button
-                      type="dashed"
-                      size="small"
-                      onClick={() => {
-                        if (positionSizes.length < 5) {
-                          const remainingPercent = 100 - positionSizes.reduce((sum, size) => sum + size, 0);
-                          const defaultNewSize = Math.max(0, Math.min(20, remainingPercent));
-                          setPositionSizes([...positionSizes, defaultNewSize]);
-                        }
-                      }}
-                      icon={<PlusOutlined />}
-                    >
-                      添加
-                    </Button>
-                  )}
-                  <Button
-                    type="link"
-                    onClick={() => {
-                      const batchCount = positionSizes.length;
-                      const equalSize = Math.floor(100 / batchCount);
-                      const remainder = 100 - (equalSize * batchCount);
-                      const newSizes = positionSizes.map((_, i) => 
-                        i === 0 ? equalSize + remainder : equalSize
-                      );
-                      setPositionSizes(newSizes);
-                    }}
-                    size="small"
-                    style={{ marginLeft: '8px' }}
-                  >
-                    平均分配
-                  </Button>
-                </div>
-              </div>
-            </Form.Item>
-          </>
-        );
-      
-      default:
-        return null;
-    }
-  };
-
-  // 添加仓位图表配置
-  const getPositionChartOption = () => {
-    // 如果没有交易记录，返回空图表
-    if (!tradeRecords || tradeRecords.length === 0) {
-      return {
-        title: {
-          text: '仓位分布 (无数据)',
-          left: 'center'
-        },
-        tooltip: {
-          trigger: 'item'
-        },
-        series: [
-          {
-            type: 'pie',
-            radius: '65%',
-            center: ['50%', '50%'],
-            data: [],
-            emphasis: {
-              itemStyle: {
-                shadowBlur: 10,
-                shadowOffsetX: 0,
-                shadowColor: 'rgba(0, 0, 0, 0.5)'
-              }
-            }
-          }
-        ]
-      };
-    }
-    
-    // 只获取买入交易记录
-    const buyRecords = tradeRecords.filter(record => record.direction === '买入');
-    
-    // 获取所有使用的仓位大小
-    const positionSizeValues = buyRecords.map(record => record.position_size || 100);
-    
-    // 对仓位大小进行分类 (每10%为一组)
-    const positionGroups: Record<string, number> = {};
-    positionSizeValues.forEach(size => {
-      // 向下取整到最近的10的倍数
-      const groupValue = Math.floor(size / 10) * 10;
-      const groupKey = `${groupValue}-${groupValue + 10}%`;
-      positionGroups[groupKey] = (positionGroups[groupKey] || 0) + 1;
-    });
-    
-    // 转换为饼图数据, 按照仓位大小排序
-    const pieData = Object.entries(positionGroups)
-      .sort((a, b) => {
-        const aValue = parseInt(a[0]);
-        const bValue = parseInt(b[0]);
-        return aValue - bValue;
-      })
-      .map(([sizeRange, count]) => ({
-        name: sizeRange,
-        value: count
-      }));
-    
-    // 计算平均仓位大小
-    const avgPositionSize = positionSizeValues.length > 0
-      ? positionSizeValues.reduce((sum, size) => sum + size, 0) / positionSizeValues.length
-      : 0;
-    
-    // 仓位使用次数
-    const totalBuys = buyRecords.length;
-    
-    return {
-      title: {
-        text: '仓位分布',
-        subtext: `平均仓位: ${avgPositionSize.toFixed(2)}% | 总买入次数: ${totalBuys}`,
-        left: 'center'
-      },
-      tooltip: {
-        trigger: 'item',
-        formatter: '{a} <br/>{b}: {c}次 ({d}%)'
-      },
-      legend: {
-        orient: 'vertical',
-        left: 'left',
-        data: pieData.map(item => item.name)
-      },
-      series: [
-        {
-          name: '仓位使用',
-          type: 'pie',
-          radius: ['40%', '70%'],
-          avoidLabelOverlap: false,
-          itemStyle: {
-            borderRadius: 10,
-            borderColor: '#fff',
-            borderWidth: 2
-          },
-          label: {
-            show: false,
-            position: 'center'
-          },
-          emphasis: {
-            label: {
-              show: true,
-              fontSize: '18',
-              fontWeight: 'bold'
-            }
-          },
-          labelLine: {
-            show: false
-          },
-          data: pieData
-        }
-      ],
-      color: [
-        '#91cc75', // 小仓位 (0-30%)
-        '#fac858', // 中等仓位 (30-70%)
-        '#ee6666', // 大仓位 (70-100%)
-        '#73c0de', 
-        '#3ba272',
-        '#fc8452',
-        '#9a60b4'
-      ]
-    };
-  };
-
   return (
     <div>
       <Title level={2}>回测分析</Title>
@@ -2619,42 +2278,6 @@ const Backtest: React.FC = () => {
               </Col>
             </Row>
             
-            {/* 添加仓位控制部分 - 优化布局 */}
-            <Divider orientation="left">仓位控制</Divider>
-            <Row gutter={16}>
-              <Col span={8}>
-                <Form.Item label="仓位模式">
-                  <Select
-                    value={positionMode}
-                    onChange={(value) => setPositionMode(value)}
-                    style={{ width: '100%' }}
-                  >
-                    <Option value="fixed">固定比例</Option>
-                    <Option value="dynamic">动态比例</Option>
-                    <Option value="staged">分批建仓</Option>
-                  </Select>
-                </Form.Item>
-              </Col>
-              <Col span={16}>
-                {renderPositionModeOptions()}
-              </Col>
-            </Row>
-            
-            {/* 简化的仓位说明 */}
-            <Alert
-              message="仓位模式说明"
-              description={
-                positionMode === 'fixed' ? 
-                  "每次买入信号都使用相同比例的资金进行交易，适合稳定策略。" :
-                positionMode === 'dynamic' ? 
-                  "根据信号强度动态决定买入资金比例，信号越强使用的资金越多，适合趋势策略。" :
-                  "按顺序分批买入，每次买入使用不同的资金比例，适合价格波动大的品种。"
-              }
-              type="info"
-              showIcon
-              style={{ marginBottom: 16 }}
-            />
-            
             {selectedStock && (
               <Alert
                 message={`已选择数据源: ${dataSources.find(ds => ds.id === selectedStock.source_id)?.name || '未知'}`}
@@ -2776,84 +2399,6 @@ const Backtest: React.FC = () => {
               </Button>
             </div>
             
-            {/* 添加仓位分析图表 */}
-            <Divider orientation="left">仓位分析</Divider>
-            <Row gutter={16}>
-              <Col span={12}>
-                <Card title="仓位分布" bordered={false}>
-                  <ReactECharts 
-                    option={getPositionChartOption()}
-                    style={{ height: 300 }}
-                  />
-                </Card>
-              </Col>
-              <Col span={12}>
-                <Card title="仓位管理统计" bordered={false}>
-                  <Row gutter={[16, 16]}>
-                    <Col span={12}>
-                      <Statistic 
-                        title="平均建仓仓位" 
-                        value={
-                          tradeRecords.filter(record => record.direction === '买入')
-                            .reduce((sum, record) => sum + (record.position_size || 100), 0) / 
-                            Math.max(1, tradeRecords.filter(record => record.direction === '买入').length)
-                        }
-                        precision={2}
-                        suffix="%"
-                      />
-                    </Col>
-                    <Col span={12}>
-                      <Statistic 
-                        title="最大单次建仓" 
-                        value={
-                          Math.max(
-                            ...tradeRecords.filter(record => record.direction === '买入')
-                              .map(record => record.position_size || 100),
-                            0
-                          )
-                        }
-                        precision={2}
-                        suffix="%"
-                      />
-                    </Col>
-                    <Col span={12}>
-                      <Statistic 
-                        title="交易次数" 
-                        value={tradeRecords.length}
-                        suffix="次"
-                      />
-                    </Col>
-                    <Col span={12}>
-                      <Statistic 
-                        title="买入次数" 
-                        value={tradeRecords.filter(record => record.direction === '买入').length}
-                        suffix="次"
-                      />
-                    </Col>
-                  </Row>
-                  <Divider style={{ margin: '16px 0' }} />
-                  <Alert
-                    message="仓位模式分析"
-                    description={
-                      <>
-                        <p>当前使用的仓位模式: <strong>{
-                          positionMode === 'fixed' ? '固定比例' : 
-                          positionMode === 'dynamic' ? '动态比例' : 
-                          '分批建仓'
-                        }</strong></p>
-                        <p>
-                          {positionMode === 'fixed' && `每次交易使用可用资金的 ${defaultPositionSize}%`}
-                          {positionMode === 'dynamic' && `根据信号强度动态分配仓位，最大仓位为 ${dynamicPositionMax}%`}
-                          {positionMode === 'staged' && `分 ${positionSizes.length} 批建仓，比例分别为: ${positionSizes.join('%, ')}%`}
-                        </p>
-                      </>
-                    }
-                    type="info"
-                    showIcon
-                  />
-                </Card>
-              </Col>
-            </Row>
           </Card>
         </>
       )}
@@ -2905,11 +2450,6 @@ const Backtest: React.FC = () => {
                 <p><strong>股票：</strong>{selectedStock?.symbol} ({selectedStock?.name})</p>
                 <p><strong>回测期间：</strong>{dateRange[0].format('YYYY-MM-DD')} 至 {dateRange[1].format('YYYY-MM-DD')}</p>
                 <p><strong>初始资金：</strong>${initialCapital.toLocaleString()}</p>
-                <p><strong>仓位模式：</strong>{
-                  positionMode === 'fixed' ? '固定比例' : 
-                  positionMode === 'dynamic' ? '动态比例' : 
-                  '分批建仓'
-                }</p>
                 {Object.keys(strategyParameters).length > 0 && (
                   <p><strong>策略参数：</strong>
                     短期均线 {strategyParameters.short_window || 5}天, 
