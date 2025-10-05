@@ -199,8 +199,8 @@ const StrategyOptimization: React.FC = () => {
       const params = strategyId ? { strategy_id: strategyId } : {};
       const response = await axios.get('/api/optimization/jobs', { params });
       if (response.data && response.data.status === 'success') {
-        // 确保数据是数组格式
-        const jobs = Array.isArray(response.data.data) ? response.data.data : [];
+        // 数据在 response.data.data.jobs 中
+        const jobs = Array.isArray(response.data.data?.jobs) ? response.data.data.jobs : [];
         setOptimizationJobs(jobs);
       } else {
         // 如果响应格式不正确，设置为空数组

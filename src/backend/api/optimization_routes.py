@@ -263,6 +263,11 @@ async def list_optimization_jobs(
                     "status": j.status,
                     "progress": j.progress,
                     "best_score": j.best_score,
+                    "best_parameters": j.best_parameters,
+                    "optimization_config": j.optimization_config,
+                    "objective_function": j.objective_function,
+                    "total_trials": j.total_trials,
+                    "completed_trials": j.completed_trials,
                     "created_at": j.created_at.isoformat() if j.created_at else None
                 } for j in jobs
             ]
@@ -457,6 +462,11 @@ async def list_optimization_jobs(
                 "status": j.status,
                 "progress": j.progress,
                 "best_score": j.best_score,
+                "best_parameters": j.best_parameters,
+                "optimization_config": j.optimization_config,
+                "objective_function": j.objective_function,
+                "total_trials": j.total_trials,
+                "completed_trials": j.completed_trials,
                 "created_at": j.created_at.isoformat() if j.created_at else None
             })
 
