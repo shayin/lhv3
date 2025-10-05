@@ -199,10 +199,17 @@ const StrategyOptimization: React.FC = () => {
       const params = strategyId ? { strategy_id: strategyId } : {};
       const response = await axios.get('/api/optimization/jobs', { params });
       if (response.data && response.data.status === 'success') {
-        setOptimizationJobs(response.data.data);
+        // 确保数据是数组格式
+        const jobs = Array.isArray(response.data.data) ? response.data.data : [];
+        setOptimizationJobs(jobs);
+      } else {
+        // 如果响应格式不正确，设置为空数组
+        setOptimizationJobs([]);
       }
     } catch (error) {
       console.error('加载优化任务失败:', error);
+      // 出错时设置为空数组，避免Table组件报错
+      setOptimizationJobs([]);
     }
   };
 
@@ -1544,4 +1551,4 @@ const StrategyOptimization: React.FC = () => {
   );
 };
 
-export default StrategyOptimization; 
+export default StrategyOptimization;
