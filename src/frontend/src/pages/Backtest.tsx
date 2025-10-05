@@ -2453,7 +2453,7 @@ const Backtest: React.FC = () => {
             <Row gutter={24}>
               <Col span={8}>
                 <Form.Item label="策略选择" required>
-                  <Input.Group compact>
+                  <Space.Compact>
                     <Select
                       value={selectedStrategyName}
                       onChange={(value, option: any) => {
@@ -2479,7 +2479,7 @@ const Backtest: React.FC = () => {
                     >
                       参数
                     </Button>
-                  </Input.Group>
+                  </Space.Compact>
                 </Form.Item>
               </Col>
               <Col span={8}>

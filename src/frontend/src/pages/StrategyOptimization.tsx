@@ -810,12 +810,14 @@ const StrategyOptimization: React.FC = () => {
           flexDirection: 'column',
           minHeight: 0
         }}
-        bodyStyle={{ 
-          flex: 1, 
-          padding: '16px', 
-          display: 'flex',
-          flexDirection: 'column',
-          minHeight: 0
+        styles={{ 
+          body: {
+            flex: 1, 
+            padding: '16px', 
+            display: 'flex',
+            flexDirection: 'column',
+            minHeight: 0
+          }
         }}
       >
             <Table

@@ -1,6 +1,6 @@
 import React from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
-import { ConfigProvider, Layout } from 'antd';
+import { ConfigProvider, Layout, App as AntdApp } from 'antd';
 import enUS from 'antd/locale/en_US';
 import { theme } from './theme';
 
@@ -23,41 +23,48 @@ const { Content } = Layout;
 const App: React.FC = () => {
   return (
     <ConfigProvider locale={enUS} theme={theme}>
-      <Router>
-        <Layout style={{ minHeight: '100vh' }}>
-          <AppHeader />
-          <Layout>
-            <AppSider />
-            <Layout style={{ padding: '24px' }}>
-              <Content
-                style={{
-                  padding: 24,
-                  margin: 0,
-                  minHeight: 280,
-                  background: '#fff',
-                  borderRadius: '8px',
-                }}
-              >
-                <Routes>
-                  <Route path="/" element={<Navigate to="/dashboard" replace />} />
-                  <Route path="/dashboard" element={<Dashboard />} />
-                  <Route path="/data" element={<DataManagement />} />
-                  <Route path="/strategy" element={<StrategyList />} />
-                  <Route path="/strategy/edit" element={<StrategyEditor />} />
-                  <Route path="/strategy/edit/:id" element={<StrategyEditor />} />
-                  <Route path="/strategy/builder" element={<StrategyBuilder />} />
-                  <Route path="/backtest" element={<Backtest />} />
-                  <Route path="/backtest/history" element={<BacktestHistory />} />
-                  <Route path="/backtest-history/:id" element={<BacktestHistoryDetail />} />
-                  <Route path="/optimization" element={<StrategyOptimization />} />
-                </Routes>
-              </Content>
+      <AntdApp>
+        <Router
+          future={{
+            v7_startTransition: true,
+            v7_relativeSplatPath: true
+          }}
+        >
+          <Layout style={{ minHeight: '100vh' }}>
+            <AppHeader />
+            <Layout>
+              <AppSider />
+              <Layout style={{ padding: '24px' }}>
+                <Content
+                  style={{
+                    padding: 24,
+                    margin: 0,
+                    minHeight: 280,
+                    background: '#fff',
+                    borderRadius: '8px',
+                  }}
+                >
+                  <Routes>
+                    <Route path="/" element={<Navigate to="/dashboard" replace />} />
+                    <Route path="/dashboard" element={<Dashboard />} />
+                    <Route path="/data" element={<DataManagement />} />
+                    <Route path="/strategy" element={<StrategyList />} />
+                    <Route path="/strategy/edit" element={<StrategyEditor />} />
+                    <Route path="/strategy/edit/:id" element={<StrategyEditor />} />
+                    <Route path="/strategy/builder" element={<StrategyBuilder />} />
+                    <Route path="/backtest" element={<Backtest />} />
+                    <Route path="/backtest/history" element={<BacktestHistory />} />
+                    <Route path="/backtest-history/:id" element={<BacktestHistoryDetail />} />
+                    <Route path="/optimization" element={<StrategyOptimization />} />
+                  </Routes>
+                </Content>
+              </Layout>
             </Layout>
           </Layout>
-        </Layout>
-      </Router>
+        </Router>
+      </AntdApp>
     </ConfigProvider>
   );
 };
 
-export default App; 
+export default App;
