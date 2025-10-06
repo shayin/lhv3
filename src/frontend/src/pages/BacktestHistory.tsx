@@ -217,6 +217,26 @@ const BacktestHistory: React.FC = () => {
         return value.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
       }
     },
+    {
+      title: '仓位比例',
+      dataIndex: 'position_size',
+      key: 'position_size',
+      sorter: (a, b) => (a.position_size || 0) - (b.position_size || 0),
+      render: (text) => {
+        const value = parseFloat(text) || 0;
+        return value > 0 ? `${(value * 100).toFixed(1)}%` : '-';
+      }
+    },
+    {
+      title: '累计仓位',
+      dataIndex: 'cumulative_position_ratio',
+      key: 'cumulative_position_ratio',
+      sorter: (a, b) => (a.cumulative_position_ratio || 0) - (b.cumulative_position_ratio || 0),
+      render: (text) => {
+        const value = parseFloat(text) || 0;
+        return value > 0 ? `${(value * 100).toFixed(1)}%` : '-';
+      }
+    },
   ];
   
   // 更新回测相关状态

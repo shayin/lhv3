@@ -53,6 +53,8 @@ interface TradeRecord {
   trigger_reason?: string; // 交易触发原因
   available_capital?: number; // 交易后的可用资金
   allocated_capital?: number; // 已分配的资金
+  position_size?: number; // 单次交易仓位比例
+  cumulative_position_ratio?: number; // 累计仓位比例
 }
 
 const Backtest: React.FC = () => {
@@ -320,7 +322,9 @@ const Backtest: React.FC = () => {
             afterEquity: trade.after_equity,
             trigger_reason: trade.trigger_reason,
             available_capital: trade.available_capital,
-            allocated_capital: trade.allocated_capital
+            allocated_capital: trade.allocated_capital,
+            position_size: trade.position_size,
+            cumulative_position_ratio: trade.cumulative_position_ratio
           };
         });
         
@@ -1220,6 +1224,32 @@ const Backtest: React.FC = () => {
       dataIndex: 'duration',
       key: 'duration',
       sorter: (a, b) => a.duration - b.duration,
+    },
+    {
+      title: '仓位比例',
+      dataIndex: 'position_size',
+      key: 'position_size',
+      sorter: (a, b) => (a.position_size || 0) - (b.position_size || 0),
+      render: (text) => {
+        const value = parseFloat(text);
+        if (isNaN(value) || value === 0) {
+          return <span>0.00%</span>;
+        }
+        return <span>{(value * 100).toFixed(2)}%</span>;
+      }
+    },
+    {
+      title: '累计仓位',
+      dataIndex: 'cumulative_position_ratio',
+      key: 'cumulative_position_ratio',
+      sorter: (a, b) => (a.cumulative_position_ratio || 0) - (b.cumulative_position_ratio || 0),
+      render: (text) => {
+        const value = parseFloat(text);
+        if (isNaN(value) || value === 0) {
+          return <span>0.00%</span>;
+        }
+        return <span>{(value * 100).toFixed(2)}%</span>;
+      }
     },
   ];
   
