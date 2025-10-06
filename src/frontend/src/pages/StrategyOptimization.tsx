@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Card, Form, Button, Select, InputNumber, Row, Col, Typography, message, Table, Space, Modal, Input, Progress, Tag, Alert, Tabs, Statistic, Popconfirm, DatePicker } from 'antd';
+import { Card, Form, Button, Select, InputNumber, Row, Col, Typography, message, Table, Space, Modal, Input, Progress, Tag, Alert, Tabs, Statistic, Popconfirm, DatePicker, Tooltip } from 'antd';
 import { PlayCircleOutlined, PlusOutlined, DeleteOutlined, SettingOutlined, EyeOutlined, ReloadOutlined, CalendarOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import axios from 'axios';
@@ -517,6 +517,38 @@ const StrategyOptimization: React.FC = () => {
       key: 'name',
       width: 180,
       ellipsis: true,
+    },
+    {
+      title: '策略',
+      dataIndex: 'strategy_id',
+      key: 'strategy',
+      width: 140,
+      ellipsis: {
+        showTitle: false,
+      },
+      render: (strategyId: number) => {
+        const strategy = strategies.find(s => s.id === strategyId);
+        return strategy ? (
+          <Tooltip title={strategy.name} placement="topLeft">
+            <Tag 
+              color="blue" 
+              style={{ 
+                margin: 0, 
+                maxWidth: '120px',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
+                display: 'inline-block',
+                cursor: 'pointer'
+              }}
+            >
+              {strategy.name}
+            </Tag>
+          </Tooltip>
+        ) : (
+          <Text type="secondary" style={{ fontSize: '12px' }}>未知策略</Text>
+        );
+      }
     },
     {
       title: '状态',
