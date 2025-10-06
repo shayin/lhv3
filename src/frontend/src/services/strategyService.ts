@@ -2,7 +2,7 @@ import axios from 'axios';
 import { message } from 'antd';
 
 // 直接硬编码API URL，避免process未定义错误
-const API_URL = 'http://localhost:8000/api';
+const API_URL = 'http://localhost:8001/api';
 
 interface Strategy {
   id: number;
@@ -186,4 +186,45 @@ export const backtestStrategy = async (
     message.error(`策略回测错误: ${error.message}`);
     return { error: error.message };
   }
-}; 
+};
+
+// 强制刷新回测（清除缓存并重新运行）
+export const backtestStrategyForceRefresh = async (
+  strategyId: number,
+  symbol: string,
+  startDate: string,
+  endDate: string,
+  initialCapital: number = 100000,
+  parameters: any = {},
+  commissionRate: number = 0.0015,
+  slippageRate: number = 0.001,
+  dataSource: string = 'database',
+  features: string[] = []
+): Promise<any> => {
+  try {
+    const payload = {
+      strategy_id: strategyId,
+      symbol,
+      start_date: startDate,
+      end_date: endDate,
+      initial_capital: initialCapital,
+      parameters,
+      commission_rate: commissionRate,
+      slippage_rate: slippageRate,
+      data_source: dataSource,
+      features,
+      force_refresh: true // 强制刷新标志
+    };
+    
+    const response = await axios.post(`${API_URL}/strategies/backtest`, payload);
+    
+    if (response.data && response.data.status === 'success') {
+      return response.data.data;
+    }
+    
+    throw new Error(response.data?.message || '策略回测失败');
+  } catch (error: any) {
+    message.error(`策略回测错误: ${error.message}`);
+    return { error: error.message };
+  }
+};

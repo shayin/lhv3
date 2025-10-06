@@ -1,29 +1,30 @@
-import React from 'react';
+import React, { memo, useMemo } from 'react';
 import { Row, Col, Card, Statistic, Button, List, Typography } from 'antd';
 import { LineChartOutlined, RiseOutlined, AreaChartOutlined, ArrowUpOutlined, ArrowDownOutlined } from '@ant-design/icons';
 import ReactECharts from 'echarts-for-react';
+import OptimizedChart from '../components/OptimizedChart';
 
 const { Title, Paragraph } = Typography;
 
-const Dashboard: React.FC = () => {
+const Dashboard: React.FC = memo(() => {
   // 示例数据：市场概况
-  const marketOverview = [
+  const marketOverview = useMemo(() => [
     { name: '上证指数', value: 3536.24, change: 0.84, color: '#f5222d' },
     { name: '深证成指', value: 14672.16, change: 1.26, color: '#f5222d' },
     { name: '创业板指', value: 3213.84, change: 1.78, color: '#f5222d' },
     { name: '恒生指数', value: 26386.25, change: -0.13, color: '#52c41a' },
-  ];
+  ], []);
 
   // 示例数据：最近的回测结果
-  const recentBacktests = [
+  const recentBacktests = useMemo(() => [
     { id: 1, name: '移动平均交叉策略', symbol: 'AAPL', return: 12.5, date: '2023-09-15' },
     { id: 2, name: 'RSI策略', symbol: 'MSFT', return: 8.3, date: '2023-09-14' },
     { id: 3, name: 'MACD策略', symbol: 'GOOGL', return: -2.1, date: '2023-09-13' },
     { id: 4, name: '布林带策略', symbol: 'AMZN', return: 5.7, date: '2023-09-12' },
-  ];
+  ], []);
   
   // 图表选项：示例权益曲线
-  const equityChartOption = {
+  const equityChartOption = useMemo(() => ({
     title: {
       text: '策略绩效比较',
       left: 'center'
@@ -84,10 +85,10 @@ const Dashboard: React.FC = () => {
         }
       }
     ]
-  };
+  }), []);
 
   // 图表选项：资产分布
-  const assetAllocationOption = {
+  const assetAllocationOption = useMemo(() => ({
     title: {
       text: '最优资产配置',
       left: 'center'
@@ -130,7 +131,7 @@ const Dashboard: React.FC = () => {
         ]
       }
     ]
-  };
+  }), []);
 
   return (
     <div>
@@ -226,20 +227,20 @@ const Dashboard: React.FC = () => {
         <Col span={16}>
           <Card title="策略绩效比较" extra={<Button type="link" icon={<LineChartOutlined />}>详细分析</Button>}>
             <div className="chart-container">
-              <ReactECharts option={equityChartOption} style={{ height: '100%' }} />
+              <OptimizedChart option={equityChartOption} style={{ height: '100%' }} />
             </div>
           </Card>
         </Col>
         <Col span={8}>
           <Card title="最优资产配置">
             <div className="chart-container">
-              <ReactECharts option={assetAllocationOption} style={{ height: '100%' }} />
+              <OptimizedChart option={assetAllocationOption} style={{ height: '100%' }} />
             </div>
           </Card>
         </Col>
       </Row>
     </div>
   );
-};
+});
 
-export default Dashboard; 
+export default Dashboard;

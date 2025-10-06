@@ -1,0 +1,64 @@
+/* 优化表格容器样式 */
+.optimized-table-container {
+  border: 1px solid #f0f0f0;
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+/* 虚拟表格头部样式 */
+.virtual-table-header {
+  display: flex;
+  background-color: #fafafa;
+  border-bottom: 1px solid #f0f0f0;
+  font-weight: 600;
+  color: rgba(0, 0, 0, 0.85);
+}
+
+.virtual-table-header-cell {
+  padding: 16px;
+  border-right: 1px solid #f0f0f0;
+  flex-shrink: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.virtual-table-header-cell:last-child {
+  border-right: none;
+}
+
+/* 虚拟表格行样式 */
+.virtual-table-row {
+  border-bottom: 1px solid #f0f0f0;
+}
+
+.virtual-table-row:hover {
+  background-color: #f5f5f5;
+}
+
+.virtual-table-row-content {
+  display: flex;
+  align-items: center;
+}
+
+.virtual-table-cell {
+  padding: 16px;
+  border-right: 1px solid #f0f0f0;
+  flex-shrink: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.virtual-table-cell:last-child {
+  border-right: none;
+}
+
+/* 响应式设计 */
+@media (max-width: 768px) {
+  .virtual-table-header-cell,
+  .virtual-table-cell {
+    padding: 8px;
+    font-size: 12px;
+  }
+}

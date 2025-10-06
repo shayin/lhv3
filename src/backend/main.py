@@ -51,10 +51,10 @@ if __name__ == "__main__":
         uvicorn.run(
             app,  # 直接使用app对象而不是字符串路径
             host="0.0.0.0",
-            port=8000,
+            port=8001,  # 使用8001端口避免冲突
             reload=False,  # 关闭热重载，因为我们直接传递了app实例
             log_level="debug"  # uvicorn日志也设为debug级别
         )
     except ImportError as e:
         logger.error(f"无法导入API应用: {e}")
-        sys.exit(1) 
+        sys.exit(1)

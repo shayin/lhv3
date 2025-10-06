@@ -12,7 +12,7 @@ import './App.css';
 moment.locale('en-gb');
 
 // 设置Axios默认配置
-axios.defaults.baseURL = 'http://localhost:8000';
+axios.defaults.baseURL = 'http://localhost:8001';
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
@@ -20,4 +20,4 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
       <App />
     </ConfigProvider>
   </React.StrictMode>
-); 
+);

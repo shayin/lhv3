@@ -1,7 +1,10 @@
 import pandas as pd
 import numpy as np
+import hashlib
 from typing import Dict, Any, Optional, List
 import logging
+
+from ...utils.cache import indicator_cache
 
 logger = logging.getLogger(__name__)
 
@@ -64,9 +67,127 @@ class StrategyTemplate:
         # 子类必须覆盖此方法并生成信号
         raise NotImplementedError("子类必须实现generate_signals方法")
     
+    def _get_data_hash(self) -> str:
+        """生成数据哈希值，用于缓存验证"""
+        if self.data is None:
+            return ""
+        
+        # 使用数据的形状、列名和前后几行数据生成哈希
+        data_info = {
+            'shape': self.data.shape,
+            'columns': list(self.data.columns),
+            'head': self.data.head(3).to_dict() if len(self.data) > 0 else {},
+            'tail': self.data.tail(3).to_dict() if len(self.data) > 2 else {}
+        }
+        
+        data_str = str(data_info)
+        return hashlib.md5(data_str.encode()).hexdigest()
+    
+    def _calculate_ma_with_cache(self, symbol: str, period: int, data_hash: str) -> pd.Series:
+        """带缓存的移动平均线计算"""
+        cache_key = f"ma_{period}"
+        params = {'period': period}
+        
+        # 尝试从缓存获取
+        cached_result = indicator_cache.get_indicator(symbol, cache_key, params, data_hash)
+        if cached_result is not None:
+            logger.debug(f"使用缓存的MA{period}指标")
+            return cached_result
+        
+        # 计算指标
+        ma_result = self.data['close'].rolling(window=period).mean()
+        
+        # 缓存结果
+        indicator_cache.set_indicator(symbol, cache_key, params, data_hash, ma_result)
+        logger.debug(f"计算并缓存MA{period}指标")
+        
+        return ma_result
+    
+    def _calculate_rsi_with_cache(self, symbol: str, period: int, data_hash: str) -> pd.Series:
+        """带缓存的RSI计算"""
+        cache_key = f"rsi_{period}"
+        params = {'period': period}
+        
+        # 尝试从缓存获取
+        cached_result = indicator_cache.get_indicator(symbol, cache_key, params, data_hash)
+        if cached_result is not None:
+            logger.debug(f"使用缓存的RSI{period}指标")
+            return cached_result
+        
+        # 计算RSI
+        def calculate_rsi(prices, period=14):
+            delta = prices.diff()
+            gain = delta.where(delta > 0, 0).rolling(window=period).mean()
+            loss = -delta.where(delta < 0, 0).rolling(window=period).mean()
+            rs = gain / loss.replace(0, 1e-9)  # 避免除以零
+            return 100 - (100 / (1 + rs))
+        
+        rsi_result = calculate_rsi(self.data['close'], period)
+        
+        # 缓存结果
+        indicator_cache.set_indicator(symbol, cache_key, params, data_hash, rsi_result)
+        logger.debug(f"计算并缓存RSI{period}指标")
+        
+        return rsi_result
+    
+    def _calculate_macd_with_cache(self, symbol: str, fast: int, slow: int, signal: int, data_hash: str) -> tuple:
+        """带缓存的MACD计算"""
+        cache_key = f"macd_{fast}_{slow}_{signal}"
+        params = {'fast': fast, 'slow': slow, 'signal': signal}
+        
+        # 尝试从缓存获取
+        cached_result = indicator_cache.get_indicator(symbol, cache_key, params, data_hash)
+        if cached_result is not None:
+            logger.debug(f"使用缓存的MACD指标")
+            return cached_result
+        
+        # 计算MACD
+        def calculate_macd(prices, fast=12, slow=26, signal=9):
+            ema_fast = prices.ewm(span=fast, adjust=False).mean()
+            ema_slow = prices.ewm(span=slow, adjust=False).mean()
+            macd = ema_fast - ema_slow
+            macd_signal = macd.ewm(span=signal, adjust=False).mean()
+            macd_hist = macd - macd_signal
+            return macd, macd_signal, macd_hist
+        
+        macd_result = calculate_macd(self.data['close'], fast, slow, signal)
+        
+        # 缓存结果
+        indicator_cache.set_indicator(symbol, cache_key, params, data_hash, macd_result)
+        logger.debug(f"计算并缓存MACD指标")
+        
+        return macd_result
+    
+    def _calculate_bollinger_bands_with_cache(self, symbol: str, window: int, num_std: int, data_hash: str) -> tuple:
+        """带缓存的布林带计算"""
+        cache_key = f"bb_{window}_{num_std}"
+        params = {'window': window, 'num_std': num_std}
+        
+        # 尝试从缓存获取
+        cached_result = indicator_cache.get_indicator(symbol, cache_key, params, data_hash)
+        if cached_result is not None:
+            logger.debug(f"使用缓存的布林带指标")
+            return cached_result
+        
+        # 计算布林带
+        def calculate_bollinger_bands(prices, window=20, num_std=2):
+            middle = prices.rolling(window=window).mean()
+            std = prices.rolling(window=window).std()
+            upper = middle + (std * num_std)
+            lower = middle - (std * num_std)
+            return upper, middle, lower
+        
+        bb_result = calculate_bollinger_bands(self.data['close'], window, num_std)
+        
+        # 缓存结果
+        indicator_cache.set_indicator(symbol, cache_key, params, data_hash, bb_result)
+        logger.debug(f"计算并缓存布林带指标")
+        
+        return bb_result
+
     def calculate_indicators(self) -> pd.DataFrame:
         """
-        计算技术指标
+        计算技术指标（带缓存优化）
         
         Returns:
             添加了技术指标的DataFrame
@@ -76,41 +197,25 @@ class StrategyTemplate:
             
         df = self.data.copy()
         
-        # 计算常用技术指标
+        # 生成数据哈希用于缓存
+        data_hash = self._get_data_hash()
+        symbol = getattr(self, 'symbol', 'unknown')  # 获取股票代码，如果没有则使用'unknown'
+        
+        # 计算常用技术指标（使用缓存）
         # 1. 移动平均线
         for period in [5, 10, 20, 50, 100, 200]:
-            df[f'ma_{period}'] = df['close'].rolling(window=period).mean()
+            df[f'ma_{period}'] = self._calculate_ma_with_cache(symbol, period, data_hash)
         
         # 2. 相对强弱指数(RSI)
-        def calculate_rsi(prices, period=14):
-            delta = prices.diff()
-            gain = delta.where(delta > 0, 0).rolling(window=period).mean()
-            loss = -delta.where(delta < 0, 0).rolling(window=period).mean()
-            rs = gain / loss.replace(0, 1e-9)  # 避免除以零
-            return 100 - (100 / (1 + rs))
-            
-        df['rsi_14'] = calculate_rsi(df['close'], 14)
+        df['rsi_14'] = self._calculate_rsi_with_cache(symbol, 14, data_hash)
         
         # 3. MACD
-        def calculate_macd(prices, fast=12, slow=26, signal=9):
-            ema_fast = prices.ewm(span=fast, adjust=False).mean()
-            ema_slow = prices.ewm(span=slow, adjust=False).mean()
-            macd = ema_fast - ema_slow
-            macd_signal = macd.ewm(span=signal, adjust=False).mean()
-            macd_hist = macd - macd_signal
-            return macd, macd_signal, macd_hist
-            
-        df['macd'], df['macd_signal'], df['macd_hist'] = calculate_macd(df['close'])
+        macd_result = self._calculate_macd_with_cache(symbol, 12, 26, 9, data_hash)
+        df['macd'], df['macd_signal'], df['macd_hist'] = macd_result
         
         # 4. 布林带
-        def calculate_bollinger_bands(prices, window=20, num_std=2):
-            middle = prices.rolling(window=window).mean()
-            std = prices.rolling(window=window).std()
-            upper = middle + (std * num_std)
-            lower = middle - (std * num_std)
-            return upper, middle, lower
-            
-        df['bb_upper'], df['bb_middle'], df['bb_lower'] = calculate_bollinger_bands(df['close'])
+        bb_result = self._calculate_bollinger_bands_with_cache(symbol, 20, 2, data_hash)
+        df['bb_upper'], df['bb_middle'], df['bb_lower'] = bb_result
         
         return df
     

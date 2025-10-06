@@ -1,10 +1,12 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, memo, useCallback, useMemo } from 'react';
 import { Card, Form, Button, Select, InputNumber, Row, Col, Typography, message, Table, Space, Modal, Input, Progress, Tag, Alert, Tabs, Statistic, Popconfirm, DatePicker, Tooltip } from 'antd';
 import { PlayCircleOutlined, PlusOutlined, DeleteOutlined, SettingOutlined, EyeOutlined, ReloadOutlined, CalendarOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import axios from 'axios';
 import dayjs from 'dayjs';
 import { PaginationCookie } from '../utils/cookie';
+import OptimizedTable from '../components/OptimizedTable';
+import { useDebounce } from '../hooks/useDebounce';
 
 const { Title, Text } = Typography;
 const { Option } = Select;
@@ -852,7 +854,7 @@ const StrategyOptimization: React.FC = () => {
           }
         }}
       >
-            <Table
+            <OptimizedTable
           columns={jobColumns}
           dataSource={optimizationJobs}
           rowKey="id"
@@ -1452,7 +1454,7 @@ const StrategyOptimization: React.FC = () => {
               style={{ marginBottom: '16px' }}
             />
             
-            <Table
+            <OptimizedTable
               dataSource={optimizationTrials}
               rowKey={(record) => record.id || record.trial_number || Math.random()}
               pagination={false}
@@ -1585,4 +1587,4 @@ const StrategyOptimization: React.FC = () => {
   );
 };
 
-export default StrategyOptimization;
+export default memo(StrategyOptimization);

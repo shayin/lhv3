@@ -1,5 +1,6 @@
 import logging
 import pandas as pd
+import hashlib
 from datetime import datetime
 from typing import Dict, Any, List, Optional, Union
 from sqlalchemy.orm import Session
@@ -9,6 +10,7 @@ from ..models.data_models import Stock as StockModel, StockData
 from ..data.fetcher import DataFetcher
 from ..data.processor import DataProcessor
 from ..backtest.engine import BacktestEngine
+from ..utils.cache import backtest_cache
 from ..strategy.templates.ma_crossover_strategy import MACrossoverStrategy as MovingAverageCrossover
 # 暂时注释掉不存在的导入，等文件创建后再启用
 # from ..strategy.templates.bollinger_bands import BollingerBandsStrategy
@@ -176,6 +178,32 @@ class BacktestService:
             
         return processed_data
     
+    def _generate_backtest_cache_key(self, strategy_id: Union[str, int], symbol: str, 
+                                   start_date: str, end_date: Optional[str], 
+                                   initial_capital: float, commission_rate: float, 
+                                   slippage_rate: float, parameters: Optional[Dict[str, Any]]) -> str:
+        """生成回测缓存键"""
+        key_data = {
+            'strategy_id': str(strategy_id),
+            'symbol': symbol,
+            'start_date': start_date,
+            'end_date': end_date or '',
+            'initial_capital': initial_capital,
+            'commission_rate': commission_rate,
+            'slippage_rate': slippage_rate,
+            'parameters': parameters or {}
+        }
+        key_str = str(sorted(key_data.items()))
+        return hashlib.md5(key_str.encode()).hexdigest()
+    
+    def _generate_data_hash(self, data: pd.DataFrame) -> str:
+        """生成数据哈希用于缓存验证"""
+        if data.empty:
+            return ""
+        # 使用数据的形状、列名和前几行数据生成哈希
+        hash_data = f"{data.shape}_{list(data.columns)}_{data.head().to_string()}"
+        return hashlib.md5(hash_data.encode()).hexdigest()
+
     def run_backtest(self, 
                     strategy_id: Union[str, int], 
                     symbol: str, 
@@ -186,7 +214,8 @@ class BacktestService:
                     slippage_rate: float = 0.001,
                     data_source: str = "database",
                     parameters: Optional[Dict[str, Any]] = None,
-                    features: Optional[List[str]] = None) -> Dict[str, Any]:
+                    features: Optional[List[str]] = None,
+                    force_refresh: bool = False) -> Dict[str, Any]:
         """
         运行回测
         
@@ -205,28 +234,16 @@ class BacktestService:
         Returns:
             Dict[str, Any]: 回测结果
         """
+        # 生成缓存键
+        cache_key = self._generate_backtest_cache_key(
+            strategy_id, symbol, start_date, end_date, 
+            initial_capital, commission_rate, slippage_rate, parameters
+        )
+        
         logger.info("=" * 80)
         logger.info(f"开始回测: 策略={strategy_id}, 品种={symbol}, 日期={start_date}至{end_date}")
         logger.info(f"参数: 初始资金={initial_capital}, 手续费率={commission_rate}, 滑点率={slippage_rate}")
-        
-        # 记录仓位配置信息
-        position_config = parameters.get('positionConfig', {}) if parameters else {}
-        if position_config:
-            position_mode = position_config.get('mode', 'fixed')
-            logger.info(f"仓位模式: {position_mode}")
-            if position_mode == 'fixed':
-                default_size = position_config.get('defaultSize', 1.0) * 100
-                logger.info(f"固定仓位比例: {default_size:.2f}%")
-            elif position_mode == 'dynamic':
-                dynamic_max = position_config.get('dynamicMax', 1.0) * 100
-                logger.info(f"动态仓位最大比例: {dynamic_max:.2f}%")
-            elif position_mode == 'staged':
-                sizes = [size * 100 for size in position_config.get('sizes', [])]
-                logger.info(f"分批建仓比例: {', '.join([f'{size:.2f}%' for size in sizes])}")
-        
-        if parameters:
-            logger.info(f"其他策略参数: {parameters}")
-        logger.info("-" * 80)
+        logger.info(f"缓存键: {cache_key}")
         
         # 1. 获取回测数据
         stock_data = self.get_backtest_data(symbol, start_date, end_date, data_source, features)
@@ -240,6 +257,24 @@ class BacktestService:
             }
             
         logger.info(f"获取到回测数据，行数: {len(stock_data)}")
+        
+        # 生成数据哈希
+        data_hash = self._generate_data_hash(stock_data)
+        
+        # 检查缓存（如果不是强制刷新）
+        if not force_refresh:
+            cached_result = backtest_cache.get(cache_key, data_hash)
+            if cached_result is not None:
+                logger.info("使用缓存的回测结果")
+                return {
+                    "status": "success",
+                    "message": "回测完成（使用缓存）",
+                    "data": cached_result
+                }
+        else:
+            # 强制刷新时，删除现有缓存
+            logger.info("强制刷新：删除现有缓存")
+            backtest_cache.delete(cache_key, data_hash)
         
         # 2. 实例化策略
         # 提取策略参数：如果parameters中有parameters字段，则使用它；否则使用整个parameters对象
@@ -274,6 +309,10 @@ class BacktestService:
         try:
             result = engine.run(stock_data)
             logger.info(f"回测完成: 总收益率={result['total_return']:.2%}, 最大回撤={result['max_drawdown']:.2%}")
+            
+            # 缓存回测结果
+            backtest_cache.set(cache_key, result, data_hash)
+            logger.info("回测结果已缓存")
             
             # 6. 保存回测结果（如果需要）
             if parameters and parameters.get('save_backtest', False):
@@ -625,4 +664,4 @@ class BacktestService:
         except Exception as e:
             logger.error(f"保存回测结果失败: {e}")
             self.db.rollback()
-            raise 
+            raise

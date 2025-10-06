@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef, memo, useCallback } from 'react';
 import { Card, Table, Button, Space, Modal, message, Tag, Typography, Descriptions, Statistic, Row, Col, Alert, Form, Input, DatePicker, Tabs, Tooltip, Select } from 'antd';
 import { EyeOutlined, DeleteOutlined, ReloadOutlined, HistoryOutlined, SyncOutlined, LineChartOutlined, InfoCircleOutlined, ConsoleSqlOutlined, FilterOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
@@ -7,6 +7,8 @@ import axios from 'axios';
 import dayjs from 'dayjs';
 import { PaginationCookie } from '../utils/cookie';
 import ReactECharts from 'echarts-for-react';
+import OptimizedTable from '../components/OptimizedTable';
+import OptimizedChart from '../components/OptimizedChart';
 import * as echarts from 'echarts/core';
 import { LineChart } from 'echarts/charts';
 import {
@@ -96,7 +98,7 @@ interface BacktestDetail {
   completed_at?: string;
 }
 
-const BacktestHistory: React.FC = () => {
+const BacktestHistory: React.FC = memo(() => {
   const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
   const [backtestList, setBacktestList] = useState<BacktestRecord[]>([]);
@@ -1641,8 +1643,7 @@ const BacktestHistory: React.FC = () => {
         children: (
           <Row gutter={16}>
             <Col span={24} style={{ marginBottom: 16 }}>
-              <ReactECharts 
-                ref={equityChartRef}
+              <OptimizedChart 
                 key={`equity-chart-${chartKey}`}
                 option={getEquityCurveOption(
                   selectedBacktest?.equity_curve || [],
@@ -1651,7 +1652,6 @@ const BacktestHistory: React.FC = () => {
                 )} 
                 style={{ height: 500 }} 
                 notMerge={true}
-                lazyUpdate={true}
                 opts={{ renderer: 'canvas' }}
               />
             </Col>
@@ -1756,8 +1756,7 @@ const BacktestHistory: React.FC = () => {
                   </Space>
                 }
               >
-            <ReactECharts
-              ref={klineChartRef}
+            <OptimizedChart
               key={`kline-chart-${chartKey}`}
               className="kline-chart"
               option={getKlineOption(
@@ -1766,7 +1765,6 @@ const BacktestHistory: React.FC = () => {
               )}
               style={{ height: 600 }}
               notMerge={true}
-              lazyUpdate={true}
               opts={{ renderer: 'canvas' }}
             />
               </Card>
@@ -1783,7 +1781,7 @@ const BacktestHistory: React.FC = () => {
           </span>
         ),
         children: (
-          <Table
+          <OptimizedTable
             dataSource={selectedBacktest?.results?.trades || selectedBacktest?.trade_records || []}
             columns={tradeColumns}
             rowKey={(record) => `trade-${record.date}-${record.action}-${record.price}`}
@@ -1920,7 +1918,7 @@ const BacktestHistory: React.FC = () => {
           </Space>
         }
       >
-        <Table
+        <OptimizedTable
           columns={columns}
           dataSource={filteredBacktestList}
           rowKey="id"
@@ -2215,6 +2213,6 @@ const BacktestHistory: React.FC = () => {
       </Modal>
     </div>
   );
-};
+});
 
 export default BacktestHistory;

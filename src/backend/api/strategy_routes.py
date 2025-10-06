@@ -702,6 +702,7 @@ async def backtest_strategy(request: Request, db: Session = Depends(get_db)):
         parameters = data.get("parameters", {})
         data_source = data.get("data_source", "database")  # 默认从数据库获取
         features = data.get("features", [])
+        force_refresh = data.get("force_refresh", False)  # 新增强制刷新参数
         
         logger.info("=" * 80)
         logger.info(f"开始策略回测 - 股票: {symbol}, 策略: {strategy_id}")
@@ -734,7 +735,8 @@ async def backtest_strategy(request: Request, db: Session = Depends(get_db)):
             slippage_rate=slippage_rate,
             parameters=parameters,
             data_source=data_source,
-            features=features
+            features=features,
+            force_refresh=force_refresh
         )
         
         return result

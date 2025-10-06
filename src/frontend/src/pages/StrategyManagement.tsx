@@ -1,8 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, memo, useCallback, useMemo } from 'react';
 import { Table, Button, Space, Card, message, Modal, Popconfirm, Typography, Tag } from 'antd';
 import { PlusOutlined, EditOutlined, DeleteOutlined, ExclamationCircleOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import { fetchStrategies, Strategy, deleteStrategy } from '../services/apiService';
+import OptimizedTable from '../components/OptimizedTable';
 
 const { Title } = Typography;
 
@@ -138,7 +139,7 @@ const StrategyManagement: React.FC = () => {
           </Button>
         }
       >
-        <Table
+        <OptimizedTable
           columns={columns}
           dataSource={strategies}
           rowKey="id"
@@ -150,4 +151,4 @@ const StrategyManagement: React.FC = () => {
   );
 };
 
-export default StrategyManagement; 
+export default memo(StrategyManagement);
