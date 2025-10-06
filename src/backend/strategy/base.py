@@ -133,7 +133,8 @@ class StrategyBase(ABC):
                 
                 # 计算可以买入的最大数量
                 commission_rate = self.parameters.get('commission_rate', 0.0003)
-                max_quantity = int(trade_cash / (price * (1 + commission_rate)))
+                denominator = price * (1 + commission_rate)
+                max_quantity = int(trade_cash / denominator) if denominator > 0 else 0
                 
                 if max_quantity > 0:
                     # 计算交易成本
@@ -193,7 +194,7 @@ class StrategyBase(ABC):
                             break
                     
                     profit = total_revenue - (quantity * entry_price) if entry_price else 0
-                    profit_pct = (price - entry_price) / entry_price * 100 if entry_price else 0
+                    profit_pct = (price - entry_price) / entry_price * 100 if entry_price and entry_price > 0 else 0
                     
                     # 记录交易
                     trade = {
@@ -285,7 +286,7 @@ class StrategyBase(ABC):
         # 计算总收益率
         initial_equity = self.initial_cash
         final_equity = daily_equity.iloc[-1]['equity']
-        total_return = (final_equity - initial_equity) / initial_equity * 100
+        total_return = (final_equity - initial_equity) / initial_equity * 100 if initial_equity > 0 else 0
         
         # 计算年化收益率
         days = (daily_equity.iloc[-1]['date'] - daily_equity.iloc[0]['date']).days
@@ -402,7 +403,7 @@ class StrategyBase(ABC):
         daily_equity['peak'] = daily_equity['equity'].cummax()
         
         # 计算回撤
-        daily_equity['drawdown'] = (daily_equity['equity'] - daily_equity['peak']) / daily_equity['peak']
+        daily_equity['drawdown'] = (daily_equity['equity'] - daily_equity['peak']) / daily_equity['peak'].replace(0, 1e-9)
         
         # 返回日期和回撤
-        return daily_equity[['date', 'drawdown']] 
+        return daily_equity[['date', 'drawdown']]

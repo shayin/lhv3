@@ -601,7 +601,9 @@ class BacktestEngine:
                 trade_capital = self.capital * position_size
                 
                 # 计算可买入的股数
-                max_shares = int(trade_capital / (execution_price * (1 + actual_commission_rate)))  # 确保股数为整数
+                # 防止除零错误：检查分母是否为零
+                denominator = execution_price * (1 + actual_commission_rate)
+                max_shares = int(trade_capital / denominator) if denominator > 0 else 0  # 确保股数为整数
                 shares = max_shares  # 这里可以根据策略调整买入数量
                 
                 # 执行买入
@@ -624,7 +626,8 @@ class BacktestEngine:
                         # 加权平均成本计算
                         total_cost_before = (self.position - shares) * self.position_avg_price
                         total_cost_after = total_cost_before + cost
-                        self.position_avg_price = total_cost_after / self.position
+                        # 防止除零错误：检查持仓是否为零
+                        self.position_avg_price = total_cost_after / self.position if self.position > 0 else 0
                     
                     self.position_value = self.position * price
                     
@@ -642,7 +645,8 @@ class BacktestEngine:
                     entry_date = date
                     
                     # 计算累计仓位比例（基于初始资金）
-                    cumulative_position_ratio = self.position_value / self.initial_capital
+                    # 防止除零错误：检查初始资金是否为零
+                    cumulative_position_ratio = self.position_value / self.initial_capital if self.initial_capital > 0 else 0.0
                     
                     trade = {
                         "date": date,
@@ -709,7 +713,9 @@ class BacktestEngine:
                 
                 # 计算收益
                 profit = net_revenue - (shares * self.position_avg_price)
-                profit_percent = profit / (shares * self.position_avg_price) if self.position_avg_price > 0 else 0
+                # 防止除零错误：检查分母是否为零
+                denominator = shares * self.position_avg_price
+                profit_percent = profit / denominator if denominator > 0 else 0
                 
                 # 计算持仓天数
                 if previous_trade_date and entry_date:
@@ -739,7 +745,8 @@ class BacktestEngine:
                 
                 # 记录卖出交易
                 # 计算卖出后的累计仓位比例
-                cumulative_position_ratio = self.position_value / self.initial_capital if self.position > 0 else 0.0
+                # 防止除零错误：检查初始资金是否为零
+                cumulative_position_ratio = self.position_value / self.initial_capital if self.initial_capital > 0 and self.position > 0 else 0.0
                 
                 trade = {
                     "date": date,
@@ -785,7 +792,8 @@ class BacktestEngine:
                 max_equity = self.equity
                 current_drawdown = 0.0
             else:
-                current_drawdown = (max_equity - self.equity) / max_equity
+                # 防止除零错误：检查max_equity是否为零
+                current_drawdown = (max_equity - self.equity) / max_equity if max_equity > 0 else 0.0
             
             # 添加当日数据到权益曲线
             self.results['equity_curve'].append({
@@ -974,6 +982,10 @@ class BacktestEngine:
             days = (end_date - start_date).days
             if days > 0:
                 self.results['performance']['annual_return'] = pow((1 + self.results['performance']['total_return']), (365 / days)) - 1
+            else:
+                # 如果天数为0或负数，设置年化收益率为总收益率
+                logger.warning(f"回测天数为{days}，无法计算年化收益率，使用总收益率")
+                self.results['performance']['annual_return'] = self.results['performance']['total_return']
         
         # 计算最大回撤
         if self.results['drawdowns']:
@@ -1013,6 +1025,10 @@ class BacktestEngine:
             # 计算夏普比率
             if annual_std > 0:
                 self.results['performance']['sharpe_ratio'] = (self.results['performance']['annual_return'] - risk_free_rate) / annual_std
+            else:
+                # 如果年化标准差为0，说明收益率没有波动，设置夏普比率为0
+                logger.warning("年化标准差为0，无法计算夏普比率，设置为0")
+                self.results['performance']['sharpe_ratio'] = 0.0
         
         # 计算Alpha和Beta(需要基准数据)
         if benchmark_data is not None and not benchmark_data.empty:

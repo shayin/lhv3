@@ -248,7 +248,7 @@ class StrategyBase:
                     shares = position_shares  # 使用之前买入的实际股数
                     sale_value = round(shares * price, 2)  # 卖出总值精确到2位小数
                     profit = round(sale_value - (shares * position_price), 2)  # 计算盈亏精确到2位小数
-                    profit_percent = round((price - position_price) / position_price * 100, 2)  # 计算百分比收益率精确到2位小数
+                    profit_percent = round((price - position_price) / position_price * 100, 2) if position_price > 0 else 0  # 计算百分比收益率精确到2位小数
                     
                     # 计算交易前后的资金状况
                     before_cash = cash  # 交易前现金
@@ -432,7 +432,7 @@ class StrategyBase:
                     final_equity = latest_trade.get('after_cash', cash) + position_value
                     
         # 计算总收益率
-        total_return = ((final_equity - initial_capital) / initial_capital) * 100
+        total_return = ((final_equity - initial_capital) / initial_capital) * 100 if initial_capital > 0 else 0
         results['total_return'] = round(total_return, 2)
         logger.info(f"更新计算总收益率: {total_return:.2f}% (初始资金: {initial_capital:.2f}, 最终资金: {final_equity:.2f})")
         
@@ -673,4 +673,4 @@ class StrategyBase:
             equities = [initial_capital] * len(dates)
             results['equity_curve'] = {'date': dates, 'equity': equities}
         
-        return results 
+        return results
