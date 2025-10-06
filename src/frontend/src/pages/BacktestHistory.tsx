@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { Card, Table, Button, Space, Modal, message, Tag, Typography, Descriptions, Statistic, Row, Col, Alert, Form, Input, DatePicker, Tabs, Tooltip } from 'antd';
-import { EyeOutlined, DeleteOutlined, ReloadOutlined, HistoryOutlined, SyncOutlined, LineChartOutlined, InfoCircleOutlined, ConsoleSqlOutlined } from '@ant-design/icons';
+import { Card, Table, Button, Space, Modal, message, Tag, Typography, Descriptions, Statistic, Row, Col, Alert, Form, Input, DatePicker, Tabs, Tooltip, Select } from 'antd';
+import { EyeOutlined, DeleteOutlined, ReloadOutlined, HistoryOutlined, SyncOutlined, LineChartOutlined, InfoCircleOutlined, ConsoleSqlOutlined, FilterOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import type { ColumnsType } from 'antd/es/table';
 import axios from 'axios';
@@ -100,6 +100,8 @@ const BacktestHistory: React.FC = () => {
   const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
   const [backtestList, setBacktestList] = useState<BacktestRecord[]>([]);
+  const [filteredBacktestList, setFilteredBacktestList] = useState<BacktestRecord[]>([]);
+  const [selectedStrategy, setSelectedStrategy] = useState<string>('all');
   const [detailModalVisible, setDetailModalVisible] = useState(false);
   const [selectedBacktest, setSelectedBacktest] = useState<BacktestDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
@@ -232,6 +234,7 @@ const BacktestHistory: React.FC = () => {
       // 使用新的回测状态API
       const response = await axios.get('/api/backtest-status/list');
       setBacktestList(response.data);
+      setFilteredBacktestList(response.data); // 初始化筛选列表
     } catch (error: any) {
       console.error('获取回测列表失败:', error);
       message.error('获取回测列表失败');
@@ -1776,6 +1779,16 @@ const BacktestHistory: React.FC = () => {
     fetchBacktestList();
   }, []);
 
+  // 策略筛选逻辑
+  useEffect(() => {
+    if (selectedStrategy === 'all') {
+      setFilteredBacktestList(backtestList);
+    } else {
+      const filtered = backtestList.filter(item => item.strategy_name === selectedStrategy);
+      setFilteredBacktestList(filtered);
+    }
+  }, [backtestList, selectedStrategy]);
+
   // 处理Modal打开后的图表重新渲染
   useEffect(() => {
     if (detailModalVisible && selectedBacktest) {
@@ -1850,7 +1863,25 @@ const BacktestHistory: React.FC = () => {
           </Space>
         }
         extra={
-          <Space>
+          <Space size="middle">
+            <Space.Compact>
+              <Select
+                value={selectedStrategy}
+                onChange={setSelectedStrategy}
+                style={{ width: 180 }}
+                placeholder="选择策略筛选"
+                allowClear
+                size="middle"
+                suffixIcon={<FilterOutlined />}
+              >
+                <Select.Option value="all">全部策略</Select.Option>
+                {Array.from(new Set(backtestList.map(item => item.strategy_name).filter(Boolean))).map(strategy => (
+                  <Select.Option key={strategy} value={strategy}>
+                    {strategy}
+                  </Select.Option>
+                ))}
+              </Select>
+            </Space.Compact>
             <Button
               icon={<SyncOutlined />}
               onClick={handleBatchUpdateToLatest}
@@ -1871,7 +1902,7 @@ const BacktestHistory: React.FC = () => {
       >
         <Table
           columns={columns}
-          dataSource={backtestList}
+          dataSource={filteredBacktestList}
           rowKey="id"
           loading={loading}
           size="small"
