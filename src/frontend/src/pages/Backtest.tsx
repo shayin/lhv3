@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef, memo, useMemo } from 'react';
-import { Card, Form, Button, DatePicker, Select, InputNumber, Row, Col, Divider, Typography, Tabs, Table, Statistic, Spin, message as antdMessage, Alert, Space, Tooltip, Modal, Tag, App, message, Slider, Input } from 'antd';
+import { Card, Form, Button, DatePicker, Select, InputNumber, Row, Col, Divider, Typography, Tabs, Table, Statistic, Spin, message as antdMessage, Alert, Space, Tooltip, Modal, Tag, App, message, Slider, Input, Switch } from 'antd';
 import { useNavigate } from 'react-router-dom';
 import { LineChartOutlined, PlayCircleOutlined, DownloadOutlined, SaveOutlined, InfoCircleOutlined, MinusCircleOutlined, PlusOutlined, SettingOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
@@ -19,7 +19,7 @@ import {
   ToolboxComponent, LegendComponent, MarkPointComponent, MarkLineComponent
 } from 'echarts/components';
 import { CanvasRenderer } from 'echarts/renderers';
-import { getStrategies, backtestStrategy, backtestStrategyForceRefresh } from '../services/strategyService';
+import { getStrategies, backtestStrategy, backtestStrategyForceRefresh, submitAsyncBacktest, getAsyncBacktestStatus, getAsyncBacktestResult } from '../services/strategyService';
 import OptimizedTable from '../components/OptimizedTable';
 import OptimizedChart from '../components/OptimizedChart';
 import { useDebounce } from '../hooks/useDebounce';
@@ -114,6 +114,13 @@ const Backtest: React.FC = () => {
   const [backtestName, setBacktestName] = useState('');
   const [backtestDescription, setBacktestDescription] = useState('');
   
+  // 异步回测相关状态
+  const [asyncMode, setAsyncMode] = useState(false);
+  const [currentTaskId, setCurrentTaskId] = useState<string | null>(null);
+  const [taskStatus, setTaskStatus] = useState<string>('');
+  const [taskProgress, setTaskProgress] = useState<number>(0);
+  const [pollingInterval, setPollingInterval] = useState<NodeJS.Timeout | null>(null);
+  
   // 规范化日期字符串的函数，确保格式一致
   const normalizeDate = (dateStr: string | any): string => {
     if (typeof dateStr !== 'string') {
@@ -207,6 +214,264 @@ const Backtest: React.FC = () => {
     }
   };
   
+  // 清理轮询定时器
+  const clearPolling = useCallback(() => {
+    console.log('清理轮询定时器，当前pollingIntervalRef.current:', pollingIntervalRef.current);
+    if (pollingIntervalRef.current) {
+      clearInterval(pollingIntervalRef.current);
+      pollingIntervalRef.current = null;
+      setPollingInterval(null);
+      console.log('轮询定时器已清理');
+    }
+  }, []);
+
+  // 组件卸载时清理定时器
+  useEffect(() => {
+    return () => {
+      if (pollingIntervalRef.current) {
+        clearInterval(pollingIntervalRef.current);
+        pollingIntervalRef.current = null;
+      }
+    };
+  }, []);
+
+  // 使用 useRef 来存储定时器ID，避免闭包问题
+  const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
+
+  // 轮询任务状态
+  const pollTaskStatus = useCallback(async (taskId: string) => {
+    try {
+      const status = await getAsyncBacktestStatus(taskId);
+      console.log('任务状态:', status);
+      
+      setTaskStatus(status.status);
+      setTaskProgress(status.progress || 0);
+      
+      if (status.status === 'completed') {
+        console.log('任务已完成，准备清理轮询');
+        
+        // 立即清理轮询定时器
+        if (pollingIntervalRef.current) {
+          console.log('立即清理轮询定时器，ID:', pollingIntervalRef.current);
+          clearInterval(pollingIntervalRef.current);
+          pollingIntervalRef.current = null;
+          setPollingInterval(null);
+        }
+        
+        // 获取回测结果
+        try {
+          const result = await getAsyncBacktestResult(taskId);
+          console.log('异步回测结果:', result);
+          
+          // 检查结果是否为错误格式
+          if (result && result.status === 'error') {
+            console.error('回测执行失败:', result.message);
+            antdMessage.error(`回测失败: ${result.message}`);
+          } else {
+            // 处理结果数据 - 提取data字段中的实际回测结果
+            const backtestData = result.data || result;
+            console.log('提取的回测数据:', backtestData);
+            processBacktestResult(backtestData);
+            message.success('异步回测完成');
+          }
+        } catch (error: any) {
+          console.error('获取回测结果失败:', error);
+          antdMessage.error(`获取回测结果失败: ${error.message}`);
+        }
+        
+        setLoading(false);
+        setCurrentTaskId(null);
+      } else if (status.status === 'failed') {
+        console.log('任务失败，准备清理轮询');
+        
+        // 立即清理轮询定时器
+        if (pollingIntervalRef.current) {
+          console.log('立即清理轮询定时器，ID:', pollingIntervalRef.current);
+          clearInterval(pollingIntervalRef.current);
+          pollingIntervalRef.current = null;
+          setPollingInterval(null);
+        }
+        
+        setLoading(false);
+        setCurrentTaskId(null);
+        antdMessage.error(`异步回测失败: ${status.error || '未知错误'}`);
+      }
+    } catch (error: any) {
+      console.error('获取任务状态失败:', error);
+      // 如果获取状态失败，继续轮询，但减少频率
+    }
+  }, []);
+
+  // 处理回测结果的通用函数
+  const processBacktestResult = useCallback((result: any) => {
+    if (result.error) {
+      antdMessage.error(`回测失败: ${result.error}`);
+      return;
+    }
+    
+    console.log('回测结果:', result);
+    
+    // 详细输出回测结果中的关键字段，用于调试
+    console.log('回测结果关键字段:');
+    console.log('- total_return:', result.total_return);
+    console.log('- annual_return:', result.annual_return);
+    console.log('- sharpe_ratio:', result.sharpe_ratio);
+    console.log('- max_drawdown:', result.max_drawdown);
+    console.log('- win_rate:', result.win_rate);
+    console.log('- profit_factor:', result.profit_factor);
+    console.log('- trades 数量:', result.trades?.length);
+    console.log('- equity_curve 数量:', result.equity_curve?.length);
+    console.log('- drawdowns 数量:', result.drawdowns?.length);
+    
+    // 确保trades数组存在
+    if (!result.trades) {
+      result.trades = [];
+      console.warn('未找到交易记录，设置为空数组');
+    }
+    
+    // 确保equity_curve数组存在
+    if (!result.equity_curve) {
+      result.equity_curve = [];
+      console.warn('未找到权益曲线数据，设置为空数组');
+    }
+    
+    // 确保drawdowns数组存在
+    if (!result.drawdowns) {
+      result.drawdowns = [];
+      console.warn('未找到回撤数据，设置为空数组');
+    }
+    
+    // 设置性能指标
+    setPerformanceData({
+      totalReturn: (result.total_return || 0) * 100,
+      annualReturn: (result.annual_return || 0) * 100,
+      sharpeRatio: result.sharpe_ratio || 0,
+      maxDrawdown: (result.max_drawdown || 0) * 100,
+      winRate: (result.win_rate || 0) * 100,
+      profitFactor: result.profit_factor || 0,
+      alpha: (result.alpha || 0) * 100,
+      beta: result.beta || 0
+    });
+    
+    // 打印处理后的性能指标
+    console.log('处理后的性能指标:', {
+      totalReturn: (result.total_return || 0) * 100,
+      annualReturn: (result.annual_return || 0) * 100,
+      sharpeRatio: result.sharpe_ratio || 0,
+      maxDrawdown: (result.max_drawdown || 0) * 100,
+      winRate: (result.win_rate || 0) * 100,
+      profitFactor: result.profit_factor || 0
+    });
+    
+    // 处理回测结果
+    setBacktestResults(result);
+    
+    // 更新图表数据
+    // 设置交易记录（即使为空也要处理）
+    if (result.trades && result.trades.length > 0) {
+      const trades = result.trades.map((trade: any, index: number) => {
+        console.log('处理交易记录:', trade);
+        return {
+          key: index.toString(),
+          date: normalizeDate(trade.date),
+          symbol: selectedStock?.symbol || '',
+          direction: trade.action === 'BUY' ? '买入' : '卖出',
+          // 根据交易类型设置不同的价格字段
+          entryPrice: trade.action === 'BUY' ? trade.price : undefined,
+          exitPrice: trade.action === 'SELL' ? trade.price : undefined,
+          shares: trade.shares,
+          value: trade.value,
+          profitLoss: trade.profit || 0,
+          returnPct: (trade.profit_percent || 0) * 100,
+          duration: trade.holding_days || 0,
+          beforeCash: trade.before_cash,
+          afterCash: trade.after_cash,
+          beforeEquity: trade.before_equity,
+          afterEquity: trade.after_equity,
+          trigger_reason: trade.trigger_reason,
+          available_capital: trade.available_capital,
+          allocated_capital: trade.allocated_capital,
+          position_size: trade.position_size,
+          cumulative_position_ratio: trade.cumulative_position_ratio
+        };
+      });
+      
+      // 按交易时间倒序排序（最新的在前面）
+      const sortedTrades = trades.sort((a: any, b: any) => {
+        return new Date(b.date).getTime() - new Date(a.date).getTime();
+      });
+      
+      setTradeRecords(sortedTrades);
+      setTradesData(sortedTrades);
+    } else {
+      // 如果没有交易记录，设置为空数组
+      setTradeRecords([]);
+      setTradesData([]);
+    }
+    
+    // 更新资产曲线数据
+    if (result.equity_curve && result.equity_curve.length > 0) {
+      console.log('处理权益曲线数据:', result.equity_curve[0]);
+      
+      // 权益曲线数据
+      const equityData = result.equity_curve.map((item: any) => ({
+        date: normalizeDate(item.date),
+        equity: item.equity
+      }));
+      setEquityCurveData(equityData);
+      setEquityData(equityData);
+      
+      // K线数据应该直接来自后端，而不是前端模拟
+      // 取出K线数据并进行格式转换
+      const kData = result.equity_curve.map((item: any) => {
+        const dateStr = normalizeDate(item.date);
+        
+        // 使用后端返回的OHLC数据，如果没有则保持为0
+        const open = Number(item.open) || 0;
+        const close = Number(item.close) || 0;
+        const low = Number(item.low) || 0;
+        const high = Number(item.high) || 0;
+        const volume = Number(item.volume) || 0;
+        
+        // 返回K线格式数据：[日期, 开盘价, 收盘价, 最低价, 最高价, 成交量]
+        return [
+          dateStr,
+          open,
+          close,
+          low,
+          high,
+          volume
+        ];
+      });
+      
+      console.log('K线数据示例(前3条):', kData.slice(0, 3));
+      setKlineData(kData);
+    } else {
+      // 如果没有权益曲线数据，设置为空数组
+      setEquityCurveData([]);
+      setEquityData([]);
+      setKlineData([]);
+    }
+    
+    // 更新回撤曲线
+    if (result.drawdowns && result.drawdowns.length > 0) {
+      const drawdownsData = result.drawdowns.map((item: any) => ({
+        date: normalizeDate(item.date),
+        drawdown: (item.drawdown || 0) * 100 // 转为百分比
+      }));
+      setDrawdownData(drawdownsData);
+    } else {
+      // 如果没有回撤数据，设置为空数组
+      setDrawdownData([]);
+    }
+    
+    // 标记有回测结果
+    setHasResults(true);
+    
+    // 滚动到结果区域
+    resultsRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [normalizeDate, selectedStock]);
+
   // 运行回测
   const handleRunBacktest = useCallback(async () => {
     if (!selectedStrategy || !selectedStock || !dateRange[0] || !dateRange[1]) {
@@ -222,200 +487,78 @@ const Backtest: React.FC = () => {
       const startDate = dateRange[0].format('YYYY-MM-DD');
       const endDate = dateRange[1].format('YYYY-MM-DD');
       
-      // 使用新的backtestStrategy方法进行回测，确保传入数字类型的策略ID
-      const result = await backtestStrategy(
-        selectedStrategy, // 已经是number类型
-        selectedStock.symbol,
-        startDate,
-        endDate,
-        initialCapital,
-        {
-          save_backtest: false, // 暂时不自动保存，等用户手动保存
-          parameters: strategyParameters // 添加策略参数
-        }, // 参数对象
-        commissionRate,
-        slippage,
-        'database', // 使用数据库作为数据源
-        [] // 默认特征列表
-      );
-      
-      if (result.error) {
-        antdMessage.error(`回测失败: ${result.error}`);
-        return;
-      }
-      
-      console.log('回测结果:', result);
-      
-      // 详细输出回测结果中的关键字段，用于调试
-      console.log('回测结果关键字段:');
-      console.log('- total_return:', result.total_return);
-      console.log('- annual_return:', result.annual_return);
-      console.log('- sharpe_ratio:', result.sharpe_ratio);
-      console.log('- max_drawdown:', result.max_drawdown);
-      console.log('- win_rate:', result.win_rate);
-      console.log('- profit_factor:', result.profit_factor);
-      console.log('- trades 数量:', result.trades?.length);
-      console.log('- equity_curve 数量:', result.equity_curve?.length);
-      console.log('- drawdowns 数量:', result.drawdowns?.length);
-      
-      // 确保trades数组存在
-      if (!result.trades) {
-        result.trades = [];
-        console.warn('未找到交易记录，设置为空数组');
-      }
-      
-      // 确保equity_curve数组存在
-      if (!result.equity_curve) {
-        result.equity_curve = [];
-        console.warn('未找到权益曲线数据，设置为空数组');
-      }
-      
-      // 确保drawdowns数组存在
-      if (!result.drawdowns) {
-        result.drawdowns = [];
-        console.warn('未找到回撤数据，设置为空数组');
-      }
-      
-      // 设置性能指标
-      setPerformanceData({
-        totalReturn: (result.total_return || 0) * 100,
-        annualReturn: (result.annual_return || 0) * 100,
-        sharpeRatio: result.sharpe_ratio || 0,
-        maxDrawdown: (result.max_drawdown || 0) * 100,
-        winRate: (result.win_rate || 0) * 100,
-        profitFactor: result.profit_factor || 0,
-        alpha: (result.alpha || 0) * 100,
-        beta: result.beta || 0
-      });
-      
-      // 打印处理后的性能指标
-      console.log('处理后的性能指标:', {
-        totalReturn: (result.total_return || 0) * 100,
-        annualReturn: (result.annual_return || 0) * 100,
-        sharpeRatio: result.sharpe_ratio || 0,
-        maxDrawdown: (result.max_drawdown || 0) * 100,
-        winRate: (result.win_rate || 0) * 100,
-        profitFactor: result.profit_factor || 0
-      });
-      
-      // 处理回测结果
-      setBacktestResults(result);
-      
-      // 更新图表数据
-      // 设置交易记录（即使为空也要处理）
-      if (result.trades && result.trades.length > 0) {
-        const trades = result.trades.map((trade: any, index: number) => {
-          console.log('处理交易记录:', trade);
-          return {
-            key: index.toString(),
-            date: normalizeDate(trade.date),
-            symbol: selectedStock.symbol,
-            direction: trade.action === 'BUY' ? '买入' : '卖出',
-            // 根据交易类型设置不同的价格字段
-            entryPrice: trade.action === 'BUY' ? trade.price : undefined,
-            exitPrice: trade.action === 'SELL' ? trade.price : undefined,
-            shares: trade.shares,
-            value: trade.value,
-            profitLoss: trade.profit || 0,
-            returnPct: (trade.profit_percent || 0) * 100,
-            duration: trade.holding_days || 0,
-            beforeCash: trade.before_cash,
-            afterCash: trade.after_cash,
-            beforeEquity: trade.before_equity,
-            afterEquity: trade.after_equity,
-            trigger_reason: trade.trigger_reason,
-            available_capital: trade.available_capital,
-            allocated_capital: trade.allocated_capital,
-            position_size: trade.position_size,
-            cumulative_position_ratio: trade.cumulative_position_ratio
-          };
-        });
+      if (asyncMode) {
+        // 异步模式
+        console.log('使用异步模式提交回测任务');
         
-        // 按交易时间倒序排序（最新的在前面）
-        const sortedTrades = trades.sort((a: any, b: any) => {
-          return new Date(b.date).getTime() - new Date(a.date).getTime();
-        });
+        const taskResponse = await submitAsyncBacktest(
+          selectedStrategy,
+          selectedStock.symbol,
+          startDate,
+          endDate,
+          initialCapital,
+          {
+            save_backtest: false,
+            parameters: strategyParameters
+          },
+          commissionRate,
+          slippage,
+          'database',
+          [],
+          'normal' // 默认优先级
+        );
         
-        setTradeRecords(sortedTrades);
-        setTradesData(sortedTrades);
+        console.log('异步任务提交成功:', taskResponse);
+        setCurrentTaskId(taskResponse.task_id);
+        setTaskStatus('pending');
+        setTaskProgress(0);
+        
+        // 开始轮询任务状态
+        const interval = setInterval(() => {
+          pollTaskStatus(taskResponse.task_id);
+        }, 2000); // 每2秒轮询一次
+        
+        // 同时保存到ref和state
+        pollingIntervalRef.current = interval;
+        setPollingInterval(interval);
+        
+        message.info('回测任务已提交，正在后台执行...');
       } else {
-        // 如果没有交易记录，设置为空数组
-        setTradeRecords([]);
-        setTradesData([]);
-      }
-      
-      // 更新资产曲线数据
-      if (result.equity_curve && result.equity_curve.length > 0) {
-        console.log('处理权益曲线数据:', result.equity_curve[0]);
+        // 同步模式（原有逻辑）
+        console.log('使用同步模式执行回测');
         
-        // 权益曲线数据
-        const equityData = result.equity_curve.map((item: any) => ({
-          date: normalizeDate(item.date),
-          equity: item.equity
-        }));
-        setEquityCurveData(equityData);
-        setEquityData(equityData);
+        const result = await backtestStrategy(
+          selectedStrategy,
+          selectedStock.symbol,
+          startDate,
+          endDate,
+          initialCapital,
+          {
+            save_backtest: false,
+            parameters: strategyParameters
+          },
+          commissionRate,
+          slippage,
+          'database',
+          []
+        );
         
-        // K线数据应该直接来自后端，而不是前端模拟
-        // 取出K线数据并进行格式转换
-        const kData = result.equity_curve.map((item: any) => {
-          const dateStr = normalizeDate(item.date);
-          
-          // 使用后端返回的OHLC数据，如果没有则保持为0
-          const open = Number(item.open) || 0;
-          const close = Number(item.close) || 0;
-          const low = Number(item.low) || 0;
-          const high = Number(item.high) || 0;
-          const volume = Number(item.volume) || 0;
-          
-          // 返回K线格式数据：[日期, 开盘价, 收盘价, 最低价, 最高价, 成交量]
-          return [
-            dateStr,
-            open,
-            close,
-            low,
-            high,
-            volume
-          ];
-        });
+        // 处理同步回测结果
+        processBacktestResult(result);
         
-        console.log('K线数据示例(前3条):', kData.slice(0, 3));
-        setKlineData(kData);
-      } else {
-        // 如果没有权益曲线数据，设置为空数组
-        setEquityCurveData([]);
-        setEquityData([]);
-        setKlineData([]);
+        const showSuccessMessage = () => {
+          message.success('回测完成');
+        };
+        showSuccessMessage();
+        
+        setLoading(false);
       }
-      
-      // 更新回撤曲线
-      if (result.drawdowns && result.drawdowns.length > 0) {
-        const drawdownsData = result.drawdowns.map((item: any) => ({
-          date: normalizeDate(item.date),
-          drawdown: (item.drawdown || 0) * 100 // 转为百分比
-        }));
-        setDrawdownData(drawdownsData);
-      } else {
-        // 如果没有回撤数据，设置为空数组
-        setDrawdownData([]);
-      }
-      
-      // 标记有回测结果
-      setHasResults(true);
-      
-      // 滚动到结果区域
-      resultsRef.current?.scrollIntoView({ behavior: 'smooth' });
-      
-      // 使用函数组件包装，确保消息API调用在组件上下文中执行
-      const showSuccessMessage = () => {
-        message.success('回测完成');
-      };
-      showSuccessMessage();
     } catch (error: any) {
       console.error('回测执行失败:', error);
       antdMessage.error(`回测失败: ${error.message || '未知错误'}`);
-    } finally {
       setLoading(false);
+      setCurrentTaskId(null);
+      clearPolling();
     }
   }, [
     selectedStrategy, 
@@ -424,17 +567,11 @@ const Backtest: React.FC = () => {
     initialCapital, 
     commissionRate, 
     slippage, 
-    normalizeDate, 
-    setTradeRecords, 
-    setTradesData, 
-    setKlineData, 
-    setEquityCurveData, 
-    setEquityData, 
-    setDrawdownData, 
-    setHasResults, 
-    setBacktestResults, 
-    setPerformanceData, 
-    setLoading
+    strategyParameters,
+    asyncMode,
+    processBacktestResult,
+    pollTaskStatus,
+    clearPolling
   ]);
   
   // 强制刷新回测（清除缓存并重新运行）
@@ -2554,6 +2691,29 @@ const Backtest: React.FC = () => {
               />
             )}
             
+            <Form.Item label="执行模式">
+              <Space>
+                <Switch
+                  checked={asyncMode}
+                  onChange={setAsyncMode}
+                  checkedChildren="异步"
+                  unCheckedChildren="同步"
+                />
+                <Tooltip title={asyncMode ? "异步模式：任务在后台执行，可以处理大数据量回测" : "同步模式：立即返回结果，适合快速回测"}>
+                  <InfoCircleOutlined style={{ color: '#aaa' }} />
+                </Tooltip>
+                {asyncMode && currentTaskId && (
+                  <Tag color={taskStatus === 'completed' ? 'green' : taskStatus === 'failed' ? 'red' : 'blue'}>
+                    任务状态: {taskStatus === 'pending' ? '等待中' : 
+                             taskStatus === 'running' ? '执行中' : 
+                             taskStatus === 'completed' ? '已完成' : 
+                             taskStatus === 'failed' ? '失败' : taskStatus}
+                    {taskStatus === 'running' && ` (${taskProgress}%)`}
+                  </Tag>
+                )}
+              </Space>
+            </Form.Item>
+            
             <Form.Item>
               <Space>
                 <Button 
@@ -2562,7 +2722,7 @@ const Backtest: React.FC = () => {
                   loading={running} 
                   onClick={handleRunBacktest}
                 >
-                  运行回测
+                  {asyncMode ? '提交异步回测' : '运行回测'}
                 </Button>
                 <Button 
                   type="default" 
@@ -2570,6 +2730,7 @@ const Backtest: React.FC = () => {
                   loading={running} 
                   onClick={handleForceRefreshBacktest}
                   title="强制刷新：清除缓存并重新运行回测"
+                  disabled={asyncMode} // 异步模式下禁用强制刷新
                 >
                   强制刷新
                 </Button>

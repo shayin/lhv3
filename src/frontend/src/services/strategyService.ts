@@ -228,3 +228,78 @@ export const backtestStrategyForceRefresh = async (
     return { error: error.message };
   }
 };
+
+// 异步回测相关API
+export const submitAsyncBacktest = async (
+  strategyId: number,
+  symbol: string,
+  startDate: string,
+  endDate: string,
+  initialCapital: number = 100000,
+  parameters: any = {},
+  commissionRate: number = 0.0015,
+  slippageRate: number = 0.001,
+  dataSource: string = 'database',
+  features: string[] = [],
+  priority: 'high' | 'normal' = 'normal'
+): Promise<{ task_id: string }> => {
+  try {
+    // 将优先级字符串转换为数字
+    const priorityValue = priority === 'high' ? 1 : 0;
+    
+    const payload = {
+      strategy_id: strategyId.toString(), // 确保是字符串类型
+      symbol,
+      start_date: startDate,
+      end_date: endDate,
+      initial_capital: initialCapital,
+      parameters,
+      commission_rate: commissionRate,
+      slippage_rate: slippageRate,
+      data_source: dataSource,
+      features,
+      priority: priorityValue // 使用数字类型
+    };
+    
+    const response = await axios.post(`${API_URL}/async/backtest/submit`, payload);
+    
+    if (response.data && response.data.task_id) {
+      return response.data;
+    }
+    
+    throw new Error(response.data?.message || '提交异步回测任务失败');
+  } catch (error: any) {
+    message.error(`提交异步回测任务错误: ${error.message}`);
+    throw error;
+  }
+};
+
+export const getAsyncBacktestStatus = async (taskId: string): Promise<any> => {
+  try {
+    const response = await axios.get(`${API_URL}/async/backtest/status/${taskId}`);
+    return response.data;
+  } catch (error: any) {
+    message.error(`获取任务状态错误: ${error.message}`);
+    throw error;
+  }
+};
+
+export const getAsyncBacktestResult = async (taskId: string): Promise<any> => {
+  try {
+    const response = await axios.get(`${API_URL}/async/backtest/result/${taskId}`);
+    return response.data;
+  } catch (error: any) {
+    message.error(`获取回测结果错误: ${error.message}`);
+    throw error;
+  }
+};
+
+export const getAsyncSystemHealth = async (): Promise<any> => {
+  try {
+    const response = await axios.get(`${API_URL}/async/health`);
+    return response.data;
+  } catch (error: any) {
+    console.error('获取系统健康状态错误:', error);
+    throw error;
+  }
+};

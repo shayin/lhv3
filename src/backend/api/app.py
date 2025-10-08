@@ -77,6 +77,10 @@ app.include_router(backtest_status_router, tags=["回测状态"])
 from .optimization_routes import router as optimization_router
 app.include_router(optimization_router, tags=["参数优化"])
 
+# 注册异步任务路由
+from .async_routes import router as async_router
+app.include_router(async_router, tags=["异步任务"])
+
 
 # 初始化数据库
 @app.on_event("startup")
@@ -86,11 +90,29 @@ async def startup():
         init_db()
         logger.info("数据库初始化成功，所有表已创建")
         
+        # 初始化任务队列系统
+        from ..utils.task_queue import get_task_queue
+        task_queue = get_task_queue()
+        logger.info("异步任务队列系统已初始化")
+        
         # 初始化第一个示例策略
         initialize_default_strategy()
     except Exception as e:
         logger.error(f"数据库初始化失败: {e}")
         raise
+
+@app.on_event("shutdown")
+async def shutdown():
+    """应用关闭时的清理工作"""
+    try:
+        # 关闭任务队列系统
+        from ..utils.task_queue import get_task_queue
+        task_queue = get_task_queue()
+        await task_queue.shutdown()
+        logger.info("异步任务队列系统已关闭")
+    except Exception as e:
+        logger.error(f"关闭任务队列系统失败: {e}")
+
 
 def initialize_default_strategy():
     """初始化第一个示例策略到数据库"""
@@ -1252,4 +1274,4 @@ def handle_data(context, data):
         raise
     except Exception as e:
         logger.error(f"获取策略模板 {template_id} 失败: {e}")
-        raise HTTPException(status_code=500, detail=f"获取策略模板失败: {str(e)}") 
+        raise HTTPException(status_code=500, detail=f"获取策略模板失败: {str(e)}")

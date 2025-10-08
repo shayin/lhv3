@@ -365,33 +365,15 @@ class BacktestService:
         if parameters is None:
             parameters = {}
             
-        # 如果是字符串策略ID，根据名称创建实例
-        if isinstance(strategy_id, str):
-            if strategy_id == "ma_crossover":
-                logger.info(f"创建策略: 移动平均线交叉策略, 参数: {parameters}")
-                strategy = MovingAverageCrossover(parameters=parameters)
-                if data is not None:
-                    strategy.set_data(data)
-                return strategy
-            # 以下策略暂时注释掉，等实现后再启用
-            # elif strategy_id == "bollinger_bands":
-            #     logger.info(f"创建策略: 布林带策略, 参数: {parameters}")
-            #     return BollingerBandsStrategy(parameters=parameters)
-            # elif strategy_id == "macd":
-            #     logger.info(f"创建策略: MACD策略, 参数: {parameters}")
-            #     return MACDStrategy(parameters=parameters)
-            # elif strategy_id == "rsi":
-            #     logger.info(f"创建策略: RSI策略, 参数: {parameters}")
-            #     return RSIStrategy(parameters=parameters)
-            else:
-                logger.error(f"未知的策略ID: {strategy_id}")
-                return None
-        
-        # 如果是数字ID，从数据库中获取策略
-        elif isinstance(strategy_id, int) and self.db is not None:
+        # 首先检查是否为数字ID（整数或字符串形式的数字）
+        if self.db is not None and (isinstance(strategy_id, int) or (isinstance(strategy_id, str) and strategy_id.isdigit())):
             try:
                 from ..models.strategy import Strategy as StrategyModel
                 from ..api.strategy_routes import load_strategy_from_code
+                
+                # 转换字符串ID为整数
+                if isinstance(strategy_id, str):
+                    strategy_id = int(strategy_id)
                 
                 db_strategy = self.db.query(StrategyModel).filter(StrategyModel.id == strategy_id).first()
                 if not db_strategy:
@@ -428,32 +410,52 @@ class BacktestService:
                     }
                     
                     # 确保 db_strategy.code 为字符串（有时 DB 存储为 bytes）
-                    code_content = db_strategy.code
-                    if code_content is None:
-                        code_content = ""
-                    if isinstance(code_content, (bytes, bytearray)):
-                        try:
-                            code_content = code_content.decode('utf-8')
-                        except Exception:
-                            code_content = code_content.decode('latin-1')
-
-                    # 输出策略代码前几行进行调试
-                    code_preview = "\n".join(str(code_content).split("\n")[:5])
-                    logger.debug(f"策略代码预览:\n{code_preview}")
-                    logger.debug(f"策略代码类型: {type(code_content)}")
+                    strategy_code = db_strategy.code
+                    if isinstance(strategy_code, bytes):
+                        strategy_code = strategy_code.decode('utf-8')
                     
-                    # 从代码加载策略
-                    strategy_instance = load_strategy_from_code(code_content, data, parameters, globals_dict)
+                    # 预览策略代码（用于调试）
+                    logger.debug(f"策略代码预览: {strategy_code[:200]}...")
+                    
+                    # 加载策略
+                    strategy_instance = load_strategy_from_code(strategy_code, parameters)
+                    
+                    if strategy_instance and data is not None:
+                        strategy_instance.set_data(data)
+                    
                     return strategy_instance
-                except ImportError as ie:
-                    logger.error(f"导入策略模板模块失败: {str(ie)}")
-                    import sys
-                    logger.error(f"Python路径: {sys.path}")
+                    
+                except ImportError as e:
+                    logger.error(f"导入策略模块失败: {e}")
                     return None
+                except Exception as e:
+                    logger.error(f"加载策略失败: {e}")
+                    return None
+                    
             except Exception as e:
-                logger.error(f"加载数据库策略失败: {e}")
-                import traceback
-                logger.error(traceback.format_exc())
+                logger.error(f"创建策略实例时发生错误: {e}")
+                return None
+        
+        # 如果是字符串策略ID，根据名称创建实例
+        elif isinstance(strategy_id, str):
+            if strategy_id == "ma_crossover":
+                logger.info(f"创建策略: 移动平均线交叉策略, 参数: {parameters}")
+                strategy = MovingAverageCrossover(parameters=parameters)
+                if data is not None:
+                    strategy.set_data(data)
+                return strategy
+            # 以下策略暂时注释掉，等实现后再启用
+            # elif strategy_id == "bollinger_bands":
+            #     logger.info(f"创建策略: 布林带策略, 参数: {parameters}")
+            #     return BollingerBandsStrategy(parameters=parameters)
+            # elif strategy_id == "macd":
+            #     logger.info(f"创建策略: MACD策略, 参数: {parameters}")
+            #     return MACDStrategy(parameters=parameters)
+            # elif strategy_id == "rsi":
+            #     logger.info(f"创建策略: RSI策略, 参数: {parameters}")
+            #     return RSIStrategy(parameters=parameters)
+            else:
+                logger.error(f"未知的策略ID: {strategy_id}")
                 return None
         
         logger.error(f"无法创建策略实例: {strategy_id}")
