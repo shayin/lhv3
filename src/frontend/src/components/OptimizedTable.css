@@ -3,6 +3,7 @@
   border: 1px solid #f0f0f0;
   border-radius: 6px;
   overflow: hidden;
+  font-size: 12px !important;
 }
 
 /* 虚拟表格头部样式 */
@@ -12,15 +13,17 @@
   border-bottom: 1px solid #f0f0f0;
   font-weight: 600;
   color: rgba(0, 0, 0, 0.85);
+  font-size: 12px !important;
 }
 
 .virtual-table-header-cell {
-  padding: 16px;
+  padding: 12px; /* 从16px减小到12px */
   border-right: 1px solid #f0f0f0;
   flex-shrink: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  font-size: 12px !important;
 }
 
 .virtual-table-header-cell:last-child {
@@ -30,6 +33,7 @@
 /* 虚拟表格行样式 */
 .virtual-table-row {
   border-bottom: 1px solid #f0f0f0;
+  font-size: 12px !important;
 }
 
 .virtual-table-row:hover {
@@ -39,15 +43,17 @@
 .virtual-table-row-content {
   display: flex;
   align-items: center;
+  font-size: 12px !important;
 }
 
 .virtual-table-cell {
-  padding: 16px;
+  padding: 12px; /* 从16px减小到12px */
   border-right: 1px solid #f0f0f0;
   flex-shrink: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  font-size: 12px !important;
 }
 
 .virtual-table-cell:last-child {
@@ -59,6 +65,6 @@
   .virtual-table-header-cell,
   .virtual-table-cell {
     padding: 8px;
-    font-size: 12px;
+    font-size: 11px !important;
   }
 }

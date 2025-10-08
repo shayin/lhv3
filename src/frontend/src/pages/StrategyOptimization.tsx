@@ -911,7 +911,7 @@ const StrategyOptimization: React.FC = () => {
           dataSource={optimizationJobs}
           rowKey="id"
           loading={loading}
-          size="middle"
+          size="small"
           scroll={{ 
             x: 1200,
             y: 'calc(100vh - 320px)'

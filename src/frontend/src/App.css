@@ -1,4 +1,8 @@
 /* 全局样式 */
+html {
+  font-size: 12px !important;
+}
+
 body {
   margin: 0;
   padding: 0;
@@ -6,6 +10,311 @@ body {
     Ubuntu, Cantarell, 'Fira Sans', 'Droid Sans', 'Helvetica Neue', sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  font-size: 12px !important; /* 全局基础字体大小 */
+}
+
+/* 强制所有元素使用较小字体 */
+*, *::before, *::after {
+  font-size: 12px !important;
+}
+
+/* 更具体的Ant Design组件覆盖 */
+.ant-table {
+  font-size: 12px !important;
+}
+
+.ant-table-tbody > tr > td {
+  font-size: 12px !important;
+  padding: 6px 8px !important;
+}
+
+.ant-table-thead > tr > th {
+  font-size: 12px !important;
+  padding: 6px 8px !important;
+}
+
+.ant-table-thead > tr > th > .ant-table-column-title {
+  font-size: 12px !important;
+}
+
+.ant-table-thead > tr > th .ant-table-header-column {
+  font-size: 12px !important;
+}
+
+/* 按钮样式强制覆盖 */
+.ant-btn {
+  font-size: 12px !important;
+  height: 28px !important;
+  padding: 4px 8px !important;
+  line-height: 1.2 !important;
+}
+
+.ant-btn-sm {
+  font-size: 11px !important;
+  height: 24px !important;
+  padding: 2px 6px !important;
+}
+
+.ant-btn > span {
+  font-size: 12px !important;
+}
+
+/* 输入框样式 */
+.ant-input {
+  font-size: 12px !important;
+  padding: 4px 8px !important;
+  height: 28px !important;
+}
+
+.ant-input-sm {
+  font-size: 11px !important;
+  padding: 2px 6px !important;
+  height: 24px !important;
+}
+
+/* 选择器样式 */
+.ant-select {
+  font-size: 12px !important;
+}
+
+.ant-select-selector {
+  font-size: 12px !important;
+  padding: 0 8px !important;
+  height: 28px !important;
+}
+
+.ant-select-selection-item {
+  font-size: 12px !important;
+  line-height: 26px !important;
+}
+
+.ant-select-selection-placeholder {
+  font-size: 12px !important;
+  line-height: 26px !important;
+}
+
+/* 表单标签强制覆盖 */
+.ant-form-item-label > label {
+  font-size: 12px !important;
+}
+
+.ant-form-item-label {
+  font-size: 12px !important;
+}
+
+.ant-form-item-label label {
+  font-size: 12px !important;
+}
+
+/* 菜单项样式 */
+.ant-menu-item {
+  font-size: 12px !important;
+  height: 32px !important;
+  line-height: 32px !important;
+}
+
+.ant-menu-item > span {
+  font-size: 12px !important;
+}
+
+.ant-menu-item-selected {
+  font-size: 12px !important;
+}
+
+/* 卡片样式 */
+.ant-card {
+  font-size: 12px !important;
+}
+
+.ant-card-head-title {
+  font-size: 13px !important;
+}
+
+.ant-card-body {
+  font-size: 12px !important;
+}
+
+/* 文字组件 */
+.ant-typography {
+  font-size: 12px !important;
+}
+
+.ant-typography h1 {
+  font-size: 18px !important;
+}
+
+.ant-typography h2 {
+  font-size: 16px !important;
+}
+
+.ant-typography h3 {
+  font-size: 14px !important;
+}
+
+.ant-typography h4 {
+  font-size: 13px !important;
+}
+
+.ant-typography h5 {
+  font-size: 12px !important;
+}
+
+/* 侧边栏样式 */
+.ant-layout-sider-children {
+  font-size: 12px !important;
+}
+
+.ant-menu {
+  font-size: 12px !important;
+}
+
+/* 分页器样式 */
+.ant-pagination {
+  font-size: 12px !important;
+}
+
+.ant-pagination-item {
+  font-size: 12px !important;
+}
+
+.ant-pagination-item a {
+  font-size: 12px !important;
+}
+
+.ant-pagination-prev,
+.ant-pagination-next {
+  font-size: 12px !important;
+}
+
+/* 进度条样式 */
+.progress-container {
+  font-size: 10px !important;
+}
+
+.progress-text {
+  font-size: 10px !important;
+}
+
+/* Tooltip样式 */
+.ant-tooltip-inner {
+  font-size: 11px !important;
+}
+
+/* 下拉选项 */
+.ant-select-dropdown {
+  font-size: 12px !important;
+}
+
+.ant-select-item {
+  font-size: 12px !important;
+}
+
+.ant-select-item-option-content {
+  font-size: 12px !important;
+}
+
+/* 日期选择器 */
+.ant-picker {
+  font-size: 12px !important;
+  height: 28px !important;
+}
+
+.ant-picker-input > input {
+  font-size: 12px !important;
+}
+
+.ant-picker-suffix {
+  font-size: 12px !important;
+}
+
+/* 标签页 */
+.ant-tabs-tab {
+  font-size: 12px !important;
+}
+
+.ant-tabs-tab-btn {
+  font-size: 12px !important;
+}
+
+/* 模态框 */
+.ant-modal-title {
+  font-size: 14px !important;
+}
+
+.ant-modal-body {
+  font-size: 12px !important;
+}
+
+/* 消息提示 */
+.ant-message {
+  font-size: 12px !important;
+}
+
+.ant-notification {
+  font-size: 12px !important;
+}
+
+/* 徽章 */
+.ant-badge {
+  font-size: 12px !important;
+}
+
+/* 标签 */
+.ant-tag {
+  font-size: 11px !important;
+  padding: 0 4px !important;
+  height: 20px !important;
+  line-height: 20px !important;
+}
+
+/* 开关 */
+.ant-switch {
+  font-size: 12px !important;
+}
+
+/* 滑块 */
+.ant-slider {
+  font-size: 12px !important;
+}
+
+/* 评分 */
+.ant-rate {
+  font-size: 12px !important;
+}
+
+/* 步骤条 */
+.ant-steps {
+  font-size: 12px !important;
+}
+
+.ant-steps-item-title {
+  font-size: 12px !important;
+}
+
+.ant-steps-item-description {
+  font-size: 11px !important;
+}
+
+/* 面包屑 */
+.ant-breadcrumb {
+  font-size: 12px !important;
+}
+
+.ant-breadcrumb a {
+  font-size: 12px !important;
+}
+
+/* 警告提示 */
+.ant-alert {
+  font-size: 12px !important;
+}
+
+.ant-alert-message {
+  font-size: 12px !important;
+}
+
+.ant-alert-description {
+  font-size: 11px !important;
 }
 
 /* 覆盖Ant Design默认样式 */
@@ -30,7 +339,7 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 18px;
+  font-size: 16px; /* 从18px减小到16px */
   font-weight: bold;
   color: #1890ff;
 }
@@ -47,7 +356,7 @@ body {
 }
 
 .header-nav-logo {
-  font-size: 18px;
+  font-size: 16px; /* 从18px减小到16px */
   font-weight: bold;
   color: #1890ff;
 }
@@ -61,6 +370,7 @@ body {
   padding: 24px;
   background: #fff;
   min-height: calc(100vh - 64px - 48px);
+  font-size: 12px; /* 内容区域字体大小 */
 }
 
 /* 卡片样式 */
@@ -74,6 +384,7 @@ body {
 
 .dashboard-card .ant-card-body {
   padding: 24px;
+  font-size: 12px; /* 卡片内容字体大小 */
 }
 
 /* 图表容器 */
@@ -105,6 +416,7 @@ body {
   border: 1px solid #f0f0f0;
   border-radius: 2px;
   padding: 24px;
+  font-size: 12px; /* 回测结果字体大小 */
 }
 
 .backtest-metric {
@@ -124,10 +436,12 @@ body {
 .backtest-metric-label {
   font-weight: bold;
   color: rgba(0, 0, 0, 0.65);
+  font-size: 12px; /* 标签字体大小 */
 }
 
 .backtest-metric-value {
   font-weight: bold;
+  font-size: 12px; /* 数值字体大小 */
 }
 
 .backtest-metric-value-positive {
@@ -145,4 +459,4 @@ body {
 
 .optimization-results .best-result {
   background-color: #f6ffed;
-} 
+}
