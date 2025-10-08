@@ -75,6 +75,29 @@ const StrategyOptimization: React.FC = () => {
   // 股票数据范围状态
   const [stockDateRange, setStockDateRange] = useState<{min_date?: string, max_date?: string}>({});
   const [availableStocks, setAvailableStocks] = useState<{symbol: string, name: string}[]>([]);
+  
+  // 任务名称相关状态
+  const [isTaskNameManuallyChanged, setIsTaskNameManuallyChanged] = useState(false);
+
+  // 生成默认任务名称
+  const generateDefaultTaskName = useCallback(() => {
+    const selectedStrategyObj = strategies.find(s => s.id === selectedStrategy);
+    const strategyName = selectedStrategyObj?.name || '策略优化';
+    
+    const formValues = optimizationForm.getFieldsValue();
+    const symbol = formValues.symbol || 'AAPL';
+    const currentDate = dayjs().format('YYYYMMDD');
+    
+    return `${strategyName}_${symbol}_${currentDate}`;
+  }, [selectedStrategy, strategies, optimizationForm]);
+
+  // 更新默认任务名称
+  const updateDefaultTaskName = useCallback(() => {
+    if (!isTaskNameManuallyChanged) {
+      const defaultName = generateDefaultTaskName();
+      optimizationForm.setFieldValue('name', defaultName);
+    }
+  }, [isTaskNameManuallyChanged, generateDefaultTaskName, optimizationForm]);
 
   // 加载策略列表
   const loadStrategies = async () => {
@@ -511,21 +534,21 @@ const StrategyOptimization: React.FC = () => {
       title: 'ID',
       dataIndex: 'id',
       key: 'id',
-      width: 60,
+      width: 50,
       align: 'center',
     },
     {
       title: '任务名称',
       dataIndex: 'name',
       key: 'name',
-      width: 180,
+      width: 160,
       ellipsis: true,
     },
     {
       title: '策略',
       dataIndex: 'strategy_id',
       key: 'strategy',
-      width: 140,
+      width: 120,
       ellipsis: {
         showTitle: false,
       },
@@ -537,7 +560,7 @@ const StrategyOptimization: React.FC = () => {
               color="blue" 
               style={{ 
                 margin: 0, 
-                maxWidth: '120px',
+                maxWidth: '100px',
                 overflow: 'hidden',
                 textOverflow: 'ellipsis',
                 whiteSpace: 'nowrap',
@@ -557,7 +580,7 @@ const StrategyOptimization: React.FC = () => {
       title: '状态',
       dataIndex: 'status',
       key: 'status',
-      width: 80,
+      width: 70,
       align: 'center',
       render: (status: string) => {
         const statusMap = {
@@ -574,15 +597,35 @@ const StrategyOptimization: React.FC = () => {
       title: '进度',
       dataIndex: 'progress',
       key: 'progress',
-      width: 120,
-      render: (progress: number, record: OptimizationJob) => (
-        <div>
-          <Progress percent={progress} size="small" />
-          <Text type="secondary" style={{ fontSize: '11px' }}>
-            {record.completed_trials}/{record.total_trials}
-          </Text>
+      width: 90,
+      render: (progress: number, record: OptimizationJob) => {
+        const progressText = `${record.completed_trials}/${record.total_trials}`;
+        const percentText = `${progress.toFixed(1)}%`;
+        return (
+          <Tooltip 
+            title={
+              <div>
+                <div>已完成试验: {record.completed_trials}</div>
+                <div>总试验数: {record.total_trials}</div>
+                <div>完成进度: {progress.toFixed(1)}%</div>
+              </div>
+            }
+            placement="topLeft"
+          >
+            <div style={{ width: '80px', textAlign: 'center' }}>
+              <Progress 
+                percent={progress} 
+                size="small" 
+                style={{ marginBottom: '1px' }}
+                showInfo={false}
+              />
+              <div style={{ fontSize: '10px', color: '#666', lineHeight: '1.2' }}>
+                {progressText} ({percentText})
+              </div>
             </div>
-      )
+          </Tooltip>
+        );
+      }
     },
     {
       title: '最佳得分',
@@ -820,7 +863,12 @@ const StrategyOptimization: React.FC = () => {
               <Button
                 type="primary"
                 icon={<PlayCircleOutlined />}
-                onClick={() => setOptimizationModalVisible(true)}
+                onClick={() => {
+                  setOptimizationModalVisible(true);
+                  // 重置手动修改标记并设置默认名称
+                  setIsTaskNameManuallyChanged(false);
+                  setTimeout(() => updateDefaultTaskName(), 100);
+                }}
                 disabled={!selectedStrategy || parameterSpaces.length === 0}
               >
                 启动优化
@@ -1025,7 +1073,17 @@ const StrategyOptimization: React.FC = () => {
         
         <Form form={optimizationForm} onFinish={handleStartOptimization} layout="vertical">
           <Form.Item name="name" label="任务名称" rules={[{ required: true, message: '请输入任务名称' }]}>
-            <Input placeholder="如: MA策略优化_AAPL_20240101" />
+            <Input 
+              placeholder="如: MA策略优化_AAPL_20240101" 
+              onChange={(e) => {
+                // 如果用户手动输入了内容，标记为已手动修改
+                if (e.target.value !== generateDefaultTaskName()) {
+                  setIsTaskNameManuallyChanged(true);
+                } else {
+                  setIsTaskNameManuallyChanged(false);
+                }
+              }}
+            />
           </Form.Item>
           
           <Form.Item name="description" label="任务描述">
@@ -1072,6 +1130,8 @@ const StrategyOptimization: React.FC = () => {
                   onChange={(value) => {
                     if (value) {
                       fetchStockDateRange(value);
+                      // 更新默认任务名称
+                      updateDefaultTaskName();
                     }
                   }}
                   options={availableStocks.map(stock => ({
