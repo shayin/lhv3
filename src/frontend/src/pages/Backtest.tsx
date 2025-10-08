@@ -258,9 +258,19 @@ const Backtest: React.FC = () => {
           setPollingInterval(null);
         }
         
-        // 获取回测结果
+        // 获取回测结果 - 优化：检查status中是否已包含结果
         try {
-          const result = await getAsyncBacktestResult(taskId);
+          let result;
+          
+          // 如果状态响应中已包含结果，直接使用，避免额外请求
+          if (status.result && Object.keys(status.result).length > 0) {
+            console.log('从状态响应中获取结果，避免额外请求');
+            result = status.result;
+          } else {
+            console.log('状态响应中无结果，发起结果请求');
+            result = await getAsyncBacktestResult(taskId);
+          }
+          
           console.log('异步回测结果:', result);
           
           // 检查结果是否为错误格式

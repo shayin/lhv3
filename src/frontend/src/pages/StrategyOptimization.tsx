@@ -1,4 +1,4 @@
-import React, { useState, useEffect, memo, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, memo, useCallback, useMemo, useRef } from 'react';
 import { Card, Form, Button, Select, InputNumber, Row, Col, Typography, message, Table, Space, Modal, Input, Progress, Tag, Alert, Tabs, Statistic, Popconfirm, DatePicker, Tooltip } from 'antd';
 import { PlayCircleOutlined, PlusOutlined, DeleteOutlined, SettingOutlined, EyeOutlined, ReloadOutlined, CalendarOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
@@ -60,6 +60,7 @@ const StrategyOptimization: React.FC = () => {
   const [parameterSpaces, setParameterSpaces] = useState<ParameterSpace[]>([]);
   const [optimizationJobs, setOptimizationJobs] = useState<OptimizationJob[]>([]);
   const [loading, setLoading] = useState(false);
+  const initializedRef = useRef<boolean>(false);
   
   // 表单和模态框状态
   const [optimizationForm] = Form.useForm();
@@ -777,11 +778,14 @@ const StrategyOptimization: React.FC = () => {
   ];
 
   useEffect(() => {
-    loadStrategies();
-    loadOptimizationJobs();
-    loadStocks();
-    // 自动获取默认股票AAPL的数据范围
-    fetchStockDateRange('AAPL');
+    if (!initializedRef.current) {
+      initializedRef.current = true;
+      loadStrategies();
+      loadOptimizationJobs();
+      loadStocks();
+      // 自动获取默认股票AAPL的数据范围
+      fetchStockDateRange('AAPL');
+    }
   }, []);
 
   return (

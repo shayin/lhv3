@@ -1,4 +1,4 @@
-import React, { useState, useEffect, memo, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, memo, useCallback, useMemo, useRef } from 'react';
 import { Table, Button, Space, Card, message, Modal, Popconfirm, Typography, Tag } from 'antd';
 import { PlusOutlined, EditOutlined, DeleteOutlined, ExclamationCircleOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
@@ -11,6 +11,7 @@ const StrategyManagement: React.FC = () => {
   const [strategies, setStrategies] = useState<Strategy[]>([]);
   const [loading, setLoading] = useState<boolean>(false);
   const navigate = useNavigate();
+  const initializedRef = useRef<boolean>(false);
 
   // 加载策略列表
   const loadStrategies = async () => {
@@ -28,7 +29,10 @@ const StrategyManagement: React.FC = () => {
 
   // 初始加载
   useEffect(() => {
-    loadStrategies();
+    if (!initializedRef.current) {
+      initializedRef.current = true;
+      loadStrategies();
+    }
   }, []);
 
   // 创建新策略

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, memo, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, memo, useMemo, useCallback, useRef } from 'react';
 import {
   Table, Button, Upload, message, Modal, Input, Select, Form, 
   Card, Space, Typography, Spin, Tag, Tooltip, Row, Col, Checkbox,
@@ -131,6 +131,9 @@ const DataManagement: React.FC = memo(() => {
   const [uploadMode, setUploadMode] = useState<'upload' | 'fetch'>('fetch');
   const [fetchLoading, setFetchLoading] = useState(false);
   const [updateAllLoading, setUpdateAllLoading] = useState(false);
+  
+  // 添加初始化标记，防止React StrictMode导致的重复初始化
+  const initializedRef = useRef<boolean>(false);
   
   // 分页相关状态 - 从cookie读取设置
   const [pagination, setPagination] = useState({
@@ -406,6 +409,12 @@ const DataManagement: React.FC = memo(() => {
 
   // 初始化加载
   useEffect(() => {
+    // 防止React StrictMode导致的重复初始化
+    if (initializedRef.current) {
+      return;
+    }
+    initializedRef.current = true;
+    
     fetchList();
     fetchSourcesList();
   }, [fetchList, fetchSourcesList]);

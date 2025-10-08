@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { 
   Card, 
@@ -29,6 +29,7 @@ const StrategyList: React.FC = () => {
   const navigate = useNavigate();
   const [strategies, setStrategies] = useState<Strategy[]>([]);
   const [loading, setLoading] = useState<boolean>(false);
+  const initializedRef = useRef<boolean>(false);
 
   // 获取策略列表
   const fetchStrategyList = async () => {
@@ -45,7 +46,10 @@ const StrategyList: React.FC = () => {
   };
 
   useEffect(() => {
-    fetchStrategyList();
+    if (!initializedRef.current) {
+      initializedRef.current = true;
+      fetchStrategyList();
+    }
   }, []);
 
   // 创建新策略
@@ -179,4 +183,4 @@ const StrategyList: React.FC = () => {
   );
 };
 
-export default StrategyList; 
+export default StrategyList;

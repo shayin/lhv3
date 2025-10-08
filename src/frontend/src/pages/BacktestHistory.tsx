@@ -112,6 +112,7 @@ const BacktestHistory: React.FC = memo(() => {
   const equityChartRef = useRef<any>(null);
   const klineChartRef = useRef<any>(null);
   const [batchUpdateLoading, setBatchUpdateLoading] = useState(false);
+  const initializedRef = useRef<boolean>(false);
 
   // 交易记录列定义 - 直接复用单次回测分析的代码
   const tradeColumns: ColumnsType<any> = [
@@ -1794,6 +1795,12 @@ const BacktestHistory: React.FC = memo(() => {
   }, [selectedBacktest]);
 
   useEffect(() => {
+    // 防止React StrictMode导致的重复初始化
+    if (initializedRef.current) {
+      return;
+    }
+    initializedRef.current = true;
+    
     fetchBacktestList();
   }, []);
 
