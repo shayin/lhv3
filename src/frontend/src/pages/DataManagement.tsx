@@ -17,6 +17,7 @@ import { PaginationCookie } from '../utils/cookie';
 import { useDebounce } from '../hooks/useDebounce';
 import OptimizedTable from '../components/OptimizedTable';
 import OptimizedChart from '../components/OptimizedChart';
+import ReactECharts from 'echarts-for-react';
 import dayjs from 'dayjs';
 
 const { Title, Text } = Typography;
@@ -300,7 +301,13 @@ const DataManagement: React.FC = memo(() => {
     setChartLoading(true);
     
     try {
-      const data = await fetchChartData(record.symbol);
+      const response = await fetchChartData(record.id);
+      console.log('API响应数据:', response);
+      
+      // 检查数据结构并提取实际的K线数据
+      const data = response.data || response || [];
+      console.log('处理后的数据:', data);
+      
       setChartData(data);
     } catch (error) {
       console.error('获取图表数据失败:', error);
@@ -407,6 +414,65 @@ const DataManagement: React.FC = memo(() => {
     },
   ], [handleDownload, handleViewChart, handleDelete]);
 
+  // 一键更新所有股票数据
+  const handleUpdateAll = useCallback(() => {
+    Modal.confirm({
+      title: '一键更新确认',
+      content: '确定要更新所有股票的最新数据吗？此操作可能需要较长时间。',
+      okText: '确定更新',
+      cancelText: '取消',
+      onOk: async () => {
+        setUpdateAllLoading(true);
+        try {
+          const result = await updateAllStocksData();
+          
+          if (result && result.status === 'success') {
+            const { summary } = result;
+            
+            if (summary.error === 0) {
+              message.success(`一键更新完成！成功更新 ${summary.success} 个股票数据`);
+            } else {
+              message.success(`一键更新完成！成功更新 ${summary.success} 个，失败 ${summary.error} 个`);
+              
+              // 获取失败的结果
+              const errorResults = result.results.filter(r => r.status === 'error');
+              console.warn('更新失败的股票:', errorResults);
+              
+              // 显示前几个错误信息
+              const errorMessages = errorResults.slice(0, 3).map(r => `${r.symbol}: ${r.message}`).join('; ');
+              if (errorResults.length > 3) {
+                message.warning(`部分股票更新失败: ${errorMessages}... (共${errorResults.length}个失败)`);
+              } else {
+                message.warning(`部分股票更新失败: ${errorMessages}`);
+              }
+            }
+            
+            // 刷新列表
+            fetchList();
+          } else {
+            message.error('一键更新失败');
+          }
+        } catch (error: any) {
+          console.error('一键更新失败:', error);
+          
+          // 安全地处理错误信息
+          const detail = error.response?.data?.detail;
+          if (detail) {
+            if (typeof detail === 'object') {
+              message.error(JSON.stringify(detail));
+            } else {
+              message.error(detail);
+            }
+          } else {
+            message.error('一键更新失败，请重试');
+          }
+        } finally {
+          setUpdateAllLoading(false);
+        }
+      },
+    });
+  }, [fetchList]);
+
   // 初始化加载
   useEffect(() => {
     // 防止React StrictMode导致的重复初始化
@@ -434,6 +500,15 @@ const DataManagement: React.FC = memo(() => {
                 onClick={() => setUploadVisible(true)}
               >
                 添加数据
+              </Button>
+              <Button 
+                type="primary"
+                icon={<SyncOutlined />} 
+                loading={updateAllLoading}
+                onClick={handleUpdateAll}
+                style={{ backgroundColor: '#52c41a', borderColor: '#52c41a' }}
+              >
+                一键更新
               </Button>
               <Button 
                 icon={<SyncOutlined />} 
@@ -468,11 +543,217 @@ const DataManagement: React.FC = memo(() => {
       >
         <Spin spinning={chartLoading}>
           {chartData.length > 0 ? (
-            <OptimizedChart
-              data={chartData}
-              height={500}
-              symbol={currentStock?.symbol}
-            />
+            <div style={{ height: '500px', width: '100%' }}>
+              <ReactECharts
+                option={{
+                  backgroundColor: '#fff',
+                  title: {
+                    text: currentStock?.symbol,
+                    left: 'center',
+                    top: 10,
+                    textStyle: {
+                      fontSize: 16,
+                      fontWeight: 'bold'
+                    },
+                    subtextStyle: {
+                      color: '#888'
+                    }
+                  },
+                  tooltip: {
+                    trigger: 'axis',
+                    axisPointer: {
+                      type: 'cross',
+                      label: {
+                        backgroundColor: '#555'
+                      }
+                    },
+                    backgroundColor: 'rgba(255, 255, 255, 0.8)',
+                    borderWidth: 1,
+                    borderColor: '#ccc',
+                    padding: 10,
+                    textStyle: {
+                      color: '#333'
+                    }
+                  },
+                  legend: {
+                    data: ['K线', 'MA5', 'MA10'],
+                    top: 35,
+                    selected: {
+                      'K线': true,
+                      'MA5': true,
+                      'MA10': true
+                    }
+                  },
+                  toolbox: {
+                    feature: {
+                      dataZoom: {
+                        yAxisIndex: [0, 1]
+                      },
+                      brush: {
+                        type: ['lineX', 'clear']
+                      },
+                      restore: {},
+                      saveAsImage: {}
+                    }
+                  },
+                  brush: {
+                    xAxisIndex: 'all',
+                    brushLink: 'all',
+                    outOfBrush: {
+                      colorAlpha: 0.1
+                    }
+                  },
+                  grid: [
+                    {
+                      left: '10%',
+                      right: '10%',
+                      top: 80,
+                      height: '60%'
+                    },
+                    {
+                      left: '10%',
+                      right: '10%',
+                      top: '75%',
+                      height: '15%'
+                    }
+                  ],
+                  xAxis: [
+                    {
+                      type: 'category',
+                      data: chartData.map(item => item.time),
+                      scale: true,
+                      boundaryGap: false,
+                      axisLine: { onZero: false },
+                      splitLine: { show: false },
+                      splitNumber: 20,
+                      min: 'dataMin',
+                      max: 'dataMax',
+                      axisPointer: {
+                        z: 100
+                      }
+                    },
+                    {
+                      type: 'category',
+                      gridIndex: 1,
+                      data: chartData.map(item => item.time),
+                      scale: true,
+                      boundaryGap: false,
+                      axisLine: { onZero: false },
+                      axisTick: { show: false },
+                      splitLine: { show: false },
+                      axisLabel: { show: false },
+                      splitNumber: 20,
+                      min: 'dataMin',
+                      max: 'dataMax'
+                    }
+                  ],
+                  yAxis: [
+                    {
+                      scale: true,
+                      splitArea: {
+                        show: true
+                      },
+                      splitLine: {
+                        show: true
+                      }
+                    },
+                    {
+                      scale: true,
+                      gridIndex: 1,
+                      splitNumber: 2,
+                      axisLabel: { show: false },
+                      axisLine: { show: false },
+                      axisTick: { show: false },
+                      splitLine: { show: false }
+                    }
+                  ],
+                  dataZoom: [
+                    {
+                      type: 'inside',
+                      xAxisIndex: [0, 1],
+                      start: 50,
+                      end: 100
+                    },
+                    {
+                      show: true,
+                      xAxisIndex: [0, 1],
+                      type: 'slider',
+                      bottom: 10,
+                      start: 50,
+                      end: 100
+                    }
+                  ],
+                  visualMap: {
+                    show: false,
+                    seriesIndex: 3,
+                    dimension: 2,
+                    pieces: [
+                      {
+                        value: 1,
+                        color: '#ef232a'
+                      },
+                      {
+                        value: -1,
+                        color: '#14b143'
+                      }
+                    ]
+                  },
+                  series: [
+                    {
+                      name: 'K线',
+                      type: 'candlestick',
+                      data: chartData.map(item => [
+                        item.open,  // 开盘价
+                        item.close,  // 收盘价
+                        item.low,   // 最低价
+                        item.high,  // 最高价
+                      ]),
+                      itemStyle: {
+                        color: '#ef232a',
+                        color0: '#14b143',
+                        borderColor: '#ef232a',
+                        borderColor0: '#14b143'
+                      }
+                    },
+                    {
+                      name: 'MA5',
+                      type: 'line',
+                      data: calculateMA(5, chartData),
+                      smooth: true,
+                      lineStyle: {
+                        width: 1,
+                        opacity: 0.7
+                      }
+                    },
+                    {
+                      name: 'MA10',
+                      type: 'line',
+                      data: calculateMA(10, chartData),
+                      smooth: true,
+                      lineStyle: {
+                        width: 1,
+                        opacity: 0.7
+                      }
+                    },
+                    {
+                      name: '成交量',
+                      type: 'bar',
+                      xAxisIndex: 1,
+                      yAxisIndex: 1,
+                      data: chartData.map((item, i) => {
+                        return [
+                          i,
+                          item.volume,
+                          item.close > item.open ? 1 : -1 // 1表示涨，-1表示跌
+                        ];
+                      })
+                    }
+                  ]
+                }}
+                style={{ height: '100%', width: '100%' }}
+                opts={{ renderer: 'canvas' }}
+              />
+            </div>
           ) : (
             <div style={{ textAlign: 'center', padding: '40px 0' }}>
               <p>暂无数据可供显示</p>
