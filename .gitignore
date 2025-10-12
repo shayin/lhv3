@@ -12,7 +12,7 @@ src/backend/cache/
 cache/
 logs/
 *.pid
-src/frontend/dist/
+# src/frontend/dist/
 */__pycache__/
 */*/__pycache__/
 */*/*/__pycache__/
