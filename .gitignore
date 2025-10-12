@@ -12,3 +12,4 @@ src/backend/cache/
 cache/
 logs/
 *.pid
+src/frontend/dist/
