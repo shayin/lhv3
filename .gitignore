@@ -11,3 +11,4 @@ data/scan_results
 src/backend/cache/
 cache/
 logs/
+*.pid
