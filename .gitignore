@@ -12,3 +12,10 @@ src/backend/cache/
 cache/
 logs/
 *.pid
+*/__pycache__/
+*/*/__pycache__/
+*/*/*/__pycache__/
+src/analysis/__pycache__/
+src/analysis/**/__pycache__/
+src/backend/__pycache__/
+src/backend/**/__pycache__/
