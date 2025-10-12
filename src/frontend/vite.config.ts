@@ -20,4 +20,31 @@ export default defineConfig({
       },
     },
   },
+  build: {
+    // 减小块大小警告限制
+    chunkSizeWarningLimit: 500,
+    
+    // 优化 Rollup 配置
+    rollupOptions: {
+      output: {
+        // 手动代码分割，避免大文件
+        manualChunks: (id) => {
+          if (id.includes('node_modules')) {
+            if (id.includes('monaco-editor')) {
+              return 'monaco'
+            }
+            if (id.includes('react') || id.includes('react-dom')) {
+              return 'react-vendor'
+            }
+            return 'vendor'
+          }
+        }
+      }
+    }
+  },
+  // 优化 esbuild
+  esbuild: {
+    minify: true,
+    target: 'es2015'
+  },
 });
