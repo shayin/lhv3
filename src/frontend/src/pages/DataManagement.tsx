@@ -266,6 +266,36 @@ const DataManagement: React.FC = memo(() => {
     }
   }, []);
 
+  // 单个股票更新 - 使用useCallback优化
+  const handleUpdateSingle = useCallback(async (id: string, symbol?: string) => {
+    setLoading(true);
+    try {
+      const response = await axios.post(`/api/data/update/${id}`);
+      if (response.data?.status === 'success') {
+        const msg = response.data?.message || '更新成功';
+        message.success(symbol ? `${symbol}：${msg}` : msg);
+      } else {
+        message.error(response.data?.detail || response.data?.message || '更新失败');
+      }
+      // 更新列表统计
+      await fetchList(pagination.current, pagination.pageSize);
+    } catch (error: any) {
+      console.error('单个更新失败:', error);
+      const detail = error.response?.data?.detail;
+      if (detail) {
+        if (typeof detail === 'object') {
+          message.error(JSON.stringify(detail));
+        } else {
+          message.error(detail);
+        }
+      } else {
+        message.error('更新失败，请重试');
+      }
+    } finally {
+      setLoading(false);
+    }
+  }, [fetchList, pagination.current, pagination.pageSize]);
+
   // 处理数据删除 - 使用useCallback优化
   const handleDelete = useCallback(async (id: string) => {
     Modal.confirm({
@@ -383,7 +413,7 @@ const DataManagement: React.FC = memo(() => {
     {
       title: '操作',
       key: 'action',
-      width: 280,
+      width: 360,
       render: (_, record) => (
         <Space size="small">
           <Button 
@@ -402,6 +432,13 @@ const DataManagement: React.FC = memo(() => {
             K线图
           </Button>
           <Button 
+            icon={<SyncOutlined />} 
+            size="small" 
+            onClick={() => handleUpdateSingle(record.id, record.symbol)}
+          >
+            更新
+          </Button>
+          <Button 
             danger 
             icon={<DeleteOutlined />} 
             size="small" 
@@ -412,7 +449,7 @@ const DataManagement: React.FC = memo(() => {
         </Space>
       ),
     },
-  ], [handleDownload, handleViewChart, handleDelete]);
+  ], [handleDownload, handleViewChart, handleUpdateSingle, handleDelete]);
 
   // 一键更新所有股票数据
   const handleUpdateAll = useCallback(() => {
