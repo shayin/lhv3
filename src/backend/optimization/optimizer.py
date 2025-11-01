@@ -67,6 +67,7 @@ class StrategyOptimizer:
     
     def _objective_function(self, trial: optuna.Trial) -> float:
         """目标函数"""
+        trial_record = None
         try:
             # 根据参数空间生成参数
             parameters = self._generate_parameters(trial)
@@ -128,11 +129,12 @@ class StrategyOptimizer:
         except Exception as e:
             logger.error(f"试验{trial.number}失败: {str(e)}")
             
-            # 更新试验记录为失败
-            trial_record.status = 'failed'
-            trial_record.error_message = str(e)
-            trial_record.completed_at = datetime.utcnow()
-            self.db.commit()
+            # 更新试验记录为失败（如果已创建）
+            if trial_record is not None:
+                trial_record.status = 'failed'
+                trial_record.error_message = str(e)
+                trial_record.completed_at = datetime.utcnow()
+                self.db.commit()
             
             # 对于失败的试验，返回极差值
             return float('-inf') if self._is_maximize_objective() else float('inf')
@@ -147,24 +149,26 @@ class StrategyOptimizer:
             param_type = space['parameter_type']
             
             if param_type == 'int':
-                parameters[param_name] = trial.suggest_int(
-                    param_name,
-                    int(space['min_value']),
-                    int(space['max_value']),
-                    step=int(space.get('step_size', 1))
-                )
+                min_v = int(space['min_value'])
+                max_v = int(space['max_value'])
+                step_v = space.get('step_size')
+                if step_v is None:
+                    parameters[param_name] = trial.suggest_int(param_name, min_v, max_v)
+                else:
+                    parameters[param_name] = trial.suggest_int(param_name, min_v, max_v, step=int(step_v))
             elif param_type == 'float':
-                parameters[param_name] = trial.suggest_float(
-                    param_name,
-                    space['min_value'],
-                    space['max_value'],
-                    step=space.get('step_size')
-                )
+                min_v = float(space['min_value'])
+                max_v = float(space['max_value'])
+                step_v = space.get('step_size')
+                if step_v is None:
+                    parameters[param_name] = trial.suggest_float(param_name, min_v, max_v)
+                else:
+                    parameters[param_name] = trial.suggest_float(param_name, min_v, max_v, step=float(step_v))
             elif param_type == 'choice':
-                parameters[param_name] = trial.suggest_categorical(
-                    param_name,
-                    space['choices']
-                )
+                parameters[param_name] = trial.suggest_categorical(param_name, space['choices'])
+            elif param_type in ('bool', 'boolean'):
+                choices = space.get('choices') or [True, False]
+                parameters[param_name] = trial.suggest_categorical(param_name, choices)
             else:
                 raise ValueError(f"不支持的参数类型: {param_type}")
         
