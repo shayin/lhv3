@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Query, Path, status, Form
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Query, Path, status, Form, BackgroundTasks
 from fastapi.responses import FileResponse, JSONResponse
 from sqlalchemy.orm import Session
 from typing import List, Optional, Dict, Any
@@ -20,6 +20,7 @@ import sys
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..'))
 from analysis.data_manager import DataManager
 
+from uuid import uuid4
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
@@ -29,6 +30,8 @@ os.makedirs(PROCESSED_DATA_DIR, exist_ok=True)
 
 # 初始化数据管理器
 data_manager = DataManager()
+# 异步更新任务内存状态（简单实现，可后续迁移到数据库）
+UPDATE_TASKS: Dict[str, Dict[str, Any]] = {}
 
 def update_stock_statistics(db: Session, stock_id: int):
     """更新股票的统计信息（总记录数、开始日期、结束日期）"""
@@ -523,6 +526,135 @@ async def update_stock_data(
     except Exception as e:
         logger.error(f"更新股票数据失败: {str(e)}")
         raise HTTPException(status_code=500, detail=f"更新股票数据失败: {str(e)}")
+
+@router.post("/update/{stock_id}/async", status_code=status.HTTP_202_ACCEPTED)
+async def update_stock_data_async(
+    stock_id: int = Path(..., description="股票ID"),
+):
+    """异步更新股票数据：立即返回任务ID，后台线程执行更新，避免阻塞主事件循环"""
+    task_id = str(uuid4())
+    UPDATE_TASKS[task_id] = {
+        "task_id": task_id,
+        "stock_id": stock_id,
+        "status": "queued",
+        "message": "任务已提交"
+    }
+    # 使用后台线程执行，确保不阻塞当前请求处理
+    import threading
+    threading.Thread(target=_update_stock_data_runner, args=(task_id, stock_id), daemon=True).start()
+    return {"status": "accepted", "task_id": task_id, "message": "更新任务已启动"}
+
+@router.get("/update-tasks/{task_id}", status_code=status.HTTP_200_OK)
+async def get_update_task_status(task_id: str = Path(..., description="任务ID")):
+    """查询异步更新任务状态"""
+    task = UPDATE_TASKS.get(task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="任务不存在")
+    return task
+
+from ..models.data_models import get_session
+
+def _update_stock_data_runner(task_id: str, stock_id: int):
+    """后台执行单股更新逻辑，并更新内存任务状态"""
+    UPDATE_TASKS[task_id].update({"status": "running", "message": "正在更新"})
+    db = get_session()
+    try:
+        stock = db.query(Stock).filter(Stock.id == stock_id).first()
+        if not stock:
+            UPDATE_TASKS[task_id].update({"status": "failed", "message": "股票不存在"})
+            return
+        latest_data = db.query(StockData).filter(StockData.stock_id == stock_id).order_by(StockData.date.desc()).first()
+        if not latest_data:
+            UPDATE_TASKS[task_id].update({"status": "failed", "message": "该股票没有数据记录，请先抓取初始数据"})
+            return
+        last_date = latest_data.date
+        start_date = (last_date + timedelta(days=1)).strftime("%Y-%m-%d")
+        end_date = datetime.now().strftime("%Y-%m-%d")
+        if start_date > end_date:
+            UPDATE_TASKS[task_id].update({
+                "status": "completed",
+                "message": f"{stock.symbol} 数据已是最新，无需更新",
+                "data": {
+                    "symbol": stock.symbol,
+                    "name": stock.name,
+                    "last_date": last_date.strftime("%Y-%m-%d"),
+                    "update_range": {"start": start_date, "end": end_date}
+                }
+            })
+            return
+        data_source = db.query(DataSource).filter(DataSource.id == stock.source_id).first()
+        if not data_source:
+            UPDATE_TASKS[task_id].update({"status": "failed", "message": f"数据源ID {stock.source_id} 不存在"})
+            return
+        source_name = data_source.name.lower()
+        if 'akshare' in source_name or '抓取' in source_name:
+            fetch_source = 'akshare'
+        elif '用户上传' in source_name or 'user' in source_name:
+            fetch_source = 'akshare'
+        else:
+            fetch_source = 'akshare'
+        available_sources = data_manager.get_available_sources()
+        if fetch_source not in available_sources:
+            UPDATE_TASKS[task_id].update({"status": "failed", "message": f"数据源 {fetch_source} 不可用"})
+            return
+        file_path = data_manager.fetch_stock_data(fetch_source, stock.symbol, start_date, end_date)
+        if not file_path:
+            UPDATE_TASKS[task_id].update({"status": "failed", "message": f"抓取股票 {stock.symbol} 数据失败"})
+            return
+        df = pd.read_csv(file_path)
+        required_columns = ['date', 'open', 'high', 'low', 'close', 'volume']
+        missing_columns = [col for col in required_columns if col not in df.columns]
+        if missing_columns:
+            UPDATE_TASKS[task_id].update({"status": "failed", "message": f"缺少必要列: {', '.join(missing_columns)}"})
+            return
+        processor = DataProcessor()
+        processed_df = processor.process_data(df, features=[])
+        records_count = 0
+        for _, row in processed_df.iterrows():
+            existing_data = db.query(StockData).filter(
+                StockData.stock_id == stock_id,
+                StockData.date == row['date']
+            ).first()
+            if not existing_data:
+                new_data = StockData(
+                    stock_id=stock_id,
+                    date=row['date'],
+                    open=row['open'],
+                    high=row['high'],
+                    low=row['low'],
+                    close=row['close'],
+                    volume=row['volume'],
+                    adj_close=row.get('adj_close', row['close'])
+                )
+                db.add(new_data)
+                records_count += 1
+        stock.last_updated = datetime.now()
+        if records_count > 0:
+            result = db.query(
+                func.count(StockData.id).label('total_records'),
+                func.min(StockData.date).label('first_date'),
+                func.max(StockData.date).label('last_date')
+            ).filter(StockData.stock_id == stock_id).first()
+            stock.total_records = result.total_records or 0
+            stock.first_date = result.first_date
+            stock.last_date = result.last_date
+        db.commit()
+        UPDATE_TASKS[task_id].update({
+            "status": "completed",
+            "message": f"成功更新 {records_count} 条 {stock.symbol} 的数据记录",
+            "data": {
+                "symbol": stock.symbol,
+                "name": stock.name,
+                "records_count": records_count,
+                "last_updated": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            }
+        })
+    except Exception as e:
+        db.rollback()
+        UPDATE_TASKS[task_id].update({"status": "failed", "message": str(e)})
+    finally:
+        db.close()
+
 
 @router.post("/fetch", status_code=status.HTTP_201_CREATED)
 async def fetch_stock_data(
@@ -1168,4 +1300,4 @@ async def get_stock_chart_data(stock_id: int, db: Session = Depends(get_db)):
     
     except Exception as e:
         logger.error(f"获取股票图表数据时发生错误: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"获取股票图表数据时发生错误: {str(e)}") 
+        raise HTTPException(status_code=500, detail=f"获取股票图表数据时发生错误: {str(e)}")

@@ -267,85 +267,48 @@ const DataManagement: React.FC = memo(() => {
   }, []);
 
   // 单个股票更新 - 使用useCallback优化
+  const [updatingIds, setUpdatingIds] = useState<string[]>([]);
   const handleUpdateSingle = useCallback(async (id: string, symbol?: string) => {
-    setLoading(true);
+    // 行级非阻塞：标记该行更新中
+    setUpdatingIds(prev => prev.includes(id) ? prev : [...prev, id]);
     try {
-      const response = await axios.post(`/api/data/update/${id}`);
-      if (response.data?.status === 'success') {
-        const msg = response.data?.message || '更新成功';
-        message.success(symbol ? `${symbol}：${msg}` : msg);
-      } else {
-        message.error(response.data?.detail || response.data?.message || '更新失败');
+      const response = await axios.post(`/api/data/update/${id}/async`);
+      const taskId = response.data?.task_id;
+      if (!taskId) {
+        message.error('任务提交失败：未返回任务ID');
+        setUpdatingIds(prev => prev.filter(x => x !== id));
+        return;
       }
-      // 更新列表统计
-      await fetchList(pagination.current, pagination.pageSize);
-    } catch (error: any) {
-      console.error('单个更新失败:', error);
-      const detail = error.response?.data?.detail;
-      if (detail) {
-        if (typeof detail === 'object') {
-          message.error(JSON.stringify(detail));
-        } else {
-          message.error(detail);
+      message.success(symbol ? `${symbol}：更新任务已启动` : '更新任务已启动');
+
+      // 轮询任务状态，完成后刷新列表
+      const poll = async () => {
+        try {
+          const statusResp = await axios.get(`/api/data/update-tasks/${taskId}`);
+          const status = statusResp.data?.status;
+          const msg = statusResp.data?.message;
+          if (status === 'completed') {
+            message.success(msg || (symbol ? `${symbol} 更新完成` : '更新完成'));
+            clearInterval(timer);
+            await fetchList(pagination.current, pagination.pageSize);
+            setUpdatingIds(prev => prev.filter(x => x !== id));
+          } else if (status === 'failed') {
+            message.error(msg || (symbol ? `${symbol} 更新失败` : '更新失败'));
+            clearInterval(timer);
+            setUpdatingIds(prev => prev.filter(x => x !== id));
+          }
+        } catch (err) {
+          console.error('查询任务状态失败:', err);
         }
-      } else {
-        message.error('更新失败，请重试');
-      }
-    } finally {
-      setLoading(false);
+      };
+      const timer = window.setInterval(poll, 2000);
+    } catch (error: any) {
+      console.error('提交异步更新失败:', error);
+      const detail = error.response?.data?.detail;
+      message.error(detail || '提交异步更新失败');
+      setUpdatingIds(prev => prev.filter(x => x !== id));
     }
   }, [fetchList, pagination.current, pagination.pageSize]);
-
-  // 处理数据删除 - 使用useCallback优化
-  const handleDelete = useCallback(async (id: string) => {
-    Modal.confirm({
-      title: '确认删除',
-      content: '此操作将永久删除该数据，是否继续？',
-      okText: '确认',
-      okType: 'danger',
-      cancelText: '取消',
-      onOk: async () => {
-        setLoading(true);
-        try {
-          const response = await axios.delete(`/api/data/delete/${id}`);
-          if (response.data && response.data.status === 'success') {
-            message.success(response.data.message || '删除成功');
-            fetchList();
-          } else {
-            message.error(response.data?.message || '删除失败');
-          }
-        } catch (error) {
-          console.error('删除失败:', error);
-          message.error('删除失败，请重试');
-        } finally {
-          setLoading(false);
-        }
-      },
-    });
-  }, [fetchList]);
-
-  // 查看K线图 - 使用useCallback优化
-  const handleViewChart = useCallback(async (record: DataItem) => {
-    setCurrentStock(record);
-    setChartVisible(true);
-    setChartLoading(true);
-    
-    try {
-      const response = await fetchChartData(record.id);
-      console.log('API响应数据:', response);
-      
-      // 检查数据结构并提取实际的K线数据
-      const data = response.data || response || [];
-      console.log('处理后的数据:', data);
-      
-      setChartData(data);
-    } catch (error) {
-      console.error('获取图表数据失败:', error);
-      message.error('获取图表数据失败');
-    } finally {
-      setChartLoading(false);
-    }
-  }, []);
 
   // 使用useMemo优化表格列配置
   const columns: ColumnsType<DataItem> = useMemo(() => [
@@ -433,7 +396,9 @@ const DataManagement: React.FC = memo(() => {
           </Button>
           <Button 
             icon={<SyncOutlined />} 
-            size="small" 
+            size="small"
+            loading={updatingIds.includes(record.id)}
+            disabled={updatingIds.includes(record.id)}
             onClick={() => handleUpdateSingle(record.id, record.symbol)}
           >
             更新
@@ -449,7 +414,60 @@ const DataManagement: React.FC = memo(() => {
         </Space>
       ),
     },
-  ], [handleDownload, handleViewChart, handleUpdateSingle, handleDelete]);
+  ], [handleUpdateSingle, updatingIds]);
+
+  // 处理数据删除 - 使用useCallback优化
+  const handleDelete = useCallback(async (id: string) => {
+    Modal.confirm({
+      title: '确认删除',
+      content: '此操作将永久删除该数据，是否继续？',
+      okText: '确认',
+      okType: 'danger',
+      cancelText: '取消',
+      onOk: async () => {
+        setLoading(true);
+        try {
+          const response = await axios.delete(`/api/data/delete/${id}`);
+          if (response.data && response.data.status === 'success') {
+            message.success(response.data.message || '删除成功');
+            fetchList();
+          } else {
+            message.error(response.data?.message || '删除失败');
+          }
+        } catch (error) {
+          console.error('删除失败:', error);
+          message.error('删除失败，请重试');
+        } finally {
+          setLoading(false);
+        }
+      },
+    });
+  }, [fetchList]);
+
+  // 查看K线图 - 使用useCallback优化
+  const handleViewChart = useCallback(async (record: DataItem) => {
+    setCurrentStock(record);
+    setChartVisible(true);
+    setChartLoading(true);
+    
+    try {
+      const response = await fetchChartData(record.id);
+      console.log('API响应数据:', response);
+      
+      // 检查数据结构并提取实际的K线数据
+      const data = response.data || response || [];
+      console.log('处理后的数据:', data);
+      
+      setChartData(data);
+    } catch (error) {
+      console.error('获取图表数据失败:', error);
+      message.error('获取图表数据失败');
+    } finally {
+      setChartLoading(false);
+    }
+  }, []);
+
+
 
   // 一键更新所有股票数据
   const handleUpdateAll = useCallback(() => {
