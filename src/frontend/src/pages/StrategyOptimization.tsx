@@ -282,6 +282,15 @@ const StrategyOptimization: React.FC = () => {
     setParameterSpaces(newSpaces);
   };
 
+  // 判断 choices 是否为布尔备选（true/false 或 'true'/'false'）
+  const isBooleanChoices = (choices?: any[]): boolean => {
+    if (!Array.isArray(choices)) return false;
+    const normalized = choices.map((c) => (typeof c === 'string' ? c.toLowerCase() : c));
+    const hasTrue = normalized.includes(true) || normalized.includes('true');
+    const hasFalse = normalized.includes(false) || normalized.includes('false');
+    return normalized.length === 2 && hasTrue && hasFalse;
+  };
+
   // 保存参数空间
   const handleSaveParameterSpaces = async () => {
     if (!selectedStrategy) {
@@ -1108,13 +1117,26 @@ const StrategyOptimization: React.FC = () => {
               </Col>
               <Col span={3}>
                 <Select
-                  value={space.parameter_type}
-                  onChange={(value) => updateParameterSpace(index, 'parameter_type', value)}
+                  value={space.parameter_type === 'choice' && isBooleanChoices(space.choices) ? 'boolean' : space.parameter_type}
+                  onChange={(value: any) => {
+                    const v = String(value);
+                    if (v === 'boolean') {
+                      // UI-only 布尔类型，内部映射为 choice 并填充 True/False
+                      updateParameterSpace(index, 'parameter_type', 'choice');
+                      updateParameterSpace(index, 'choices', [true, false]);
+                      if (!space.description) {
+                        updateParameterSpace(index, 'description', '布尔类型');
+                      }
+                    } else {
+                      updateParameterSpace(index, 'parameter_type', v as 'int' | 'float' | 'choice');
+                    }
+                  }}
                   style={{ width: '100%' }}
                 >
                   <Option value="int">整数</Option>
                   <Option value="float">小数</Option>
                   <Option value="choice">选择</Option>
+                  <Option value="boolean">布尔</Option>
                   </Select>
               </Col>
               {space.parameter_type !== 'choice' && (
@@ -1135,6 +1157,39 @@ const StrategyOptimization: React.FC = () => {
                         style={{ width: '100%' }} 
                       />
                     </Col>
+                </>
+              )}
+              {space.parameter_type === 'choice' && (
+                <>
+                  <Col span={6}>
+                    <Select
+                      mode="tags"
+                      style={{ width: '100%' }}
+                      placeholder="备选项（输入后回车添加）"
+                      value={(space.choices || []).map((c: any) => (typeof c === 'boolean' ? (c ? 'true' : 'false') : String(c)))}
+                      onChange={(vals) => {
+                        const normalized = (vals as (string | number)[]).map((v) => {
+                          if (typeof v === 'string') {
+                            const s = v.trim();
+                            if (s.toLowerCase() === 'true') return true;
+                            if (s.toLowerCase() === 'false') return false;
+                            const num = Number(s);
+                            return isNaN(num) ? s : num;
+                          }
+                          return v;
+                        });
+                        updateParameterSpace(index, 'choices', normalized);
+                      }}
+                    />
+                  </Col>
+                  <Col span={3}>
+                    <Button
+                      onClick={() => updateParameterSpace(index, 'choices', [true, false])}
+                      style={{ width: '100%' }}
+                    >
+                      填充布尔(True/False)
+                    </Button>
+                  </Col>
                 </>
               )}
               <Col span={4}>

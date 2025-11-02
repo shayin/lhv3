@@ -2973,6 +2973,25 @@ const Backtest: React.FC = () => {
                         precision={2}
                         style={{ width: '100%' }}
                       />
+                    ) : param.parameter_type === 'choice' ? (
+                      <Select
+                        value={
+                          strategyParameters[param.parameter_name] !== undefined
+                            ? strategyParameters[param.parameter_name]
+                            : (param.choices && param.choices.length > 0 ? param.choices[0] : undefined)
+                        }
+                        onChange={(value) => setStrategyParameters(prev => ({
+                          ...prev,
+                          [param.parameter_name]: value
+                        }))}
+                        style={{ width: '100%' }}
+                      >
+                        {(param.choices || []).map((c: boolean | number | string, i: number) => (
+                          <Option key={i} value={c as any}>
+                            {typeof c === 'boolean' ? (c ? 'true' : 'false') : String(c)}
+                          </Option>
+                        ))}
+                      </Select>
                     ) : (
                       <Input
                         value={strategyParameters[param.parameter_name] || ''}
@@ -3006,7 +3025,8 @@ const Backtest: React.FC = () => {
                       <strong>{param.parameter_name}：</strong>
                       {param.description}
                       {param.parameter_type === 'int' || param.parameter_type === 'float' ? 
-                        ` (范围: ${param.min_value} - ${param.max_value}, 步长: ${param.step_size})` : ''
+                        ` (范围: ${param.min_value} - ${param.max_value}, 步长: ${param.step_size})` :
+                        (param.parameter_type === 'choice' ? ` (选项: ${(param.choices || []).map((c: boolean | number | string) => (typeof c === 'boolean' ? (c ? 'true' : 'false') : String(c))).join(', ')})` : '')
                       }
                     </p>
                   ))}

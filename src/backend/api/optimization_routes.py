@@ -11,6 +11,7 @@ Key points:
 
 import logging
 import asyncio
+import math
 from typing import List, Dict, Any, Optional
 from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, Query
@@ -327,26 +328,28 @@ async def list_optimization_jobs(
             query = query.filter(OptimizationJob.status == status)
         total = query.count()
         jobs = query.offset((page - 1) * size).limit(size).all()
+        items = []
+        for j in jobs:
+            item = {
+                "id": j.id,
+                "strategy_id": j.strategy_id,
+                "name": j.name,
+                "status": j.status,
+                "progress": _json_safe(j.progress),
+                "best_score": _json_safe(j.best_score),
+                "best_parameters": _sanitize_for_json(j.best_parameters) if j.best_parameters else None,
+                "optimization_config": _sanitize_for_json(j.optimization_config) if j.optimization_config else None,
+                "objective_function": j.objective_function,
+                "total_trials": j.total_trials,
+                "completed_trials": j.completed_trials,
+                "created_at": j.created_at.isoformat() if j.created_at else None
+            }
+            items.append(item)
         return {"status": "success", "data": {
             "total": total,
             "page": page,
             "size": size,
-            "jobs": [
-                {
-                    "id": j.id,
-                    "strategy_id": j.strategy_id,
-                    "name": j.name,
-                    "status": j.status,
-                    "progress": j.progress,
-                    "best_score": j.best_score,
-                    "best_parameters": j.best_parameters,
-                    "optimization_config": j.optimization_config,
-                    "objective_function": j.objective_function,
-                    "total_trials": j.total_trials,
-                    "completed_trials": j.completed_trials,
-                    "created_at": j.created_at.isoformat() if j.created_at else None
-                } for j in jobs
-            ]
+            "jobs": items
         }}
     except Exception as e:
         logger.exception("Failed to list jobs")
@@ -536,10 +539,10 @@ async def list_optimization_jobs(
                 "strategy_id": j.strategy_id,
                 "name": j.name,
                 "status": j.status,
-                "progress": j.progress,
-                "best_score": j.best_score,
-                "best_parameters": j.best_parameters,
-                "optimization_config": j.optimization_config,
+                "progress": _json_safe(j.progress),
+                "best_score": _json_safe(j.best_score),
+                "best_parameters": _sanitize_for_json(j.best_parameters) if j.best_parameters else None,
+                "optimization_config": _sanitize_for_json(j.optimization_config) if j.optimization_config else None,
                 "objective_function": j.objective_function,
                 "total_trials": j.total_trials,
                 "completed_trials": j.completed_trials,
@@ -974,3 +977,16 @@ async def get_job_best_parameters(
     except Exception as e:
         logger.error(f"获取任务最佳参数失败: {e}")
         raise HTTPException(status_code=500, detail=f"获取任务最佳参数失败: {str(e)}")
+def _json_safe(value):
+    """Return a JSON-safe value: convert non-finite floats to None."""
+    if isinstance(value, float) and not math.isfinite(value):
+        return None
+    return value
+
+def _sanitize_for_json(obj):
+    """Recursively sanitize dict/list for JSON serialization (NaN/Inf -> None)."""
+    if isinstance(obj, dict):
+        return {k: _sanitize_for_json(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_sanitize_for_json(v) for v in obj]
+    return _json_safe(obj)
