@@ -222,20 +222,26 @@ const StrategyOptimization: React.FC = () => {
   // 加载优化任务
   const loadOptimizationJobs = async (strategyId?: number) => {
     try {
+      setLoading(true); // 设置加载状态
       const params = strategyId ? { strategy_id: strategyId } : {};
       const response = await axios.get('/api/optimization/jobs', { params });
       if (response.data && response.data.status === 'success') {
         // 数据在 response.data.data.jobs 中
         const jobs = Array.isArray(response.data.data?.jobs) ? response.data.data.jobs : [];
         setOptimizationJobs(jobs);
+        message.success('刷新成功');
       } else {
         // 如果响应格式不正确，设置为空数组
         setOptimizationJobs([]);
+        message.warning('没有找到优化任务');
       }
     } catch (error) {
       console.error('加载优化任务失败:', error);
       // 出错时设置为空数组，避免Table组件报错
       setOptimizationJobs([]);
+      message.error('加载优化任务失败');
+    } finally {
+      setLoading(false); // 无论成功失败都关闭加载状态
     }
   };
 
@@ -876,9 +882,9 @@ const StrategyOptimization: React.FC = () => {
               <Button
                 icon={<ReloadOutlined />}
                 onClick={() => {
-                  if (selectedStrategy) {
-                    loadOptimizationJobs(selectedStrategy);
-                  }
+                  console.log('刷新按钮被点击');
+                  // 无论是否选择了策略，都尝试刷新
+                  loadOptimizationJobs(selectedStrategy || undefined);
                 }}
               >
                 刷新
