@@ -390,6 +390,16 @@ const BacktestHistoryDetail: React.FC = () => {
                 <Row gutter={16}>
                   <Col span={8}>
                     <Statistic
+                      title="累计收益"
+                      value={(selectedHistory.total_return !== undefined
+                              ? selectedHistory.total_return
+                              : ((selectedHistory.performance_metrics.total_return || 0) * 100))}
+                      precision={2}
+                      suffix="%"
+                    />
+                  </Col>
+                  <Col span={8}>
+                    <Statistic
                       title="夏普比率"
                       value={selectedHistory.performance_metrics.sharpe_ratio || 0}
                       precision={3}

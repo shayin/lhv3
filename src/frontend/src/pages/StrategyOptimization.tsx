@@ -4,6 +4,11 @@ import { PlayCircleOutlined, PlusOutlined, DeleteOutlined, SettingOutlined, EyeO
 import type { ColumnsType } from 'antd/es/table';
 import axios from 'axios';
 import dayjs from 'dayjs';
+import utc from 'dayjs/plugin/utc';
+import timezone from 'dayjs/plugin/timezone';
+dayjs.extend(utc);
+dayjs.extend(timezone);
+dayjs.tz.setDefault('Asia/Shanghai');
 import { PaginationCookie } from '../utils/cookie';
 import OptimizedTable from '../components/OptimizedTable';
 import { useDebounce } from '../hooks/useDebounce';
@@ -88,7 +93,8 @@ const StrategyOptimization: React.FC = () => {
     const symbol = formValues.symbol || 'AAPL';
     const currentDate = dayjs().format('YYYYMMDD');
     
-    return `${strategyName}_${symbol}_${currentDate}`;
+    // 默认任务名格式：股票代码_日期_策略名
+    return `${symbol}_${currentDate}_${strategyName}`;
   }, [selectedStrategy, strategies, optimizationForm]);
 
   // 更新默认任务名称
@@ -754,12 +760,15 @@ const StrategyOptimization: React.FC = () => {
       dataIndex: 'created_at',
       key: 'created_at',
       width: 140,
-      render: (time: string) => (
-        <div style={{ lineHeight: '1.2' }}>
-          <div style={{ fontSize: '11px' }}>{dayjs(time).format('YYYY-MM-DD')}</div>
-          <div style={{ fontSize: '11px', color: '#666' }}>{dayjs(time).format('HH:mm:ss')}</div>
-        </div>
-      )
+      render: (time: string) => {
+        const dt = dayjs.utc(time).tz('Asia/Shanghai');
+        return (
+          <div style={{ lineHeight: '1.2' }}>
+            <div style={{ fontSize: '11px' }}>{dt.format('YYYY-MM-DD')}</div>
+            <div style={{ fontSize: '11px', color: '#666' }}>{dt.format('HH:mm:ss')}</div>
+          </div>
+        );
+      }
     },
     {
       title: '操作',
@@ -768,8 +777,9 @@ const StrategyOptimization: React.FC = () => {
       align: 'center',
       render: (_, record: OptimizationJob) => {
         // 判断是否为异常状态：运行中但创建时间超过1小时
+        const createdShanghai = dayjs.utc(record.created_at).tz('Asia/Shanghai');
         const isAbnormal = record.status === 'running' && 
-          dayjs().diff(dayjs(record.created_at), 'hour') >= 1;
+          dayjs().diff(createdShanghai, 'hour') >= 1;
         
         return (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
@@ -1080,7 +1090,7 @@ const StrategyOptimization: React.FC = () => {
         <Form form={optimizationForm} onFinish={handleStartOptimization} layout="vertical">
           <Form.Item name="name" label="任务名称" rules={[{ required: true, message: '请输入任务名称' }]}>
             <Input 
-              placeholder="如: MA策略优化_AAPL_20240101" 
+              placeholder="如: AAPL_20240101_MA策略优化" 
               onChange={(e) => {
                 // 如果用户手动输入了内容，标记为已手动修改
                 if (e.target.value !== generateDefaultTaskName()) {
@@ -1630,7 +1640,11 @@ const StrategyOptimization: React.FC = () => {
                   dataIndex: 'completed_at',
                   key: 'completed_at',
                   width: 150,
-                  render: (time: string) => time ? dayjs(time).format('HH:mm:ss') : '-'
+                  render: (time: string) => {
+                    if (!time) return '-';
+                    const dt = dayjs.utc(time).tz('Asia/Shanghai');
+                    return dt.format('HH:mm:ss');
+                  }
                 }
               ]}
             />

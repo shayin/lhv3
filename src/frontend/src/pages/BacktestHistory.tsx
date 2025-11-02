@@ -581,8 +581,8 @@ const BacktestHistory: React.FC = memo(() => {
       align: 'center',
       render: (_, record) => (
         <div style={{ fontSize: '12px', lineHeight: '1.4' }}>
-          <div style={{ fontWeight: 'bold' }}>{dayjs(record.start_date).format('MM-DD')}</div>
-          <div style={{ color: '#999' }}>至 {dayjs(record.end_date).format('MM-DD')}</div>
+          <div style={{ fontWeight: 'bold' }}>{dayjs(record.start_date).format('YYYY-MM-DD')}</div>
+          <div style={{ color: '#999' }}>至 {dayjs(record.end_date).format('YYYY-MM-DD')}</div>
         </div>
       ),
     },
@@ -2004,6 +2004,17 @@ const BacktestHistory: React.FC = memo(() => {
             {selectedBacktest.performance_metrics && (
               <Card title="性能指标" style={{ marginBottom: 24 }}>
                 <Row gutter={16}>
+                  <Col span={6}>
+                    <Statistic
+                      title={<span>累计收益 <Tooltip title="回测期间的总收益率"><InfoCircleOutlined style={{ fontSize: 14, color: '#aaa' }} /></Tooltip></span>}
+                      value={(
+                        ((selectedBacktest.performance_metrics?.total_return ?? selectedBacktest.results?.total_return ?? 0)) * 100
+                      )}
+                      precision={2}
+                      valueStyle={{ color: ((selectedBacktest.performance_metrics?.total_return ?? selectedBacktest.results?.total_return ?? 0)) >= 0 ? '#ff4d4f' : '#52c41a' }}
+                      suffix="%"
+                    />
+                  </Col>
                   <Col span={6}>
                     <Statistic
                       title={<span>年化收益率 <Tooltip title="策略的年化收益率"><InfoCircleOutlined style={{ fontSize: 14, color: '#aaa' }} /></Tooltip></span>}

@@ -2757,6 +2757,15 @@ const Backtest: React.FC = () => {
             <Row gutter={16}>
               <Col span={6}>
                 <Statistic
+                  title={<span>总收益率 <Tooltip title="总收益率=最终资金/初始资金-1，反映策略总体收益情况"><InfoCircleOutlined style={{ fontSize: 14, color: '#aaa' }} /></Tooltip></span>}
+                  value={performanceData.totalReturn}
+                  precision={2}
+                  valueStyle={{ color: performanceData.totalReturn >= 0 ? '#f5222d' : '#52c41a' }}
+                  suffix="%"
+                />
+              </Col>
+              <Col span={6}>
+                <Statistic
                   title={<span>年化收益率 <Tooltip title="年化收益率=（总收益率+1）^(365/天数)-1，反映策略年化增长速度"><InfoCircleOutlined style={{ fontSize: 14, color: '#aaa' }} /></Tooltip></span>}
                   value={performanceData.annualReturn}
                   precision={2}
@@ -2780,6 +2789,8 @@ const Backtest: React.FC = () => {
                   precision={2}
                 />
               </Col>
+            </Row>
+            <Row gutter={16} style={{ marginTop: 16 }}>
               <Col span={6}>
                 <Statistic
                   title={<span>胜率 <Tooltip title="胜率=盈利交易次数/总交易次数"><InfoCircleOutlined style={{ fontSize: 14, color: '#aaa' }} /></Tooltip></span>}
