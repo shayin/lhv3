@@ -46,6 +46,82 @@ class OptimizationRequest(BaseModel):
     timeout: Optional[int] = 3600
     backtest_config: Dict[str, Any]
 
+@router.get("/strategies/{strategy_id}/parameter-spec")
+async def get_strategy_parameter_spec(
+    strategy_id: int,
+    db: Session = Depends(get_db)
+):
+    """
+    自动从策略代码中识别参数规范（键、类型、默认值）。
+
+    返回示例：
+    {
+      "status": "success",
+      "data": [
+        {"name": "short_window", "type": "integer", "default": 5},
+        {"name": "long_window", "type": "integer", "default": 20}
+      ]
+    }
+    """
+    try:
+        # 读取策略代码
+        strategy = db.query(Strategy).filter(Strategy.id == strategy_id).first()
+        if not strategy:
+            raise HTTPException(status_code=404, detail="策略不存在")
+
+        code = strategy.code
+        if isinstance(code, (bytes, bytearray)):
+            try:
+                code = code.decode('utf-8')
+            except Exception:
+                code = code.decode('latin-1')
+
+        # 动态加载策略并实例化以获取默认参数
+        from .strategy_routes import load_strategy_from_code
+        instance = load_strategy_from_code(code, parameters={}, data=None)
+
+        # 优先使用 get_strategy_info().parameters，其次使用 instance.parameters
+        params = {}
+        if hasattr(instance, 'get_strategy_info'):
+            try:
+                info = instance.get_strategy_info()
+                params = (info or {}).get('parameters') or {}
+            except Exception:
+                params = {}
+        if not params:
+            params = getattr(instance, 'parameters', {}) or {}
+
+        # 构建规范列表：name/type/default
+        def infer_type(v):
+            if isinstance(v, bool):
+                return 'boolean'
+            if isinstance(v, int):
+                return 'integer'
+            if isinstance(v, float):
+                return 'float'
+            if isinstance(v, str):
+                return 'string'
+            if isinstance(v, list):
+                return 'list'
+            if isinstance(v, dict):
+                return 'dict'
+            return 'unknown'
+
+        spec = []
+        for k, v in params.items():
+            spec.append({
+                "name": k,
+                "type": infer_type(v),
+                "default": v
+            })
+
+        return {"status": "success", "data": spec}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"自动提取策略参数失败: {e}")
+        raise HTTPException(status_code=500, detail=f"自动提取策略参数失败: {str(e)}")
+
 
 class ParameterSetRequest(BaseModel):
     strategy_id: int

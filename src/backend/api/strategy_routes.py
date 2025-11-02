@@ -572,9 +572,68 @@ def load_strategy_from_code(code: str, parameters: Dict[str, Any] = None, data: 
             logger.error(error_msg)
             raise ValueError(error_msg)
         
-        # 实例化策略类
-        logger.debug(f"实例化策略类: {strategy_class.__name__}, 参数: {parameters}")
-        strategy_instance = strategy_class(name="动态策略", data=data, parameters=parameters)
+        # 首先实例化一个默认策略，用于提取默认参数规范
+        logger.debug(f"实例化默认策略以提取参数规范: {strategy_class.__name__}")
+        default_instance = strategy_class(name="动态策略", data=None, parameters=None)
+        default_params = {}
+        # 优先使用 get_strategy_info().parameters
+        if hasattr(default_instance, 'get_strategy_info'):
+            try:
+                info = default_instance.get_strategy_info() or {}
+                default_params = info.get('parameters') or {}
+            except Exception:
+                default_params = {}
+        if not default_params:
+            default_params = getattr(default_instance, 'parameters', {}) or {}
+
+        # 进行参数一致性校验与合并
+        def _type_name(v):
+            if isinstance(v, bool):
+                return 'boolean'
+            if isinstance(v, int):
+                return 'integer'
+            if isinstance(v, float):
+                return 'float'
+            if isinstance(v, str):
+                return 'string'
+            if isinstance(v, list):
+                return 'list'
+            if isinstance(v, dict):
+                return 'dict'
+            return type(v).__name__
+
+        def _is_compatible(default_v, given_v):
+            # float 默认允许 int 作为兼容
+            if isinstance(default_v, float) and isinstance(given_v, (int, float)):
+                return True
+            # 其他类型必须严格匹配（bool、int、str、list、dict）
+            return isinstance(given_v, type(default_v))
+
+        params_to_use = dict(default_params)  # 从默认开始
+        if parameters:
+            expected_keys = set(default_params.keys())
+            given_keys = set(parameters.keys())
+            unknown = given_keys - expected_keys
+            if unknown:
+                raise ValueError(f"传入参数包含未定义的键: {sorted(list(unknown))}")
+
+            # 类型校验
+            type_errors = []
+            for k, v in parameters.items():
+                if k in default_params:
+                    dv = default_params[k]
+                    # 如果默认值为 None，跳过类型校验
+                    if dv is not None and not _is_compatible(dv, v):
+                        type_errors.append(f"参数'{k}'类型不一致: 期望{_type_name(dv)}, 实际{_type_name(v)}")
+            if type_errors:
+                raise ValueError("; ".join(type_errors))
+
+            # 合并到默认参数
+            params_to_use.update(parameters)
+
+        # 使用校验/合并后的参数实例化策略
+        logger.debug(f"实例化策略类并应用参数: {strategy_class.__name__}, 参数: {params_to_use}")
+        strategy_instance = strategy_class(name="动态策略", data=data, parameters=params_to_use)
         return strategy_instance
     
     finally:

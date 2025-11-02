@@ -27,8 +27,21 @@ class MACrossoverStrategy(StrategyTemplate):
             "cross_rules": None,
         }
         
-        # 合并用户参数与默认参数
+        # 参数校验：未知键与类型
         if parameters:
+            unknown = set(parameters.keys()) - set(default_params.keys())
+            if unknown:
+                raise ValueError(f"存在未定义的参数: {sorted(list(unknown))}")
+            # 类型校验（float 允许 int 传入）
+            for k, v in parameters.items():
+                dv = default_params.get(k)
+                if dv is None:
+                    continue
+                if isinstance(dv, float) and isinstance(v, (int, float)):
+                    continue
+                if not isinstance(v, type(dv)):
+                    raise ValueError(f"参数'{k}'类型不一致: 期望{type(dv).__name__}, 实际{type(v).__name__}")
+            # 合并用户参数
             default_params.update(parameters)
             
         super().__init__(name="MA交叉策略", parameters=default_params)
@@ -222,4 +235,4 @@ class MACrossoverStrategy(StrategyTemplate):
                 df.at[target_idx, 'trigger_reason'] = df.at[idx, 'trigger_reason'] + f" | batch_{b+1}/{batch_count}"
                 df.at[target_idx, 'position_size'] = weights[b]
 
-        return df 
+        return df

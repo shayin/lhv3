@@ -41,8 +41,19 @@ class EnhancedMAStrategyV2(StrategyTemplate):
             "enable_position_tracking": True,  # 是否启用仓位跟踪
         }
         
-        # 合并用户参数与默认参数
+        # 校验未知键与类型后再合并
         if parameters:
+            unknown = set(parameters.keys()) - set(default_params.keys())
+            if unknown:
+                raise ValueError(f"存在未定义的参数: {sorted(list(unknown))}")
+            for k, v in parameters.items():
+                dv = default_params.get(k)
+                if dv is None:
+                    continue
+                if isinstance(dv, float) and isinstance(v, (int, float)):
+                    pass
+                elif not isinstance(v, type(dv)):
+                    raise ValueError(f"参数'{k}'类型不一致: 期望{type(dv).__name__}, 实际{type(v).__name__}")
             default_params.update(parameters)
             
         # 参数验证

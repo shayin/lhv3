@@ -302,6 +302,90 @@ const StrategyOptimization: React.FC = () => {
     }
   };
 
+  // 从后端自动识别策略参数并生成参数空间草案
+  const autoDetectParameterSpaces = async () => {
+    if (!selectedStrategy) {
+      message.error('请先选择策略');
+      return;
+    }
+    try {
+      setLoading(true);
+      const res = await axios.get(`/api/optimization/strategies/${selectedStrategy}/parameter-spec`);
+      const spec = res?.data?.data || [];
+      if (!Array.isArray(spec) || spec.length === 0) {
+        message.warning('未识别到策略参数');
+        return;
+      }
+
+      const spaces: ParameterSpace[] = [];
+      for (const item of spec) {
+        const name = item?.name;
+        const type = item?.type;
+        const def = item?.default;
+        if (!name || !type) continue;
+        if (type === 'integer') {
+          const base = typeof def === 'number' ? def : (typeof def === 'string' ? parseFloat(def) : 10);
+          let min = Math.floor((isNaN(base) ? 10 : base) * 0.5);
+          let max = Math.ceil((isNaN(base) ? 10 : base) * 1.5);
+          if (min < 1) min = 1;
+          if (max <= min) max = min + 1;
+          spaces.push({
+            parameter_name: name,
+            parameter_type: 'int',
+            min_value: min,
+            max_value: max,
+            step_size: 1,
+            description: '自动识别（±50%范围）'
+          });
+        } else if (type === 'float') {
+          const baseRaw = typeof def === 'number' ? def : (typeof def === 'string' ? parseFloat(def) : 1.0);
+          const base = isNaN(baseRaw) ? 1.0 : baseRaw;
+          let min = base * 0.5;
+          let max = base * 1.5;
+          if (max <= min) max = min + (Math.abs(base) || 1.0);
+          const step = Math.max(0.0001, Math.abs(base) * 0.1 || 0.1);
+          spaces.push({
+            parameter_name: name,
+            parameter_type: 'float',
+            min_value: Number(min.toFixed(6)),
+            max_value: Number(max.toFixed(6)),
+            step_size: Number(step.toFixed(6)),
+            description: '自动识别（±50%范围）'
+          });
+        } else if (type === 'boolean') {
+          spaces.push({
+            parameter_name: name,
+            parameter_type: 'choice',
+            choices: [true, false],
+            description: '自动识别（布尔类型）'
+          });
+        } else if (type === 'string') {
+          spaces.push({
+            parameter_name: name,
+            parameter_type: 'choice',
+            choices: typeof def !== 'undefined' ? [def] : [],
+            description: '自动识别（字符串类型，请手动设置备选项）'
+          });
+        } else {
+          // list/dict/unknown 暂不生成空间，避免无效配置
+          continue;
+        }
+      }
+
+      if (spaces.length === 0) {
+        message.warning('未识别到可优化的数值型参数');
+        return;
+      }
+      setParameterSpaces(spaces);
+      message.success(`已自动识别 ${spaces.length} 个参数，请完善范围后保存`);
+    } catch (error) {
+      console.error('自动识别策略参数失败:', error);
+      message.error('自动识别策略参数失败');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   // 查看其他回测试验
   const handleViewTrials = async (job: OptimizationJob) => {
     try {
@@ -1005,6 +1089,9 @@ const StrategyOptimization: React.FC = () => {
               }}
             >
               📊 使用MA策略推荐配置
+            </Button>
+            <Button type="link" onClick={autoDetectParameterSpaces}>
+              🔎 自动识别策略参数
             </Button>
           </Space>
         </div>
