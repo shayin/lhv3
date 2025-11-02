@@ -356,27 +356,7 @@ async def list_optimization_jobs(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.get("/jobs/{job_id}/trials")
-async def list_job_trials(job_id: int, db: Session = Depends(get_db)):
-    try:
-        trials = db.query(OptimizationTrial).filter(OptimizationTrial.optimization_job_id == job_id).all()
-        return {"status": "success", "data": [
-            {
-                "id": t.id,
-                "trial_number": t.trial_number,
-                "parameters": t.parameters,
-                "score": t.score,
-                "status": t.status,
-                "created_at": t.created_at.isoformat() if t.created_at else None
-            } for t in trials
-        ]}
-    except Exception as e:
-        logger.exception("Failed to list trials")
-        raise HTTPException(status_code=500, detail=str(e))
-
-    except Exception as e:
-        logger.error(f"获取参数空间失败: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"获取参数空间失败: {str(e)}")
+# 移除重复且错误的试验列表路由，使用下方的标准实现(`/jobs/{job_id}/trials`)
 
 
 @router.post("/strategies/{strategy_id}/parameter-spaces")

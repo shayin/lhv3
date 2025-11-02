@@ -1,6 +1,6 @@
 import React, { useState, useEffect, memo, useCallback, useMemo, useRef } from 'react';
 import { Card, Form, Button, Select, InputNumber, Row, Col, Typography, message, Table, Space, Modal, Input, Progress, Tag, Alert, Tabs, Statistic, Popconfirm, DatePicker, Tooltip } from 'antd';
-import { PlayCircleOutlined, PlusOutlined, DeleteOutlined, SettingOutlined, EyeOutlined, ReloadOutlined, CalendarOutlined } from '@ant-design/icons';
+import { PlayCircleOutlined, PlusOutlined, DeleteOutlined, SettingOutlined, EyeOutlined, ReloadOutlined, CalendarOutlined, ConsoleSqlOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import axios from 'axios';
 import dayjs from 'dayjs';
@@ -76,6 +76,8 @@ const StrategyOptimization: React.FC = () => {
   const [jobBacktestResult, setJobBacktestResult] = useState<any>(null);
   const [trialsModalVisible, setTrialsModalVisible] = useState(false);
   const [optimizationTrials, setOptimizationTrials] = useState<any[]>([]);
+  const [trialsLogsModalVisible, setTrialsLogsModalVisible] = useState(false);
+  const [selectedTrialLogs, setSelectedTrialLogs] = useState<any[]>([]);
   
   // 股票数据范围状态
   const [stockDateRange, setStockDateRange] = useState<{min_date?: string, max_date?: string}>({});
@@ -628,6 +630,50 @@ const StrategyOptimization: React.FC = () => {
     } catch (error) {
       console.error('启动优化任务失败:', error);
       message.error('启动优化任务失败');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // 查看试验日志
+  const handleViewTrialLogs = async (trial: any) => {
+    try {
+      setLoading(true);
+      
+      // 如果当前记录已有完整的回测结果和日志，直接使用
+      if (trial.backtest_results && trial.backtest_results.logs && trial.backtest_results.logs.length > 0) {
+        console.log('📋 使用当前记录中的日志');
+        setSelectedTrialLogs(trial.backtest_results.logs);
+        setTrialsLogsModalVisible(true);
+        return;
+      }
+      
+      // 否则尝试获取完整的试验数据
+      console.log('🔍 获取完整试验数据以获取日志...');
+      const response = await axios.get(`/api/optimization/jobs/${selectedJob?.id}/trials`);
+      
+      if (response.data && response.data.status === 'success') {
+        const fullTrials = response.data.data;
+        const fullTrial = fullTrials.find((t: any) => 
+          t.trial_number === trial.trial_number || 
+          t.id === trial.id ||
+          (t.parameters && trial.parameters && 
+           JSON.stringify(t.parameters) === JSON.stringify(trial.parameters))
+        );
+        
+        if (fullTrial && fullTrial.backtest_results && fullTrial.backtest_results.logs) {
+          console.log(`📋 找到完整试验数据，日志条数: ${fullTrial.backtest_results.logs.length}`);
+          setSelectedTrialLogs(fullTrial.backtest_results.logs);
+          setTrialsLogsModalVisible(true);
+        } else {
+          message.warning('该试验暂无日志数据');
+        }
+      } else {
+        message.error('获取试验日志失败');
+      }
+    } catch (error) {
+      console.error('获取试验日志失败:', error);
+      message.error('获取试验日志失败');
     } finally {
       setLoading(false);
     }
@@ -1787,6 +1833,22 @@ const StrategyOptimization: React.FC = () => {
                     const dt = dayjs.utc(time).tz('Asia/Shanghai');
                     return dt.format('HH:mm:ss');
                   }
+                },
+                {
+                  title: '日志',
+                  key: 'logs',
+                  width: 80,
+                  render: (_, record) => (
+                    <Tooltip title="查看日志">
+                      <Button
+                        type="text"
+                        size="small"
+                        icon={<ConsoleSqlOutlined />}
+                        onClick={() => handleViewTrialLogs(record)}
+                        style={{ color: '#1890ff' }}
+                      />
+                    </Tooltip>
+                  )
                 }
               ]}
             />
@@ -1808,6 +1870,63 @@ const StrategyOptimization: React.FC = () => {
             />
           </div>
         )}
+      </Modal>
+
+      {/* 试验日志模态框 */}
+      <Modal
+        title="试验日志"
+        open={trialsLogsModalVisible}
+        onCancel={() => setTrialsLogsModalVisible(false)}
+        footer={null}
+        width={800}
+        style={{ top: 20 }}
+      >
+        <div style={{ maxHeight: '600px', overflow: 'auto' }}>
+          {selectedTrialLogs && selectedTrialLogs.length > 0 ? (
+            <div style={{ fontFamily: 'Monaco, Consolas, "Courier New", monospace', fontSize: '12px' }}>
+              {selectedTrialLogs.map((log: any, index: number) => {
+                const getLogColor = (level: string) => {
+                  switch (level?.toUpperCase()) {
+                    case 'ERROR': return '#ff4d4f';
+                    case 'WARNING': return '#faad14';
+                    case 'DEBUG': return '#722ed1';
+                    case 'INFO': 
+                    default: return '#1890ff';
+                  }
+                };
+                
+                return (
+                  <div key={index} style={{ 
+                    marginBottom: '4px', 
+                    padding: '2px 4px',
+                    backgroundColor: '#f5f5f5',
+                    borderRadius: '2px'
+                  }}>
+                    <span style={{ color: '#666', marginRight: '8px' }}>
+                      {log.timestamp ? dayjs(log.timestamp).format('HH:mm:ss.SSS') : ''}
+                    </span>
+                    <span style={{ 
+                      color: getLogColor(log.level), 
+                      fontWeight: 'bold',
+                      marginRight: '8px',
+                      minWidth: '60px',
+                      display: 'inline-block'
+                    }}>
+                      [{log.level?.toUpperCase() || 'INFO'}]
+                    </span>
+                    <span style={{ color: '#333' }}>
+                      {log.message}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            <div style={{ textAlign: 'center', padding: '40px', color: '#999' }}>
+              暂无日志数据
+            </div>
+          )}
+        </div>
       </Modal>
     </div>
   );
