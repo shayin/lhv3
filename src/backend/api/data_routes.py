@@ -32,6 +32,8 @@ os.makedirs(PROCESSED_DATA_DIR, exist_ok=True)
 data_manager = DataManager()
 # 异步更新任务内存状态（简单实现，可后续迁移到数据库）
 UPDATE_TASKS: Dict[str, Dict[str, Any]] = {}
+# 一键更新任务状态存储
+UPDATE_ALL_TASKS: Dict[str, Dict[str, Any]] = {}
 
 def update_stock_statistics(db: Session, stock_id: int):
     """更新股票的统计信息（总记录数、开始日期、结束日期）"""
@@ -1102,9 +1104,8 @@ async def update_all_stocks_data(db: Session = Depends(get_db)):
                     error_count += 1
                     continue
                 
-                # 根据数据源名称确定使用哪个数据抓取器
+                # 根据数据源名称选择抓取器
                 source_name = data_source.name.lower()
-                
                 if 'akshare' in source_name or '抓取' in source_name:
                     fetch_source = 'akshare'
                 elif '用户上传' in source_name or 'user' in source_name:
@@ -1124,9 +1125,8 @@ async def update_all_stocks_data(db: Session = Depends(get_db)):
                     error_count += 1
                     continue
                 
-                # 抓取数据
+                # 抓取数据到文件并读取
                 file_path = data_manager.fetch_stock_data(fetch_source, stock.symbol, start_date, end_date)
-                
                 if not file_path:
                     results.append({
                         "symbol": stock.symbol,
@@ -1301,3 +1301,151 @@ async def get_stock_chart_data(stock_id: int, db: Session = Depends(get_db)):
     except Exception as e:
         logger.error(f"获取股票图表数据时发生错误: {str(e)}")
         raise HTTPException(status_code=500, detail=f"获取股票图表数据时发生错误: {str(e)}")
+
+@router.post("/update-all/async", status_code=status.HTTP_202_ACCEPTED)
+async def update_all_stocks_data_async():
+    """异步一键更新所有股票数据，立即返回任务ID，后台线程执行"""
+    task_id = str(uuid4())
+    UPDATE_ALL_TASKS[task_id] = {
+        "task_id": task_id,
+        "status": "queued",
+        "message": "任务已提交",
+        "total": 0,
+        "processed": 0,
+        "success": 0,
+        "error": 0,
+        "skipped": 0,
+    }
+    import threading
+    threading.Thread(target=_update_all_runner, args=(task_id,), daemon=True).start()
+    return {"status": "accepted", "task_id": task_id, "message": "一键更新任务已启动"}
+
+@router.get("/update-all-tasks/{task_id}", status_code=status.HTTP_200_OK)
+async def get_update_all_task_status(task_id: str = Path(..., description="任务ID")):
+    task = UPDATE_ALL_TASKS.get(task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="任务不存在")
+    return task
+
+from ..models.data_models import get_session
+
+def _update_all_runner(task_id: str):
+    """后台执行一键更新，逐股处理并更新进度"""
+    UPDATE_ALL_TASKS[task_id].update({"status": "running", "message": "正在更新"})
+    db = get_session()
+    try:
+        stocks = db.query(Stock).all()
+        UPDATE_ALL_TASKS[task_id]["total"] = len(stocks)
+        for stock in stocks:
+            try:
+                latest = db.query(StockData).filter(StockData.stock_id == stock.id).order_by(StockData.date.desc()).first()
+                if not latest:
+                    UPDATE_ALL_TASKS[task_id]["skipped"] += 1
+                    UPDATE_ALL_TASKS[task_id]["processed"] += 1
+                    continue
+                start_date = (latest.date + timedelta(days=1)).strftime("%Y-%m-%d")
+                end_date = datetime.now().strftime("%Y-%m-%d")
+                if start_date > end_date:
+                    UPDATE_ALL_TASKS[task_id]["success"] += 1
+                    UPDATE_ALL_TASKS[task_id]["processed"] += 1
+                    continue
+                # 获取数据源
+                data_source = db.query(DataSource).filter(DataSource.id == stock.source_id).first()
+                if not data_source:
+                    UPDATE_ALL_TASKS[task_id]["error"] += 1
+                    UPDATE_ALL_TASKS[task_id]["processed"] += 1
+                    continue
+                # 根据数据源名称选择抓取器
+                source_name = data_source.name.lower()
+                if 'akshare' in source_name or '抓取' in source_name:
+                    fetch_source = 'akshare'
+                elif '用户上传' in source_name or 'user' in source_name:
+                    fetch_source = 'akshare'
+                else:
+                    fetch_source = 'akshare'
+                
+                # 检查数据源是否可用
+                available_sources = data_manager.get_available_sources()
+                if fetch_source not in available_sources:
+                    UPDATE_ALL_TASKS[task_id]["error"] += 1
+                    UPDATE_ALL_TASKS[task_id]["processed"] += 1
+                    continue
+                
+                # 抓取数据到文件并读取
+                file_path = data_manager.fetch_stock_data(fetch_source, stock.symbol, start_date, end_date)
+                if not file_path:
+                    UPDATE_ALL_TASKS[task_id]["skipped"] += 1
+                    UPDATE_ALL_TASKS[task_id]["processed"] += 1
+                    continue
+                df = pd.read_csv(file_path)
+                # 校验列
+                required_columns = ['date', 'open', 'high', 'low', 'close', 'volume']
+                missing_columns = [col for col in required_columns if col not in df.columns]
+                if missing_columns:
+                    UPDATE_ALL_TASKS[task_id]["error"] += 1
+                    UPDATE_ALL_TASKS[task_id]["processed"] += 1
+                    continue
+                # 空数据视为成功（无新数据）
+                if df.empty:
+                    UPDATE_ALL_TASKS[task_id]["success"] += 1
+                    UPDATE_ALL_TASKS[task_id]["processed"] += 1
+                    continue
+                # 转换日期
+                try:
+                    df['date'] = pd.to_datetime(df['date'])
+                except Exception:
+                    UPDATE_ALL_TASKS[task_id]["error"] += 1
+                    UPDATE_ALL_TASKS[task_id]["processed"] += 1
+                    continue
+                # 处理数据，与同步逻辑保持一致
+                processor = DataProcessor()
+                processed_df = processor.process_data(df, features=[])
+                # 去重插入，避免违反 (stock_id, date) 唯一约束
+                records_count = 0
+                for _, row in processed_df.iterrows():
+                    existing = db.query(StockData).filter(
+                        StockData.stock_id == stock.id,
+                        StockData.date == row['date']
+                    ).first()
+                    if not existing:
+                        new_data = StockData(
+                            stock_id=stock.id,
+                            date=row['date'],
+                            open=row['open'],
+                            high=row['high'],
+                            low=row['low'],
+                            close=row['close'],
+                            volume=row['volume'],
+                            adj_close=row.get('adj_close', row['close'])
+                        )
+                        db.add(new_data)
+                        records_count += 1
+                stock.last_updated = datetime.now()
+                # 更新统计信息（仅在有新增记录时）
+                if records_count > 0:
+                    result = db.query(
+                        func.count(StockData.id).label('total_records'),
+                        func.min(StockData.date).label('first_date'),
+                        func.max(StockData.date).label('last_date')
+                    ).filter(StockData.stock_id == stock.id).first()
+                    stock.total_records = result.total_records or 0
+                    stock.first_date = result.first_date
+                    stock.last_date = result.last_date
+                db.commit()
+                UPDATE_ALL_TASKS[task_id]["success"] += 1
+                UPDATE_ALL_TASKS[task_id]["processed"] += 1
+            except Exception as e:
+                logger.error(f"一键更新处理股票 {stock.symbol} 失败: {str(e)}")
+                UPDATE_ALL_TASKS[task_id]["error"] += 1
+                UPDATE_ALL_TASKS[task_id]["processed"] += 1
+        UPDATE_ALL_TASKS[task_id].update({
+            "status": "completed",
+            "message": "一键更新完成"
+        })
+    except Exception as e:
+        UPDATE_ALL_TASKS[task_id].update({
+            "status": "failed",
+            "message": f"一键更新失败: {str(e)}"
+        })
+    finally:
+        db.close()

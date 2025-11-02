@@ -479,49 +479,47 @@ const DataManagement: React.FC = memo(() => {
       onOk: async () => {
         setUpdateAllLoading(true);
         try {
-          const result = await updateAllStocksData();
-          
-          if (result && result.status === 'success') {
-            const { summary } = result;
-            
-            if (summary.error === 0) {
-              message.success(`一键更新完成！成功更新 ${summary.success} 个股票数据`);
-            } else {
-              message.success(`一键更新完成！成功更新 ${summary.success} 个，失败 ${summary.error} 个`);
-              
-              // 获取失败的结果
-              const errorResults = result.results.filter(r => r.status === 'error');
-              console.warn('更新失败的股票:', errorResults);
-              
-              // 显示前几个错误信息
-              const errorMessages = errorResults.slice(0, 3).map(r => `${r.symbol}: ${r.message}`).join('; ');
-              if (errorResults.length > 3) {
-                message.warning(`部分股票更新失败: ${errorMessages}... (共${errorResults.length}个失败)`);
-              } else {
-                message.warning(`部分股票更新失败: ${errorMessages}`);
+          // 调用后端异步接口，立即返回task_id
+          const resp = await axios.post('/api/data/update-all/async');
+          const taskId = resp.data?.task_id;
+          if (!taskId) {
+            message.error('任务提交失败：未返回任务ID');
+            setUpdateAllLoading(false);
+            return;
+          }
+          message.success('一键更新任务已启动');
+
+          // 轮询任务状态，不阻塞页面
+          const poll = async () => {
+            try {
+              const statusResp = await axios.get(`/api/data/update-all-tasks/${taskId}`);
+              const status = statusResp.data?.status;
+              const msg = statusResp.data?.message;
+              const processed = statusResp.data?.processed;
+              const total = statusResp.data?.total;
+              if (typeof processed === 'number' && typeof total === 'number') {
+                // 轻量进度提示，不打断用户操作
+                message.info(`一键更新进度：${processed}/${total}`, 1);
               }
+              if (status === 'completed') {
+                clearInterval(timer);
+                setUpdateAllLoading(false);
+                message.success(msg || '一键更新完成');
+                await fetchList(pagination.current, pagination.pageSize);
+              } else if (status === 'failed') {
+                clearInterval(timer);
+                setUpdateAllLoading(false);
+                message.error(msg || '一键更新失败');
+              }
+            } catch (e) {
+              console.error('查询一键更新任务状态失败:', e);
             }
-            
-            // 刷新列表
-            fetchList();
-          } else {
-            message.error('一键更新失败');
-          }
+          };
+          const timer = window.setInterval(poll, 2000);
         } catch (error: any) {
-          console.error('一键更新失败:', error);
-          
-          // 安全地处理错误信息
+          console.error('一键更新任务提交失败:', error);
           const detail = error.response?.data?.detail;
-          if (detail) {
-            if (typeof detail === 'object') {
-              message.error(JSON.stringify(detail));
-            } else {
-              message.error(detail);
-            }
-          } else {
-            message.error('一键更新失败，请重试');
-          }
-        } finally {
+          message.error(detail || '一键更新任务提交失败');
           setUpdateAllLoading(false);
         }
       },
