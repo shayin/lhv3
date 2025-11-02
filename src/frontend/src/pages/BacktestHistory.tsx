@@ -424,9 +424,27 @@ const BacktestHistory: React.FC = memo(() => {
 
   // 查看日志
   const handleViewLogs = (record: BacktestRecord) => {
-    const logs = record.logs || [];
-    setSelectedLogs(logs);
+    // 优先从详情接口获取最新日志，避免列表响应体过大
     setLogsModalVisible(true);
+    setSelectedLogs([]);
+    axios.get(`/api/backtest-status/${record.id}`)
+      .then((response) => {
+        if (response.data && response.data.status === 'success') {
+          const detail = response.data.data || {};
+          const logs = detail.logs || [];
+          setSelectedLogs(logs);
+        } else {
+          // 回退到列表中的日志（若存在）
+          const fallback = record.logs || [];
+          setSelectedLogs(fallback);
+        }
+      })
+      .catch((error) => {
+        console.error('获取日志失败:', error);
+        message.error('获取日志失败');
+        const fallback = record.logs || [];
+        setSelectedLogs(fallback);
+      });
   };
 
   // 更新回测

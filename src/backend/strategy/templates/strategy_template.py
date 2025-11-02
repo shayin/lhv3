@@ -25,6 +25,8 @@ class StrategyTemplate:
         self.name = name
         self.parameters = parameters or {}
         self.data = data
+        # 策略执行日志列表（供策略内 self.log 使用）
+        self.strategy_logs: List[Dict[str, str]] = []
         
     def set_data(self, data: pd.DataFrame) -> None:
         """
@@ -51,6 +53,43 @@ class StrategyTemplate:
         """
         self.initial_capital = initial_capital
         logger.info(f"初始化策略资金: {initial_capital}")
+
+    def log(self, message: Any, level: str = "INFO") -> None:
+        """记录策略日志，供自定义策略中使用。
+
+        Args:
+            message: 日志内容
+            level: 日志级别 (DEBUG, INFO, WARNING, ERROR)
+        """
+        from datetime import datetime
+
+        entry = {
+            "timestamp": datetime.now().isoformat(),
+            "level": str(level).upper(),
+            "message": str(message),
+        }
+
+        # 收集到策略日志列表中，供后续保存或展示
+        self.strategy_logs.append(entry)
+
+        # 同步输出到系统日志，便于调试
+        lvl = entry["level"]
+        if lvl == "DEBUG":
+            logger.debug(f"[策略日志] {entry['message']}")
+        elif lvl == "WARNING":
+            logger.warning(f"[策略日志] {entry['message']}")
+        elif lvl == "ERROR":
+            logger.error(f"[策略日志] {entry['message']}")
+        else:
+            logger.info(f"[策略日志] {entry['message']}")
+
+    def get_logs(self) -> List[Dict[str, str]]:
+        """获取当前会话的策略日志副本。"""
+        return self.strategy_logs.copy()
+
+    def clear_logs(self) -> None:
+        """清空已记录的策略日志。"""
+        self.strategy_logs.clear()
     
     def generate_signals(self) -> pd.DataFrame:
         """

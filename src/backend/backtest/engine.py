@@ -249,6 +249,18 @@ class BacktestEngine:
             "alpha": self.results['performance'].get('alpha', 0.0),
             "beta": self.results['performance'].get('beta', 0.0)
         }
+
+        # 附加策略日志（如果策略支持）
+        try:
+            if self.strategy is not None and hasattr(self.strategy, 'get_logs'):
+                logs = self.strategy.get_logs()
+                # 确保日志为可序列化的列表
+                if isinstance(logs, list):
+                    result["logs"] = logs
+                else:
+                    logger.warning("策略日志格式非列表，已忽略日志附加")
+        except Exception as e:
+            logger.warning(f"附加策略日志失败: {e}")
         
         # 检查结果中是否有非JSON兼容的值(inf, NaN)，并替换
         for key, value in result.items():
@@ -410,6 +422,15 @@ class BacktestEngine:
         
         # 添加参数信息
         backtest_results['parameters'] = parameters
+
+        # 附加策略日志（如果支持）
+        try:
+            if hasattr(strategy, 'get_logs'):
+                logs = strategy.get_logs()
+                if isinstance(logs, list):
+                    backtest_results['logs'] = logs
+        except Exception as e:
+            logger.warning(f"并行回测附加策略日志失败: {e}")
         
         return backtest_results
     
