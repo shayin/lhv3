@@ -72,6 +72,12 @@ class StrategyOptimizer:
             # 根据参数空间生成参数
             parameters = self._generate_parameters(trial)
             
+            # 添加随机种子确保每次试验结果不同
+            import time
+            import random
+            random_seed = int(time.time() * 1000) + trial.number + random.randint(1, 10000)
+            parameters['random_seed'] = random_seed
+            
             # 记录试验开始
             trial_record = OptimizationTrial(
                 job_id=self.job.id,
@@ -87,13 +93,14 @@ class StrategyOptimizer:
             # 执行回测
             backtest_config = self.config['backtest_config']
             
-            # 构造正确的参数结构，包装策略参数
+            # 直接传递参数，不要包装在parameters字段中
             backtest_parameters = {
-                'parameters': parameters,  # 策略参数
-                'save_backtest': False     # 不保存单个试验的回测
+                'parameters': parameters,  # 确保参数正确传递给策略
+                'save_backtest': False  # 不保存单个试验的回测
             }
             
-            logger.info(f"试验{trial.number}: 参数={parameters}")
+            logger.info(f"试验{trial.number}: 参数={parameters}, 随机种子={random_seed}")
+            logger.info(f"传递给回测的参数结构: {backtest_parameters}")
             
             result = self.backtest_service.run_backtest(
                 strategy_id=self.job.strategy_id,

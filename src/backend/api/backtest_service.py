@@ -278,8 +278,25 @@ class BacktestService:
         
         # 2. 实例化策略
         # 提取策略参数：如果parameters中有parameters字段，则使用它；否则使用整个parameters对象
-        strategy_params = parameters.get('parameters', {}) if parameters else {}
+        # 修复参数传递问题：确保参数不会被错误地嵌套或丢失
+        if parameters:
+            # 检查是否有parameters字段，如果有且不为空，则使用它
+            if 'parameters' in parameters and parameters['parameters']:
+                strategy_params = parameters['parameters']
+            else:
+                # 否则，使用整个parameters对象，但排除非策略参数
+                strategy_params = {k: v for k, v in parameters.items() 
+                                 if k not in ['save_backtest', 'backtest_name', 'backtest_description']}
+        else:
+            strategy_params = {}
+            
         logger.info(f"提取到的策略参数: {strategy_params}")
+        logger.info(f"原始参数: {parameters}")
+        
+        # 确保参数被正确传递，避免使用默认值
+        if not strategy_params:
+            logger.warning("未提供策略参数或参数为空，将使用默认参数")
+            
         strategy = self._get_strategy_instance(strategy_id, stock_data, strategy_params)
         if strategy is None:
             error_msg = f"无法创建策略实例: {strategy_id}"
@@ -417,10 +434,11 @@ class BacktestService:
                     # 预览策略代码（用于调试）
                     logger.debug(f"策略代码预览: {strategy_code[:200]}...")
                     
-                    # 加载策略
-                    strategy_instance = load_strategy_from_code(strategy_code, parameters)
+                    # 加载策略，确保参数正确传递
+                    logger.info(f"传递给策略的参数: {parameters}")
+                    strategy_instance = load_strategy_from_code(strategy_code, parameters=parameters, data=data)
                     
-                    if strategy_instance and data is not None:
+                    if strategy_instance and data is not None and not hasattr(strategy_instance, 'data'):
                         strategy_instance.set_data(data)
                     
                     return strategy_instance

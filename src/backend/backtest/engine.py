@@ -342,16 +342,22 @@ class BacktestEngine:
         
         # 创建任务
         tasks = []
-        for params in parameter_sets:
+        for i, params in enumerate(parameter_sets):
+            # 确保每个参数集都有唯一的随机种子，避免结果完全相同
+            if 'random_seed' not in params:
+                params['random_seed'] = i + int(time.time())
+                
             task_params = {
                 "data": filtered_data,
                 "strategy_class": self.strategy.__class__,
                 "parameters": params,
                 "initial_capital": self.initial_capital,
                 "commission_rate": self.commission_rate,
-                "slippage_rate": self.slippage_rate
+                "slippage_rate": self.slippage_rate,
+                "task_id": i  # 添加任务ID以区分不同参数集
             }
             tasks.append(task_params)
+            logger.debug(f"创建参数优化任务 {i}: {params}")
         
         # 并行执行回测
         results = pool.map(self._run_single_backtest_wrapper, tasks)

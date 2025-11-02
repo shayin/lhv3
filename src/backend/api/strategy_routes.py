@@ -461,19 +461,24 @@ async def test_strategy(request: Request, db: Session = Depends(get_db)):
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"测试策略失败: {str(e)}")
 
-def load_strategy_from_code(code: str, data: pd.DataFrame = None, parameters: Dict[str, Any] = None, globals_dict: Dict[str, Any] = None):
+def load_strategy_from_code(code: str, parameters: Dict[str, Any] = None, data: pd.DataFrame = None, globals_dict: Dict[str, Any] = None):
     """
     从代码字符串加载策略类并实例化
     
     Args:
         code: 策略代码字符串
         parameters: 策略参数
+        data: 策略数据
         globals_dict: 用于执行代码的全局命名空间字典
         
     Returns:
         策略实例
     """
     temp_module_name = f"temp_strategy_module_{hash(code) % 10000}"
+    
+    # 记录参数信息，用于调试
+    if parameters:
+        logger.info(f"加载策略时传入的参数: {parameters}")
     
     try:
         # 预处理代码，修复可能存在的导入问题
