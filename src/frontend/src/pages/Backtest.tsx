@@ -51,6 +51,7 @@ interface TradeRecord {
   exitPrice?: number;
   shares: number;
   currentShares?: number;
+  currentAvgCost?: number; // 当前摊薄成本
   value: number;  // 交易金额
   profitLoss: number;
   returnPct: number;
@@ -178,16 +179,33 @@ const Backtest: React.FC = () => {
       allocated_capital: trade.allocated_capital,
       position_size: trade.position_size,
       cumulative_position_ratio: trade.cumulative_position_ratio,
-      currentShares: 0
+      currentShares: 0,
+      currentAvgCost: 0
     }));
 
-    // 正序按日期，计算当前持仓股数
+    // 正序按日期，计算当前持仓股数和摊薄成本
     const asc = base.slice().sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
-    let current = 0;
+    let currentShares = 0;
+    let totalCost = 0; // 总成本
+    
     asc.forEach((r) => {
-      if (r.direction === '买入') current += r.shares;
-      else if (r.direction === '卖出') current -= r.shares;
-      r.currentShares = current;
+      if (r.direction === '买入') {
+        // 买入：增加持仓和总成本
+        const buyPrice = r.entryPrice || 0;
+        totalCost += r.shares * buyPrice;
+        currentShares += r.shares;
+      } else if (r.direction === '卖出') {
+        // 卖出：减少持仓，按比例减少总成本
+        if (currentShares > 0) {
+          const sellRatio = r.shares / currentShares;
+          totalCost *= (1 - sellRatio);
+        }
+        currentShares -= r.shares;
+      }
+      
+      r.currentShares = currentShares;
+      // 计算摊薄成本：总成本 / 当前持仓股数
+      r.currentAvgCost = currentShares > 0 ? totalCost / currentShares : 0;
     });
 
     // 倒序展示（最新在前）
@@ -1551,6 +1569,16 @@ const Backtest: React.FC = () => {
       render: (text) => {
         const value = parseInt(text) || 0;
         return value.toLocaleString();
+      }
+    },
+    {
+      title: '当前摊薄成本(元)',
+      dataIndex: 'currentAvgCost',
+      key: 'currentAvgCost',
+      sorter: (a, b) => (a.currentAvgCost || 0) - (b.currentAvgCost || 0),
+      render: (text) => {
+        const value = parseFloat(text) || 0;
+        return value > 0 ? value.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '-';
       }
     },
     {
