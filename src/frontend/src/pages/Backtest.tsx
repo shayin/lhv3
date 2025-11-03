@@ -50,6 +50,7 @@ interface TradeRecord {
   entryPrice?: number;
   exitPrice?: number;
   shares: number;
+  currentShares?: number;
   value: number;  // 交易金额
   profitLoss: number;
   returnPct: number;
@@ -150,6 +151,49 @@ const Backtest: React.FC = () => {
     // 如果是其他格式，返回前10个字符
     return dateStr.substring(0, 10);
   };
+
+  // 构建带有“当前持仓股数”的交易记录（先按日期正序累计，再倒序展示）
+  const buildTradeRecords = useCallback((rawTrades: any[]): TradeRecord[] => {
+    if (!rawTrades || rawTrades.length === 0) return [];
+
+    // 基础映射
+    const base = rawTrades.map((trade: any, index: number) => ({
+      key: index.toString(),
+      date: normalizeDate(trade.date),
+      symbol: selectedStock?.symbol || '',
+      direction: trade.action === 'BUY' ? '买入' : '卖出',
+      entryPrice: trade.action === 'BUY' ? trade.price : undefined,
+      exitPrice: trade.action === 'SELL' ? trade.price : undefined,
+      shares: trade.shares,
+      value: trade.value,
+      profitLoss: trade.profit || 0,
+      returnPct: (trade.profit_percent || 0) * 100,
+      duration: trade.holding_days || 0,
+      beforeCash: trade.before_cash,
+      afterCash: trade.after_cash,
+      beforeEquity: trade.before_equity,
+      afterEquity: trade.after_equity,
+      trigger_reason: trade.trigger_reason,
+      available_capital: trade.available_capital,
+      allocated_capital: trade.allocated_capital,
+      position_size: trade.position_size,
+      cumulative_position_ratio: trade.cumulative_position_ratio,
+      currentShares: 0
+    }));
+
+    // 正序按日期，计算当前持仓股数
+    const asc = base.slice().sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+    let current = 0;
+    asc.forEach((r) => {
+      if (r.direction === '买入') current += r.shares;
+      else if (r.direction === '卖出') current -= r.shares;
+      r.currentShares = current;
+    });
+
+    // 倒序展示（最新在前）
+    const desc = asc.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+    return desc;
+  }, [selectedStock]);
 
   // 保存回测函数
   const handleSaveBacktest = async () => {
@@ -384,40 +428,9 @@ const Backtest: React.FC = () => {
     // 更新图表数据
     // 设置交易记录（即使为空也要处理）
     if (result.trades && result.trades.length > 0) {
-      const trades = result.trades.map((trade: any, index: number) => {
-        console.log('处理交易记录:', trade);
-        return {
-          key: index.toString(),
-          date: normalizeDate(trade.date),
-          symbol: selectedStock?.symbol || '',
-          direction: trade.action === 'BUY' ? '买入' : '卖出',
-          // 根据交易类型设置不同的价格字段
-          entryPrice: trade.action === 'BUY' ? trade.price : undefined,
-          exitPrice: trade.action === 'SELL' ? trade.price : undefined,
-          shares: trade.shares,
-          value: trade.value,
-          profitLoss: trade.profit || 0,
-          returnPct: (trade.profit_percent || 0) * 100,
-          duration: trade.holding_days || 0,
-          beforeCash: trade.before_cash,
-          afterCash: trade.after_cash,
-          beforeEquity: trade.before_equity,
-          afterEquity: trade.after_equity,
-          trigger_reason: trade.trigger_reason,
-          available_capital: trade.available_capital,
-          allocated_capital: trade.allocated_capital,
-          position_size: trade.position_size,
-          cumulative_position_ratio: trade.cumulative_position_ratio
-        };
-      });
-      
-      // 按交易时间倒序排序（最新的在前面）
-      const sortedTrades = trades.sort((a: any, b: any) => {
-        return new Date(b.date).getTime() - new Date(a.date).getTime();
-      });
-      
-      setTradeRecords(sortedTrades);
-      setTradesData(sortedTrades);
+      const built = buildTradeRecords(result.trades);
+      setTradeRecords(built);
+      setTradesData(built);
     } else {
       // 如果没有交易记录，设置为空数组
       setTradeRecords([]);
@@ -686,40 +699,9 @@ const Backtest: React.FC = () => {
       // 更新图表数据
       // 设置交易记录（即使为空也要处理）
       if (result.trades && result.trades.length > 0) {
-        const trades = result.trades.map((trade: any, index: number) => {
-          console.log('处理交易记录:', trade);
-          return {
-            key: index.toString(),
-            date: normalizeDate(trade.date),
-            symbol: selectedStock.symbol,
-            direction: trade.action === 'BUY' ? '买入' : '卖出',
-            // 根据交易类型设置不同的价格字段
-            entryPrice: trade.action === 'BUY' ? trade.price : undefined,
-            exitPrice: trade.action === 'SELL' ? trade.price : undefined,
-            shares: trade.shares,
-            value: trade.value,
-            profitLoss: trade.profit || 0,
-            returnPct: (trade.profit_percent || 0) * 100,
-            duration: trade.holding_days || 0,
-            beforeCash: trade.before_cash,
-            afterCash: trade.after_cash,
-            beforeEquity: trade.before_equity,
-            afterEquity: trade.after_equity,
-            trigger_reason: trade.trigger_reason,
-            available_capital: trade.available_capital,
-            allocated_capital: trade.allocated_capital,
-            position_size: trade.position_size,
-            cumulative_position_ratio: trade.cumulative_position_ratio
-          };
-        });
-        
-        // 按交易时间倒序排序（最新的在前面）
-        const sortedTrades = trades.sort((a: any, b: any) => {
-          return new Date(b.date).getTime() - new Date(a.date).getTime();
-        });
-        
-        setTradeRecords(sortedTrades);
-        setTradesData(sortedTrades);
+        const built = buildTradeRecords(result.trades);
+        setTradeRecords(built);
+        setTradesData(built);
       } else {
         // 如果没有交易记录，设置为空数组
         setTradeRecords([]);
@@ -1557,6 +1539,16 @@ const Backtest: React.FC = () => {
       sorter: (a, b) => a.shares - b.shares,
       render: (text) => {
         // 确保数量为整数
+        const value = parseInt(text) || 0;
+        return value.toLocaleString();
+      }
+    },
+    {
+      title: '当前持仓(股)',
+      dataIndex: 'currentShares',
+      key: 'currentShares',
+      sorter: (a, b) => (a.currentShares || 0) - (b.currentShares || 0),
+      render: (text) => {
         const value = parseInt(text) || 0;
         return value.toLocaleString();
       }
