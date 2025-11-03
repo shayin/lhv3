@@ -11,6 +11,11 @@ import type { Moment } from 'moment';
 import 'moment/locale/zh-cn'; // 添加中文支持
 import type { RangePickerProps } from 'antd/es/date-picker';
 import dayjs from 'dayjs';
+import utc from 'dayjs/plugin/utc';
+import timezone from 'dayjs/plugin/timezone';
+dayjs.extend(utc);
+dayjs.extend(timezone);
+dayjs.tz.setDefault('Asia/Shanghai');
 import type { Dayjs } from 'dayjs';
 import * as echarts from 'echarts/core';
 import { CandlestickChart, LineChart, BarChart } from 'echarts/charts';
@@ -3080,7 +3085,7 @@ const Backtest: React.FC = () => {
                     <strong>{result.job_name}</strong>
                     <div style={{ fontSize: '12px', color: '#666', marginTop: 4 }}>
                       {result.description && `${result.description} • `}
-                      完成时间: {result.completed_at ? new Date(result.completed_at).toLocaleString() : '未知'}
+                      完成时间: {result.completed_at ? dayjs.utc(result.completed_at).tz('Asia/Shanghai').format('YYYY/MM/DD HH:mm:ss') : '未知'}
                     </div>
                   </div>
                 </Col>
